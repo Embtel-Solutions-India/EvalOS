@@ -57,11 +57,15 @@ class GmOverviewServiceTest {
 	private static final java.util.Map<UUID, List<String>> HELD = new java.util.concurrent.ConcurrentHashMap<>();
 
 	private GmOverviewService service(String goal) {
+		return service(goal, mock(JdbcTemplate.class));
+	}
+
+	private GmOverviewService service(String goal, JdbcTemplate jdbc) {
 		org.mockito.Mockito.doAnswer((call) -> HELD.getOrDefault(call.<UUID>getArgument(0), List.of()))
 				.when(assignments).ghlIdsFor(any());
 		// A mocked JdbcTemplate answers every query with an empty list: no goal set on the
 		// dashboard, so SALES_MONTHLY_GOAL (`goal`) is the fallback these tests exercise.
-		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), mock(JdbcTemplate.class),
+		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), jdbc,
 				assignments, mirror, new BigDecimal(goal), 180);
 	}
 
@@ -180,6 +184,32 @@ class GmOverviewServiceTest {
 		return new GhlPipelineClient.Opportunity(UUID.randomUUID().toString(), "A deal", "contact-1",
 				PIPELINE, "stage", "won", new BigDecimal(amount), source, null, createdAt, wonAt,
 				wonAt, wonAt);
+	}
+
+	/**
+	 * GHL's API cannot set an opportunity's native Source, so the back-fill writes the Lead Source
+	 * custom field. A deal with a blank Source is attributed by it, and one with neither is still
+	 * "Unattributed" — the fallback must not turn blanks into a guess.
+	 */
+	@Test
+	void attributesABlankSourceToTheLeadSourceCustomField() {
+		givenOneSalesDesk();
+		JdbcTemplate jdbc = mock(JdbcTemplate.class);
+		given(jdbc.query(org.mockito.ArgumentMatchers.contains("ghl_custom_field"),
+				org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<String>>any(), eq(BRAND)))
+				.willReturn(List.of("field-lead-source"));
+		var withField = new GhlPipelineClient.Opportunity("o1", "A deal", "c1", PIPELINE, "stage", "won",
+				new BigDecimal("5000"), null, null, at("2026-09-01"), at("2026-09-04"), at("2026-09-04"),
+				at("2026-09-04"), List.of(new GhlPipelineClient.CustomFieldValue("field-lead-source", "Google Ads")),
+				null, null, null);
+		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any())).willReturn(List.of());
+		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won"))).willReturn(List.of(withField,
+				won("1000", at("2026-09-05"), at("2026-09-01"), null)));
+
+		var overview = service("0", jdbc).forCaller(window("month"), BRAND);
+
+		assertThat(overview.bySource()).extracting((row) -> row.source())
+				.containsExactlyInAnyOrder("Google Ads", "Unattributed");
 	}
 
 	private static Instant at(String date) {

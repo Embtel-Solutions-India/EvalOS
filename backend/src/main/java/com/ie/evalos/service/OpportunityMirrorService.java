@@ -12,7 +12,9 @@ import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.GhlNote;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
+import com.ie.evalos.integration.GhlContactClient;
 import com.ie.evalos.integration.GhlPipelineClient;
+import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.repository.OpportunityRepository;
 import com.ie.evalos.repository.PipelineRepository;
 
@@ -57,14 +59,28 @@ public class OpportunityMirrorService {
 	private final com.ie.evalos.repository.MeetingRepository meetings;
 	private final UUID sellingBrandId;
 	private final com.ie.evalos.notification.HiringPipelineNotifier hiring;
+	private final GhlContactClient contacts;
 
-	OpportunityMirrorService(GhlPipelineClient ghl, OpportunityRepository opportunities,
+	/**
+	 * A contact's source, remembered (blank included) so a contact with none is not asked about on
+	 * every sync. In memory and per process: a restart asks again, which costs the capped lookups below.
+	 */
+	private final java.util.Map<String, SeenSource> contactSources = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final Duration CONTACT_SOURCE_TTL = Duration.ofHours(6);
+	/** Contact reads per absorb. The refresh runs on a desk's request, so it cannot owe hundreds of GETs. */
+	private static final int CONTACT_LOOKUPS_PER_ABSORB = 25;
+
+	private record SeenSource(String source, Instant at) {
+	}
+
+	OpportunityMirrorService(GhlPipelineClient ghl, GhlContactClient contacts, OpportunityRepository opportunities,
 			PipelineRepository pipelines, com.ie.evalos.repository.GhlNoteRepository notes,
 			com.ie.evalos.repository.FollowUpRepository followUps,
 			com.ie.evalos.repository.MeetingRepository meetings,
 			SellingBrand sellingBrand, com.ie.evalos.notification.HiringPipelineNotifier hiring) {
 		this.hiring = hiring;
 		this.ghl = ghl;
+		this.contacts = contacts;
 		this.opportunities = opportunities;
 		this.pipelines = pipelines;
 		this.notes = notes;
@@ -123,6 +139,7 @@ public class OpportunityMirrorService {
 	public void absorb(Pipeline pipeline, List<GhlPipelineClient.Opportunity> fromGhl) {
 		Instant now = Instant.now();
 		Set<String> seen = new HashSet<>();
+		java.util.concurrent.atomic.AtomicInteger lookups = new java.util.concurrent.atomic.AtomicInteger();
 
 		for (GhlPipelineClient.Opportunity row : fromGhl) {
 			if (row.id() == null || row.id().isBlank()) {
@@ -135,7 +152,7 @@ public class OpportunityMirrorService {
 					.orElseGet(() -> new Opportunity(pipeline.getBrandId(), row.id(), pipeline.getId()));
 			String stageBefore = held.getGhlStageId();
 			held.syncFromGhl(row.contactId(), pipeline.getId(), row.pipelineStageId(), row.name(),
-					row.monetaryValue(), row.status(), row.source(), row.assignedTo(), row.createdAt(),
+					row.monetaryValue(), row.status(), sourceFor(held, row, lookups), row.assignedTo(), row.createdAt(),
 					row.updatedAt(), row.lastStatusChangeAt(), row.lastStageChangeAt());
 			absorbTier23(held, row);
 			opportunities.save(held);
@@ -168,6 +185,46 @@ public class OpportunityMirrorService {
 	}
 
 	/**
+	 * The source to hold for this opportunity: GHL's own, else the one already held, else its contact's.
+	 *
+	 * <p>GHL's API cannot set an opportunity's native Source and imports and forms often leave it
+	 * blank, while the contact usually carries one. Taking the contact's here means every
+	 * opportunity that arrives is attributed once, with no write to GHL. <strong>GHL still wins:</strong>
+	 * the moment it sends a source, that replaces whatever was derived. A held value is kept when
+	 * GHL's is blank, which is the stale-on-clear edge: a source someone clears in GHL stays here
+	 * until GHL sets another.
+	 */
+	private String sourceFor(Opportunity held, GhlPipelineClient.Opportunity row,
+			java.util.concurrent.atomic.AtomicInteger lookups) {
+		if (row.source() != null && !row.source().isBlank()) {
+			return row.source();
+		}
+		if (held.getSource() != null && !held.getSource().isBlank()) {
+			return held.getSource();
+		}
+		String contactId = row.contactId();
+		if (contactId == null || contactId.isBlank()) {
+			return null;
+		}
+		SeenSource seen = contactSources.get(contactId);
+		if (seen != null && Duration.between(seen.at(), Instant.now()).compareTo(CONTACT_SOURCE_TTL) < 0) {
+			return seen.source();
+		}
+		if (lookups.getAndIncrement() >= CONTACT_LOOKUPS_PER_ABSORB) {
+			return null; // the next sync carries on; a mirror pass is not the place to read 800 contacts
+		}
+		try {
+			String source = contacts.sourceOf(contactId);
+			contactSources.put(contactId, new SeenSource(source, Instant.now()));
+			return source;
+		}
+		catch (GhlUnavailableException unavailable) {
+			log.debug("No contact source for {}: {}", contactId, unavailable.getMessage());
+			return null;
+		}
+	}
+
+	/**
 	 * One contact's deals, upserted from GHL's own answer — <strong>the webhook's write</strong>
 	 * (Unit 45d).
 	 *
@@ -195,6 +252,7 @@ public class OpportunityMirrorService {
 	@Transactional
 	public int absorbForContact(List<GhlPipelineClient.Opportunity> fromGhl) {
 		int written = 0;
+		java.util.concurrent.atomic.AtomicInteger lookups = new java.util.concurrent.atomic.AtomicInteger();
 		for (GhlPipelineClient.Opportunity row : fromGhl) {
 			if (row.id() == null || row.id().isBlank()) {
 				continue;
@@ -210,7 +268,7 @@ public class OpportunityMirrorService {
 			Opportunity held = found.orElseGet(() -> new Opportunity(brandId, row.id(), pipeline.get().getId()));
 			String stageBefore = held.getGhlStageId();
 			held.syncFromGhl(row.contactId(), pipeline.get().getId(), row.pipelineStageId(), row.name(),
-					row.monetaryValue(), row.status(), row.source(), row.assignedTo(), row.createdAt(),
+					row.monetaryValue(), row.status(), sourceFor(held, row, lookups), row.assignedTo(), row.createdAt(),
 					row.updatedAt(), row.lastStatusChangeAt(), row.lastStageChangeAt());
 			absorbTier23(held, row);
 			opportunities.save(held);
