@@ -157,6 +157,7 @@
 
 /* --- notifications banner and toast ----------------------------------------------------------- */
 .ec-push { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--chat-accent) 25%, var(--chat-border)); border-radius: calc(var(--chat-radius) + 4px); background: color-mix(in srgb, var(--chat-accent) 7%, var(--chat-bg)); color: var(--chat-text); font-size: 13px; max-width: 100%; }
+.ec-push .ec-send { background: var(--chat-push, var(--chat-accent)); }
 .ec-push p { margin: 0; }
 .ec-push__icon { display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; background: color-mix(in srgb, var(--chat-accent) 14%, var(--chat-bg)); color: var(--chat-accent); }
 .ec-push__text { flex: 1 1 14rem; min-width: 0; }

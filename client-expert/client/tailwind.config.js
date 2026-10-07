@@ -75,8 +75,8 @@ export default {
         xl: 'calc(var(--radius) + 4px)',
       },
       fontFamily: {
-        sans: ['Inter', 'Arial', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        serif: ['ui-serif', 'Georgia', 'serif'],
+        sans: ['DM Sans', 'Inter', 'Arial', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        serif: ['DM Serif Display', 'ui-serif', 'Georgia', 'serif'],
       },
       keyframes: {
         'accordion-down': {

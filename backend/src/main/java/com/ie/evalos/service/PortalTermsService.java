@@ -75,6 +75,17 @@ public class PortalTermsService {
 		return new TermsStatus(false, VERSION);
 	}
 
+	/** Who is signed in, for the client portal's greeting. The first name only; null when the account has none. */
+	public record ClientMe(String firstName) {
+	}
+
+	/** Shares {@link #client}'s lookup, so the name comes from the token's own account in the token's brand. */
+	@Transactional(readOnly = true)
+	public ClientMe clientMe(PortalPrincipal principal) {
+		String first = client(principal).map(ClientAccount::getFirstName).map(String::trim).orElse(null);
+		return new ClientMe(first == null || first.isEmpty() ? null : first);
+	}
+
 	private void record(PortalPrincipal principal, String objectType, java.util.UUID accountId) {
 		audit.recordPortalEvent(principal.brandId(), principal.audience(), objectType, accountId,
 				AuditAction.TERMS_ACCEPTED, null, Map.of("version", VERSION));

@@ -1,13 +1,11 @@
 import { TermsGate } from '@shared/legal/TermsGate'
 import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
-import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
 import { ChatProvider, ChatToast, PushRefresh, UnreadBadge, useChat } from '@evalos/chat'
 import '@evalos/chat/chat.css'
-import { Bell, BriefcaseBusiness, ChevronDown, Inbox, LayoutDashboard, LifeBuoy, LogOut, Menu, MessagesSquare, Wallet, X } from 'lucide-react'
+import { Bell, BriefcaseBusiness, ChevronDown, Inbox, LayoutDashboard, LifeBuoy, LogOut, MessagesSquare, Wallet } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Button } from '@shared/components/ui/button'
 import { Logo } from '@shared/components/common/Logo'
 import { hasPortalToken, signOut } from '@shared/services/apiClient'
 import { createPortalChat } from '@shared/services/portalChat'
@@ -26,7 +24,6 @@ import { getMe, listCases, listPayouts } from '@/services/expertPortalService'
  * behind it.
  */
 export function ExpertLayout() {
-  const [menuOpen, setMenuOpen] = useState(false)
   const [chat] = useState(() => createPortalChat('expert'))
   const navigate = useNavigate()
   const { pathname } = useLocation()
@@ -49,39 +46,20 @@ export function ExpertLayout() {
           </div>
         </aside>
 
-        <DialogPrimitive.Root open={menuOpen} onOpenChange={setMenuOpen}>
-          <DialogPrimitive.Portal>
-            <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/50 data-[state=open]:animate-fade-in lg:hidden" />
-            <DialogPrimitive.Content
-              className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] data-[state=open]:animate-slide-in-left lg:hidden"
-              aria-describedby={undefined}
-            >
-              <DialogPrimitive.Title className="sr-only">Navigation menu</DialogPrimitive.Title>
-              <DialogPrimitive.Close className="absolute right-3 top-3 z-10 rounded-md p-1.5 text-sidebar-foreground hover:bg-sidebar-accent">
-                <X className="h-5 w-5" />
-                <span className="sr-only">Close menu</span>
-              </DialogPrimitive.Close>
-              <Sidebar onNavigate={() => setMenuOpen(false)} />
-            </DialogPrimitive.Content>
-          </DialogPrimitive.Portal>
-        </DialogPrimitive.Root>
-
         <div className="flex min-h-dvh min-w-0 flex-col">
           <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur sm:px-6 lg:hidden">
-            <Button variant="ghost" size="icon" onClick={() => setMenuOpen(true)} aria-label="Open menu">
-              <Menu className="h-5 w-5" />
-            </Button>
             <span className="flex-1 text-base font-semibold text-foreground">{title}</span>
             <TopBarActions />
           </header>
           <header className="sticky top-0 z-30 hidden h-16 items-center justify-end gap-4 border-b bg-background/95 px-8 backdrop-blur lg:flex">
             <TopBarActions />
           </header>
-          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <main className="flex-1 px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:py-8">
             <Outlet />
           </main>
         </div>
       </div>
+      <MobileTabBar />
       <ChatToast
         onOpen={(id) => {
           const caseId = chat.getState().conversations[id]?.caseId
@@ -93,14 +71,58 @@ export function ExpertLayout() {
   )
 }
 
-function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+/** The nav badges, shared by the sidebar and the phone tab bar. */
+function useNavCounts() {
   // Same key as the cases page, so the count and the list are one fetch.
   const { data } = useQuery({ queryKey: ['expert-portal', 'cases'], queryFn: listCases, retry: false })
-  const needsYou = data?.filter((item) => item.actionRequired).length ?? 0
-  const offered = data?.filter((item) => item.offered).length ?? 0
   // Unit 63: transfers the ENM recorded that this expert has not confirmed yet.
   const { data: payouts } = useQuery({ queryKey: ['expert-portal', 'payouts'], queryFn: listPayouts, retry: false })
-  const toConfirm = transfersToConfirm(payouts ?? [])
+  return {
+    needsYou: data?.filter((item) => item.actionRequired).length ?? 0,
+    offered: data?.filter((item) => item.offered).length ?? 0,
+    toConfirm: transfersToConfirm(payouts ?? []),
+  }
+}
+
+/** Phones: the nav as an app-style bar fixed to the bottom, icon over label. Sign out is in the top-bar name menu. */
+function MobileTabBar() {
+  const { needsYou, offered, toConfirm } = useNavCounts()
+  const unread = useChat((s) => s.order.reduce((sum, id) => sum + (s.conversations[id]?.unread ?? 0), 0))
+  const onCase = useLocation().pathname === '/case'
+  const tabs = [
+    { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, count: 0 },
+    { to: '/new', label: 'New', icon: Inbox, count: offered },
+    { to: '/cases', label: 'Cases', icon: BriefcaseBusiness, count: needsYou },
+    { to: '/messages', label: 'Messages', icon: MessagesSquare, count: unread },
+    { to: '/payouts', label: 'Payouts', icon: Wallet, count: toConfirm },
+  ]
+  return (
+    <nav aria-label="Main" className="fixed inset-x-0 bottom-0 z-40 flex border-t border-sidebar-border bg-sidebar pb-[env(safe-area-inset-bottom)] text-sidebar-foreground lg:hidden">
+      {tabs.map(({ to, label, icon: Icon, count }) => (
+        <NavLink
+          key={to}
+          to={to}
+          className={({ isActive }) =>
+            cn('flex flex-1 flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-medium transition-colors', isActive || (to === '/cases' && onCase) ? 'text-white' : 'hover:text-white')
+          }
+        >
+          <span className="relative">
+            <Icon className="h-5 w-5" />
+            {count > 0 && (
+              <span className="absolute -right-3 -top-2 min-w-4 rounded-full bg-destructive px-1 text-center text-[10px] font-semibold leading-4 text-white" aria-label={`${count} waiting`}>
+                {count}
+              </span>
+            )}
+          </span>
+          <span className="max-w-full truncate">{label}</span>
+        </NavLink>
+      ))}
+    </nav>
+  )
+}
+
+function Sidebar() {
+  const { needsYou, offered, toConfirm } = useNavCounts()
   const onCase = useLocation().pathname === '/case'
 
   const item = (active: boolean) =>
@@ -117,11 +139,11 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-5" aria-label="Main">
-        <NavLink to="/dashboard" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+        <NavLink to="/dashboard" className={({ isActive }) => item(isActive)}>
           <LayoutDashboard className="h-4 w-4 shrink-0" />
           <span className="flex-1">Dashboard</span>
         </NavLink>
-        <NavLink to="/new" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+        <NavLink to="/new" className={({ isActive }) => item(isActive)}>
           <Inbox className="h-4 w-4 shrink-0" />
           <span className="flex-1">New cases</span>
           {offered > 0 && (
@@ -132,7 +154,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </NavLink>
         <NavLink
           to="/cases"
-          onClick={onNavigate}
+         
           className={({ isActive }) => item(isActive || onCase)}
         >
           <BriefcaseBusiness className="h-4 w-4 shrink-0" />
@@ -143,12 +165,12 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </span>
           )}
         </NavLink>
-        <NavLink to="/messages" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+        <NavLink to="/messages" className={({ isActive }) => item(isActive)}>
           <MessagesSquare className="h-4 w-4 shrink-0" />
           <span className="flex-1">Messages</span>
           <UnreadBadge />
         </NavLink>
-        <NavLink to="/payouts" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+        <NavLink to="/payouts" className={({ isActive }) => item(isActive)}>
           <Wallet className="h-4 w-4 shrink-0" />
           <span className="flex-1">Payouts</span>
           {toConfirm > 0 && (

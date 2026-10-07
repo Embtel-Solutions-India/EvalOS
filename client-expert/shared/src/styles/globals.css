@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -30,8 +30,8 @@
     --accent: 216 40% 94%;
     --accent-foreground: 217 64% 18%;
 
-    /* Brand red — #E31B23 */
-    --destructive: 358 79% 50%;
+    /* Brand red — #C8102E, the red on the brand website */
+    --destructive: 350 85% 42%;
     --destructive-foreground: 0 0% 100%;
 
     --success: 142 72% 29%;
@@ -48,7 +48,7 @@
     --ring: 217 64% 30%;
 
     --brand-navy: #10264a;
-    --brand-crimson: #e31b23;
+    --brand-crimson: #c8102e;
 
     --sidebar: 217 64% 12%;
     --sidebar-foreground: 216 30% 90%;
@@ -114,6 +114,15 @@
 
   html {
     -webkit-text-size-adjust: 100%;
+  }
+
+  /* Page and section headings follow the brand website: DM Serif Display, one weight. !important
+     because component classes (font-semibold …) were each setting their own and no two matched. */
+  h1,
+  h2 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-weight: 400 !important;
+    letter-spacing: -0.01em;
   }
 
   body {
@@ -196,6 +205,8 @@ body {
   --chat-muted: hsl(var(--muted-foreground));
   --chat-accent: hsl(var(--primary));
   --chat-accent-text: hsl(var(--primary-foreground));
+  /* The Enable-notifications button: the logo's red, so the one call to action stands out. */
+  --chat-push: hsl(var(--destructive));
   --chat-mine-bg: hsl(var(--accent));
   --chat-danger: hsl(var(--destructive));
   --chat-radius: var(--radius);

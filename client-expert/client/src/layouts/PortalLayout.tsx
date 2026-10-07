@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react'
 import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
 import { ChatProvider, ChatToast, PushRefresh } from '@evalos/chat'
 import '@evalos/chat/chat.css'
-import { Menu } from 'lucide-react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Button } from '@shared/components/ui/button'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
 import { LiquidBackground } from '@shared/components/common/LiquidBackground'
 import { PageTransition } from '@shared/components/common/PageTransition'
-import { MobileNavDrawer } from '@/components/layout/MobileNavDrawer'
+import { MobileTabBar } from '@/components/layout/MobileTabBar'
 import { PortalSidebar } from '@/components/layout/PortalSidebar'
 import { TermsGate } from '@shared/legal/TermsGate'
 import { createPortalChat } from '@shared/services/portalChat'
@@ -27,7 +25,6 @@ import { signOut } from '@shared/services/apiClient'
  * it through the router.
  */
 export function PortalLayout() {
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const location = useLocation()
   const tokenPresent = usePortalToken()
   // One chat client for the signed-in shell: the nav badge and the inbox share it.
@@ -63,20 +60,16 @@ export function PortalLayout() {
             </div>
           </aside>
 
-          <MobileNavDrawer open={mobileNavOpen} onOpenChange={setMobileNavOpen} />
-
           <div className="relative flex h-full flex-col overflow-hidden">
             <LiquidBackground className="opacity-30" />
-            <main className="relative flex-1 px-4 py-6 sm:px-6 lg:px-8">
-              {/* No top bar; on phones the sidebar is the drawer, so its button stays. */}
-              <Button variant="ghost" size="icon" className="-ml-2 mb-2 lg:hidden" onClick={() => setMobileNavOpen(true)} aria-label="Open menu">
-                <Menu className="h-5 w-5" />
-              </Button>
+            {/* No top bar; on phones the nav is the bottom tab bar, so leave room for it. */}
+            <main className="relative flex-1 px-4 pb-24 pt-6 sm:px-6 lg:px-8 lg:pb-6">
               <PageTransition />
             </main>
           </div>
         </div>
       </div>
+      <MobileTabBar />
       {/* A message while the client is elsewhere in the portal: open that conversation. */}
       <ChatToast onOpen={(id) => navigate(`/conversations?c=${id}`)} />
     </ChatProvider>
