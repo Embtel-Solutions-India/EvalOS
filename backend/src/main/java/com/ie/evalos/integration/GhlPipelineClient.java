@@ -452,7 +452,7 @@ public class GhlPipelineClient {
 			SearchResponse response = http.get(SearchResponse.class, (uri) -> {
 				uri.path("/opportunities/search")
 						.queryParam("location_id", http.locationId())
-						.queryParam("contactId", contactId)
+						.queryParam("contact_id", contactId)
 						.queryParam("limit", PAGE_SIZE)
 						.queryParam("getNotes", true)
 						.queryParam("getTasks", true)

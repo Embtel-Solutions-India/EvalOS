@@ -363,6 +363,18 @@ class GhlPipelineClientHttpTest {
 	}
 
 	/**
+	 * The contact filter is {@code contact_id}, snake_case like {@code location_id}. {@code contactId}
+	 * is a 422 ("property contactId should not exist") — which, behind the won-webhook's GHL check,
+	 * answered every paid delivery with a 502 in production.
+	 */
+	@Test
+	void filtersByContactWithTheSnakeCaseName() {
+		responses.add(searchPage(opportunity("s-won", "1200", "Referral"), LAST_PAGE_META));
+		client().forContact("contact_1");
+		assertThat(requestLines.getFirst()).contains("contact_id=contact_1").doesNotContain("contactId");
+	}
+
+	/**
 	 * A full page means "ask again"; a short page means stop.
 	 *
 	 * <p>The cursor comes off {@code meta}, and the assertion is that the <em>second</em> request
