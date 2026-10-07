@@ -2,6 +2,7 @@ package com.ie.evalos.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -60,6 +61,27 @@ public class MemberTargetService {
 		jdbc.update("INSERT INTO member_monthly_target (brand_id, team_member_id, month, kind, amount, set_by) "
 				+ "VALUES (?, ?, ?, ?, ?, ?)", member.getBrandId(), teamMemberId, month.withDayOfMonth(1),
 				kind.name(), amount, setBy);
+	}
+
+	/**
+	 * One member's target against what their desk did.
+	 *
+	 * @param target   null when nobody set one — "not set", never 0
+	 * @param progress won value for a Sales member, new leads for a Marketing member: the same
+	 *                 per-desk figures the GM overview shows, so the two cannot disagree
+	 */
+	public record TargetRow(UUID memberId, String name, Role role, TargetKind kind, BigDecimal target,
+			BigDecimal progress) {
+	}
+
+	/** A row per desk whose role has a target, in the order the overview lists them. */
+	public List<TargetRow> overview(UUID brandId, LocalDate month, List<GmOverviewService.DeskRow> desks) {
+		return desks.stream()
+				.flatMap((desk) -> kindOf(desk.role()).stream().map((kind) -> new TargetRow(desk.memberId(),
+						desk.name(), desk.role(), kind,
+						current(brandId, desk.memberId(), month).orElse(null),
+						kind == TargetKind.WON_VALUE ? desk.wonValue() : BigDecimal.valueOf(desk.newLeads()))))
+				.toList();
 	}
 
 	/** The newest target for this member and month in this brand; empty means "not set", which is not 0. */

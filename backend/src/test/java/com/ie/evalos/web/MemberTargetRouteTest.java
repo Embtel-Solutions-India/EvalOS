@@ -1,0 +1,165 @@
+package com.ie.evalos.web;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.UUID;
+
+import com.ie.evalos.common.ApiErrors;
+import com.ie.evalos.common.DateWindow;
+import com.ie.evalos.config.SellingBrand;
+import com.ie.evalos.domain.Role;
+import com.ie.evalos.security.EvalOsUserDetailsService;
+import com.ie.evalos.security.JwtService;
+import com.ie.evalos.security.SecurityConfig;
+import com.ie.evalos.security.StaffPrincipal;
+import com.ie.evalos.service.GmOverviewService;
+import com.ie.evalos.service.MemberTargetService;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** Who may set and read a member's monthly target (D75). */
+@WebMvcTest(controllers = MemberTargetController.class)
+@Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
+@TestPropertySource(properties = "evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256")
+class MemberTargetRouteTest {
+
+	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
+	private static final LocalDate OCT = LocalDate.of(2026, 10, 1);
+
+	private final UUID salesId = UUID.randomUUID();
+	private final UUID otherSalesId = UUID.randomUUID();
+
+	@Autowired
+	MockMvc mockMvc;
+	@Autowired
+	JwtService jwtService;
+
+	@MockitoBean
+	MemberTargetService targets;
+	@MockitoBean
+	GmOverviewService overview;
+	@MockitoBean
+	SellingBrand sellingBrand;
+	@MockitoBean
+	EvalOsUserDetailsService userDetailsService;
+
+	@BeforeEach
+	void anOverviewWithTwoSalesDesks() {
+		given(sellingBrand.id()).willReturn(BRAND_IE);
+		given(overview.forCaller(any(), any())).willReturn(new GmOverviewService.GmOverview(null, List.of(),
+				List.of(), null, List.of(), null, null, Instant.parse("2026-10-08T00:00:00Z"), null));
+		given(targets.overview(eq(BRAND_IE), eq(OCT), any())).willReturn(List.of(
+				row(salesId, "Sam", "1000", "900"), row(otherSalesId, "Oz", "500", "10")));
+	}
+
+	private static MemberTargetService.TargetRow row(UUID id, String name, String target, String progress) {
+		return new MemberTargetService.TargetRow(id, name, Role.SALES, MemberTargetService.TargetKind.WON_VALUE,
+				new BigDecimal(target), new BigDecimal(progress));
+	}
+
+	private String bearer(Role role, UUID memberId) {
+		StaffPrincipal principal = new StaffPrincipal(memberId, role + "@evalos.local", "Staff", role,
+				role == Role.GM ? null : BRAND_IE, null, null, true);
+		return "Bearer " + jwtService.issue(principal);
+	}
+
+	@Test
+	void theGmListsEveryMembersTargetForTheMonthAskedFor() throws Exception {
+		mockMvc.perform(get("/api/gm/targets").param("month", "2026-10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID())))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.length()").value(2))
+				.andExpect(jsonPath("$.data[0].target").value(1000))
+				.andExpect(jsonPath("$.data[0].progress").value(900));
+
+		ArgumentCaptor<DateWindow> window = ArgumentCaptor.forClass(DateWindow.class);
+		then(overview).should().forCaller(window.capture(), any());
+		assertThat(window.getValue().from()).isEqualTo(OCT);
+		assertThat(window.getValue().to()).isEqualTo(LocalDate.of(2026, 10, 31));
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
+	void nobodyButTheGmListsTargets(Role role) throws Exception {
+		mockMvc.perform(get("/api/gm/targets").param("month", "2026-10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(role, UUID.randomUUID())))
+				.andExpect(status().isForbidden());
+
+		then(targets).should(never()).overview(any(), any(), any());
+	}
+
+	@ParameterizedTest
+	@EnumSource(Role.class)
+	void onlyTheGmSetsATarget(Role role) throws Exception {
+		mockMvc.perform(put("/api/gm/targets/" + salesId)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role, UUID.randomUUID()))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"month\":\"2026-10-15\",\"amount\":1500}"))
+				.andExpect(role == Role.GM ? status().isOk() : status().isForbidden());
+
+		then(targets).should(role == Role.GM ? times(1) : never()).set(any(), any(), any(), any());
+	}
+
+	@Test
+	void aMonthThatIsNotAMonthIsABadRequestNotAServerError() throws Exception {
+		mockMvc.perform(get("/api/gm/targets").param("month", "2026-13")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM, UUID.randomUUID())))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void aSalesMemberReadsOnlyTheirOwnRowWhateverIdTheyPass() throws Exception {
+		mockMvc.perform(get("/api/me/target").param("month", "2026-10").param("memberId", otherSalesId.toString())
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES, salesId)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.name").value("Sam"))
+				.andExpect(jsonPath("$.data.target").value(1000));
+	}
+
+	@Test
+	void aSalesMemberOnNoDeskGetsNotFound() throws Exception {
+		mockMvc.perform(get("/api/me/target").param("month", "2026-10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES, UUID.randomUUID())))
+				.andExpect(status().isNotFound());
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "SALES", "MARKETING" })
+	void everyOtherRoleIsRefusedTheMemberView(Role role) throws Exception {
+		mockMvc.perform(get("/api/me/target").param("month", "2026-10")
+				.header(HttpHeaders.AUTHORIZATION, bearer(role, salesId)))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void anonymousIsRefused() throws Exception {
+		mockMvc.perform(get("/api/gm/targets").param("month", "2026-10")).andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/me/target").param("month", "2026-10")).andExpect(status().isUnauthorized());
+	}
+}

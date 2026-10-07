@@ -2,6 +2,7 @@ package com.ie.evalos.service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -105,5 +106,36 @@ class MemberTargetServiceTest {
 
 		assertThatThrownBy(() -> service.set(UUID.randomUUID(), OCT, BigDecimal.TEN, setBy))
 				.isInstanceOf(InvalidRequestException.class);
+	}
+
+	private static GmOverviewService.DeskRow desk(UUID id, String name, Role role, int newLeads, String wonValue) {
+		return new GmOverviewService.DeskRow(id, name, role, newLeads, 3, new BigDecimal(wonValue), 2, BigDecimal.TEN);
+	}
+
+	@Test
+	void aSalesRowShowsWonValueAgainstItsTargetAndAMarketingRowShowsLeads() {
+		UUID salesId = UUID.randomUUID();
+		UUID marketingId = UUID.randomUUID();
+		given(jdbc.query(contains("member_monthly_target"), org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<BigDecimal>>any(),
+				eq(BRAND), eq(salesId), eq(OCT))).willReturn(List.of(new BigDecimal("1000.00")));
+
+		List<MemberTargetService.TargetRow> rows = service.overview(BRAND, OCT, List.of(
+				desk(salesId, "Sam", Role.SALES, 9, "900"), desk(marketingId, "Mia", Role.MARKETING, 7, "0")));
+
+		assertThat(rows).hasSize(2);
+		assertThat(rows.get(0).kind()).isEqualTo(MemberTargetService.TargetKind.WON_VALUE);
+		assertThat(rows.get(0).target()).isEqualByComparingTo("1000");
+		assertThat(rows.get(0).progress()).isEqualByComparingTo("900");
+		assertThat(rows.get(1).kind()).isEqualTo(MemberTargetService.TargetKind.LEADS);
+		assertThat(rows.get(1).target()).as("a member with no row is not set, never 0").isNull();
+		assertThat(rows.get(1).progress()).isEqualByComparingTo("7");
+	}
+
+	@Test
+	void aDeskWhoseRoleHasNoTargetKindIsLeftOut() {
+		List<MemberTargetService.TargetRow> rows = service.overview(BRAND, OCT,
+				List.of(desk(UUID.randomUUID(), "Pat", Role.PROJECT_MANAGER, 0, "0")));
+
+		assertThat(rows).isEmpty();
 	}
 }
