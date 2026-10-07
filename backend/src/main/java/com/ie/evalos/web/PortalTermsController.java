@@ -27,6 +27,12 @@ public class PortalTermsController {
 		return ApiResponse.ok(terms.status(PortalPrincipal.current(PortalAudience.CLIENT)));
 	}
 
+	/** The client's first name for the dashboard greeting. Lives here because this controller already resolves the account from the token. */
+	@GetMapping("/api/portal/client/me")
+	public ApiResponse<PortalTermsService.ClientMe> clientMe() {
+		return ApiResponse.ok(terms.clientMe(PortalPrincipal.current(PortalAudience.CLIENT)));
+	}
+
 	@PostMapping("/api/portal/client/terms")
 	public ApiResponse<PortalTermsService.TermsStatus> clientAccept() {
 		return ApiResponse.ok(terms.accept(PortalPrincipal.current(PortalAudience.CLIENT)));

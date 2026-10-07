@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { ChatScreen } from '@evalos/chat'
 
 /**
@@ -11,17 +11,10 @@ export default function Messages() {
   const navigate = useNavigate()
 
   return (
-    <div className="mx-auto h-[calc(100dvh-6.5rem)] max-w-7xl lg:h-[calc(100dvh-4rem)]">
+    <div className="mx-auto h-[calc(100dvh-11rem)] max-w-7xl lg:h-[calc(100dvh-4rem)]">
       <ChatScreen
         title="Messages"
         description="Coordinate with your team on every case."
-        breadcrumb={
-          <>
-            <Link to="/cases">Cases</Link>
-            <span aria-hidden="true">/</span>
-            <strong>Messages</strong>
-          </>
-        }
         selectedId={open ?? undefined}
         onOpen={setOpen}
         onBack={() => setOpen(null)}

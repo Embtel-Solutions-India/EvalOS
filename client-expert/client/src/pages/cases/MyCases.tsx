@@ -84,7 +84,7 @@ function CaseRow({ item }: { item: ClientCaseSummary }) {
           */}
           <p className="text-xs text-muted-foreground">{item.step}</p>
         </div>
-        {item.actionRequired && <Badge>Needs you</Badge>}
+        {item.actionRequired && <Badge variant="destructive" className="bg-destructive text-destructive-foreground">Needs you</Badge>}
       </Card>
     </Link>
   )

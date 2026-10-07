@@ -14,7 +14,7 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="px-4 py-6 sm:px-6 lg:px-8">
-        <Link to="/welcome" aria-label="Back to the client portal">
+        <Link to="/" aria-label="Back to the client portal">
           <Logo />
         </Link>
       </header>

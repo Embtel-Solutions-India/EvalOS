@@ -25,7 +25,8 @@ export function PushCard({ workerUrl }: { workerUrl: string }) {
   const [state, setState] = useState<PushState | null>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
-  const [dismissed, setDismissed] = useState(wasDismissed)
+  const [dismissed] = useState(wasDismissed)
+  const [hidden, setHidden] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -38,7 +39,9 @@ export function PushCard({ workerUrl }: { workerUrl: string }) {
     }
   }, [api, workerUrl])
 
-  if (dismissed || state === null || state === 'unavailable') return null
+  // A stored dismissal never hides the card while notifications are off (see `dismiss`), which also
+  // revives anyone who clicked × before this rule existed.
+  if (state === null || state === 'unavailable' || hidden || (dismissed && state !== 'off')) return null
 
   const run = (action: typeof enablePush) => {
     setBusy(true)
@@ -49,7 +52,10 @@ export function PushCard({ workerUrl }: { workerUrl: string }) {
   }
 
   const dismiss = () => {
-    setDismissed(true)
+    setHidden(true)
+    // Not subscribed ('off'): hide for this visit only, so a mis-click on × cannot silence the
+    // prompt for good — it is back on the next reload. The other states have nothing to nag about.
+    if (state === 'off') return
     try {
       localStorage.setItem(DISMISSED, '1')
     } catch {

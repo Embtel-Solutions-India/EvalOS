@@ -7,6 +7,11 @@ import java.util.HexFormat;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -15,11 +20,6 @@ import com.ie.evalos.domain.WebhookEvent;
 import com.ie.evalos.domain.WebhookSource;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.WebhookEventRepository;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Component;
 
 /**
  * The one way an external event enters EvalOS: resolve brand → dedupe → archive →
