@@ -1,6 +1,7 @@
 import { useBoard } from '../board/useBoard'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { BoardCard } from '../board/boardRules'
+import { STAGE_ORDER, STAGE_SHORT } from '../case/caseProgress'
 import { useFilters } from '../shell/filtersContext'
 import { INBOX_VIEWS, inboxQueue, isInboxView, riskColor, riskLabel } from './queueRules'
 import RowActions from './RowActions'
@@ -38,16 +39,35 @@ export default function InboxPage() {
   const view = isInboxView(raw) ? raw : 'all'
 
 
-  const rows = data ? inboxQueue(data, view) : []
+  // `?stage=` is how a dashboard funnel row opens exactly the cases it counted. Unknown values are ignored.
+  const rawStage = params.get('stage')
+  const stage = STAGE_ORDER.find((entry) => entry === rawStage) ?? null
+  const rows = data ? inboxQueue(data, view, new Date(), stage) : []
 
   return (
     <section>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Cases inbox</h1>
         <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {data ? `${rows.length} of ${inboxQueue(data, 'all').length}` : ''}
+          {data ? `${rows.length} of ${inboxQueue(data, 'all', new Date(), stage).length}` : ''}
         </p>
       </header>
+
+      {stage && (
+        <button
+          type="button"
+          onClick={() => setParams(view === 'all' ? {} : { view })}
+          className="mt-3 h-8 px-3 text-sm"
+          style={{
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--accent-soft)',
+            border: '1px solid var(--accent-primary)',
+            color: 'var(--accent-primary)',
+          }}
+        >
+          Stage: {STAGE_SHORT[stage]} ✕
+        </button>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         {INBOX_VIEWS.map((entry) => {
@@ -57,7 +77,7 @@ export default function InboxPage() {
               key={entry.view}
               type="button"
               aria-pressed={active}
-              onClick={() => setParams(entry.view === 'all' ? {} : { view: entry.view })}
+              onClick={() => setParams({ ...(entry.view === 'all' ? {} : { view: entry.view }), ...(stage ? { stage } : {}) })}
               className="h-9 px-3 text-sm"
               style={{
                 borderRadius: 'var(--radius-md)',

@@ -215,4 +215,12 @@ describe('myDrafts', () => {
 
     expect(myDrafts(data).map((row) => row.caseCode)).toEqual(['submitted'])
   })
+  it('narrows the inbox to one stage, exception-lane cases included', () => {
+    const data = board([
+      card({ caseCode: 'a', currentStage: 'FINAL_QC' }),
+      card({ caseCode: 'b', currentStage: 'DRAFT_REVIEW' }),
+    ])
+    expect(inboxQueue(data, 'all', NOW, 'FINAL_QC').map((c) => c.id)).toEqual(['a'])
+    expect(inboxQueue(data, 'all', NOW, null)).toHaveLength(2)
+  })
 })
