@@ -1,7 +1,7 @@
 /* EvalOS design tokens — the single source of truth (see context/ui-context.md).
    No hardcoded hex in components; reference these vars.
 
-   Values adopted from the Protend admin template per UI_MIGRATION_GUIDE.md. The variable
+   Values adopted from the CoreDashboard Sketch design (Libre Franklin, indigo #3c3df2, lavender rail, 12/8/4 radii; 2026-10-08). The variable
    NAMES are unchanged on purpose: every component already reads them, so the visual
    language moves without a component edit. What did not move: --status-* keeps its exact
    values, because RAG is load-bearing semantics here and decorative in the template. */
@@ -9,33 +9,34 @@
 :root {
   /* Surfaces & text. A cool neutral canvas with white cards on it: the contrast between the
      two is small on purpose, so a dense screen reads as panels rather than as stripes. */
-  --bg-base: #f4f5f7;
+  --bg-base: #fafafa;
   --bg-surface: #ffffff;
-  --bg-raised: #f1f3f5;
+  --bg-raised: #f3f4f4;
   --card-text-muted: #4b5563;
   /* secondary text on the stage-tinted board cards: --text-muted drops to 3.4:1 on the deepest tint, this keeps 5.3:1 */
-  --text-primary: #111827;
-  --text-muted: #6b7280;
-  --border-default: #e5e7eb;
+  --text-primary: #131313;
+  --text-muted: #606b81;
+  --border-default: #eeeeee;
+  --border-tint: #dcddf2;
 
   /* The navigation rail is its own surface, not a card.
      It is a pale-blue, flush, full-height panel — the single biggest change in this pass, and the
      opposite of what the previous language did (a white rounded card floating on a tinted
      canvas). The rail anchors the left edge and lets the content area stay quiet, which is
      what carries a screen holding this many panels at once. */
-  --sidebar-bg: #e3eafb;
-  --sidebar-text: #0f1b3d;
-  --sidebar-muted: #2f3d5c;
+  --sidebar-bg: #ebecfe;
+  --sidebar-text: #131313;
+  --sidebar-muted: #606b81;
   /* Active nav item: a lifted navy rather than the accent at alpha. On a tinted rail an alpha
      fill of the blue accent goes muddy, and the label has to stay legible against it. */
-  --sidebar-active-bg: #1f3a6d;
-  --sidebar-border: #c3d0ee;
+  --sidebar-active-bg: #3c3df2;
+  --sidebar-border: #dcddf2;
 
   /* Accent — the only decorative/brand color */
-  --accent-primary: #2563eb;
-  --accent-hover: #1d4ed8;
+  --accent-primary: #3c3df2;
+  --accent-hover: #3839d1;
   /* The accent at low alpha: selected rows, tinted chips. Never a status. */
-  --accent-soft: rgb(37 99 235 / 0.1);
+  --accent-soft: #ebecfe;
 
   /* The SLA grey band: a case with no clock running (closed, or holding an
      exception state). Not a status colour — the whole point is that it is *not* green — but
@@ -66,11 +67,11 @@
      Five, because `ServiceType` has exactly five values and service-type comparison is the
      widest categorical chart the dashboards draw. A chart wanting a sixth series is a chart
      with too many series — group the tail instead of adding --chart-6. */
-  --chart-1: #3c21f7;
-  --chart-2: #6d5bf9;
-  --chart-3: #9b8dff;
-  --chart-4: #4a6ee0;
-  --chart-5: #7e9bd8;
+  --chart-1: #3c3df2;
+  --chart-2: #07b6e2;
+  --chart-3: #e2b607;
+  --chart-4: #e207c1;
+  --chart-5: #21b510;
 
   /* Elevation and focus. The shadow is now ambient — large blur, zero offset, a cool
      blue-grey at low alpha — which is the template's signature and the reason its cards
@@ -79,7 +80,7 @@
      a 50px ambient bloom to lift cards off a tinted canvas; at this density that bloom pools
      between adjacent panels and the grid turns soupy. A hairline border plus a short shadow
      keeps twenty panels legible side by side. */
-  --shadow-card: 0 1px 2px 0 rgb(17 24 39 / 0.04);
+  --shadow-card: 12px 12px 24px rgb(10 11 56 / 0.07), -12px -12px 24px rgb(10 11 56 / 0.04);
   --shadow-pop: 0 8px 24px -4px rgb(17 24 39 / 0.12), 0 2px 6px -2px rgb(17 24 39 / 0.06);
   --ring-focus: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent-primary);
 
@@ -118,18 +119,18 @@
      assumed — and the template's own font wiring is broken (it declares Poppins and
      loads only Roboto, so every page renders in a font its CSS never names). The
      template's identity is its colour, radius and shadow, not its typeface. */
-  --font-sans: Inter, ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Libre Franklin', Inter, ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif;
   --font-num: Inter, ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
 
   /* Radii come down hard in this pass. 30px was the previous language's signature and it reads
      as a consumer app at this density — a 30px corner on a 36px control is a pill, and a row of
      pills across a dense operations header is noise. Nothing here exceeds 12px. */
-  --radius-md: 0.375rem;
+  --radius-md: 0.5rem;
   /* 6px — badges, chips, inputs, buttons */
-  --radius-lg: 0.5rem;
+  --radius-lg: 0.75rem;
   /* 8px — cards, panels, Kanban columns */
-  --radius-xl: 0.75rem;
+  --radius-xl: 1rem;
   /* 12px — modals, drawers, board columns */
 }
 

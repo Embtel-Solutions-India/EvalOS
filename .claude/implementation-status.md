@@ -595,3 +595,12 @@ references, so `--noEmit` typechecks nothing and exits 0.)
 - `SALES_MONTHLY_GOAL` defaults to `0` and is only the fallback: the GM sets each month's target
   on the dashboard (*Set monthly target*); until either exists the tile shows the won amount with
   *"No monthly target set"*.
+
+- **Sketch visual language (B2), 2026-10-08.** `tokens.css` now carries the CoreDashboard Sketch
+  values: accent `#3c3df2`, lavender rail `#ebecfe`, canvas `#fafafa`, radii 8/12/16, dual ambient
+  card shadow, Libre Franklin (figures stay Inter for tabular width). Chart series `--chart-1..5`
+  are indigo/cyan/yellow/magenta/green; the Sales/Marketing journey reads them. Every dashboard
+  inherits via `Card`. **Rule amended (B2):** decorative hues allowed on non-status surfaces; RAG
+  keeps its meaning and is never the only carrier; yellow/green are fills only (contrast).
+  Evidence: `tsc` clean, dashboard vitest 22/22. **Browser-checked 2026-10-08** (GM Sales + Marketing at 1440/1024/390, CM dashboard at 1440; fixed `Achieved null%` on a $0 target and a 22-row source list stretching the layout). **Not dark mode** (Sketch has
+  one; the app does not). Restyled screens beyond tokens + `Card` + journey widgets: none yet.

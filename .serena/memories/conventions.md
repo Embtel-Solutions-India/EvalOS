@@ -1,7 +1,7 @@
 # Conventions and working rules
 
 Code standards: `context/code-standards.md`. UI tokens, RAG colours and density:
-`context/ui-context.md`. Workflow and scoping rules: `context/ai-workflow-rules.md`.
+`context/ui-context.md`. Colour rule (B2, 2026-10-08): decorative hues allowed off status surfaces; RAG never sole carrier. Workflow and scoping rules: `context/ai-workflow-rules.md`.
 
 Two rules that override convenience everywhere:
 

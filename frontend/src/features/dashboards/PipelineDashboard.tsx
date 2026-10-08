@@ -122,7 +122,7 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
                   aria-pressed={compare && metric === 'leads'}
                   disabled={metric === 'value'}
                   title={metric === 'value' ? 'Source comparison is by lead count' : undefined}
-                  className="rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                  className="rounded-lg border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
                   style={{ borderColor: 'var(--border-default)', background: compare && metric === 'leads' ? 'var(--accent-soft)' : 'var(--bg-surface)' }}
                 >
                   Compare sources
@@ -148,19 +148,19 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
   )
 }
 
-const SELECT = 'rounded-md border px-2.5 py-1.5 text-sm font-medium'
+const SELECT = 'rounded-lg border px-3 py-1.5 text-sm font-medium'
 const SELECT_STYLE: CSSProperties = { borderColor: 'var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-primary)' }
 
 function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (value: T) => void; options: [T, string][]; label: string }) {
   return (
-    <div className="inline-flex rounded-md border p-0.5" style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)' }} role="group" aria-label={label}>
+    <div className="inline-flex rounded-lg border p-0.5" style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)' }} role="group" aria-label={label}>
       {options.map(([key, text]) => (
         <button
           key={key}
           type="button"
           onClick={() => onChange(key)}
           aria-pressed={value === key}
-          className="rounded px-2.5 py-0.5 text-xs font-medium"
+          className="rounded-md px-2.5 py-0.5 text-xs font-medium"
           style={value === key ? { background: 'var(--accent-primary)', color: '#fff' } : { color: 'var(--text-muted)' }}
         >
           {text}

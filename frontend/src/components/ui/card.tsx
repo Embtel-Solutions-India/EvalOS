@@ -68,7 +68,7 @@ export function Card({ title, note, state, to, wide, children }: CardProps) {
   const body = (
     <>
       <div className="flex items-start justify-between gap-2">
-        <h2 className="text-sm font-medium">{title}</h2>
+        <h2 className="text-[0.9375rem] font-semibold">{title}</h2>
         {state.kind === "warning" && (
           <AlertTriangle
             className="h-4 w-4 shrink-0"

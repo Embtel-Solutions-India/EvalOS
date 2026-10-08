@@ -9,7 +9,7 @@ const MUTED: CSSProperties = { color: 'var(--text-muted)' }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /** Colour here means "which channel", so the compare view is capped at five and the rest stay in the list. */
-export const SERIES = ['var(--accent-primary)', '#0d9488', '#d97706', '#7c3aed', '#64748b']
+export const SERIES = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)']
 
 const compactMoney = (value: number) => (value >= 1000 ? `$${Math.round(value / 100) / 10}k` : formatMoney(value))
 
@@ -52,14 +52,14 @@ export function TargetCard({ data, state, audience, canSetTarget }: { data: Jour
         {current && <Change pct={changePct(progress, was)} label="vs last month" />}
       </div>
 
-      {target === null ? (
+      {target === null || target <= 0 ? (
         <p className="mt-5 text-sm" style={MUTED}>
           No target is set for {monthName}.{canSetTarget && ' Set one under By desk on the main dashboard.'}
         </p>
       ) : (
         <>
           <div
-            className="mt-5 h-2.5 w-full overflow-hidden rounded-full"
+            className="mt-5 h-3 w-full overflow-hidden rounded-full"
             style={{ background: 'var(--bg-raised)' }}
             role="progressbar"
             aria-valuemin={0}
@@ -130,7 +130,7 @@ export function JourneyChart({
       <CartesianGrid vertical={false} stroke="var(--border-default)" />
       <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
       <YAxis width={44} allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickFormatter={(n: number) => (metric === 'value' ? compactMoney(n) : String(n))} />
-      <Tooltip formatter={(n) => format(Number(n))} contentStyle={{ borderRadius: 8, border: '1px solid var(--border-default)', fontSize: 12 }} />
+      <Tooltip formatter={(n) => format(Number(n))} contentStyle={{ borderRadius: 12, border: '1px solid var(--border-tint)', boxShadow: 'var(--shadow-pop)', fontSize: 12 }} />
       {thisMonth !== null && <ReferenceLine x={MONTHS[thisMonth - 1]} stroke="var(--border-default)" strokeDasharray="4 4" />}
     </>
   )
@@ -229,7 +229,7 @@ export function SourceCard({ data, state, selected, onSelect, colored }: { data:
       title="Where leads come from"
       state={state.kind === 'ok' && sources.length === 0 ? { kind: 'empty', note: `No leads were opened in ${data?.year}.` } : state}
     >
-      <ul className="space-y-1">
+      <ul className="max-h-80 space-y-1 overflow-y-auto pr-1">
         {sources.map((s, i) => {
           const active = selected?.toLowerCase() === s.source.toLowerCase()
           return (
