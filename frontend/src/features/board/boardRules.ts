@@ -62,6 +62,45 @@ export type ServiceType =
   | 'PERM'
   | 'RFE_RESPONSE'
   | 'TRANSLATION'
+  | 'RECOMMENDATION_LETTER'
+  | 'WAGE_LEVEL_LETTER'
+  | 'ACADEMIC_EQUIVALENCY_HIGH_SCHOOL'
+  | 'ACADEMIC_EQUIVALENCY'
+  | 'EXPERIENCE_BASED_EQUIVALENCY'
+  | 'ACADEMIC_EXPERIENCE_EQUIVALENCY'
+  | 'BENEFICIARY_QUALIFICATION_LETTER'
+  | 'POSITION_EVALUATION_LETTER'
+  | 'SPECIALTY_OCCUPATION_LETTER'
+  | 'EB1A_SUPPORT_LETTER'
+  | 'EB2_NIW_LETTER'
+  | 'H3_VISA_EOL'
+  | 'TN_VISA'
+  | 'O1A_VISA'
+  | 'L1A_VISA'
+
+/** The board's Service filter, in the order the business's service sheet lists them. */
+export const SERVICE_FILTER_OPTIONS: { value: ServiceType; label: string }[] = [
+  { value: 'ACADEMIC_EQUIVALENCY_HIGH_SCHOOL', label: 'Academic equivalency (high school)' },
+  { value: 'ACADEMIC_EQUIVALENCY', label: 'Academic equivalency' },
+  { value: 'EXPERIENCE_BASED_EQUIVALENCY', label: 'Experience-based equivalency' },
+  { value: 'ACADEMIC_EXPERIENCE_EQUIVALENCY', label: 'Academic and experience equivalency' },
+  { value: 'EXPERT_OPINION_LETTER', label: 'Expert opinion letter (H-1B)' },
+  { value: 'BENEFICIARY_QUALIFICATION_LETTER', label: 'Beneficiary qualification letter' },
+  { value: 'POSITION_EVALUATION_LETTER', label: 'Position evaluation letter' },
+  { value: 'SPECIALTY_OCCUPATION_LETTER', label: 'Specialty occupation letter' },
+  { value: 'EB1A_SUPPORT_LETTER', label: 'EB-1A support letter' },
+  { value: 'EB2_NIW_LETTER', label: 'EB-2 NIW' },
+  { value: 'H3_VISA_EOL', label: 'H-3 visa EOL' },
+  { value: 'TN_VISA', label: 'TN visa' },
+  { value: 'O1A_VISA', label: 'O-1A visa' },
+  { value: 'L1A_VISA', label: 'L-1A' },
+  { value: 'CREDENTIAL_EVALUATION', label: 'Credential evaluation' },
+  { value: 'PERM', label: 'PERM' },
+  { value: 'RFE_RESPONSE', label: 'RFE response' },
+  { value: 'TRANSLATION', label: 'Translation' },
+  { value: 'RECOMMENDATION_LETTER', label: 'Recommendation letter' },
+  { value: 'WAGE_LEVEL_LETTER', label: 'Wage level letter' },
+]
 
 export type BoardCard = {
   id: string
