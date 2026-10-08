@@ -246,6 +246,31 @@ class GmOverviewServiceTest {
 	}
 
 	/**
+	 * The trend is the same question as the headline, cut into slices: this month so far (1-15 Sept) is 15
+	 * daily slices, each lined up against the same day of the previous 15 days (17-31 Aug).
+	 */
+	@Test
+	void cutsThePeriodIntoSlicesAndLinesUpThePreviousPeriod() {
+		givenOneSalesDesk();
+		given(ghl.opportunitiesIn(eq(PIPELINE), eq(LocalDate.parse("2026-09-01")), any()))
+				.willReturn(List.of(won("100", at("2026-09-03"), at("2026-09-03"), "Referral")));
+		given(ghl.opportunitiesIn(eq(PIPELINE), eq(LocalDate.parse("2026-08-17")), any()))
+				.willReturn(List.of(won("100", at("2026-08-18"), at("2026-08-18"), "Referral")));
+		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won"))).willReturn(List.of(
+				won("5000", at("2026-09-04"), at("2026-07-02"), "Referral"),
+				won("1000", at("2026-08-20"), at("2026-08-01"), "Website")));
+
+		var trend = service("0").forCaller(window("month"), BRAND).trend();
+
+		assertThat(trend.comparable()).isTrue();
+		assertThat(trend.points()).hasSize(15);
+		assertThat(trend.points().get(2).leads()).isEqualTo(1);
+		assertThat(trend.points().get(1).previousLeads()).isEqualTo(1);
+		assertThat(trend.points().get(3).won()).isEqualByComparingTo("5000");
+		assertThat(trend.points().get(3).previousWon()).isEqualByComparingTo("1000");
+	}
+
+	/**
 	 * A monthly target has exactly one denominator.
 	 *
 	 * <p>Applying it to a week would print a figure that is arithmetically correct and

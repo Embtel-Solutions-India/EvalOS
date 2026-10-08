@@ -18,6 +18,7 @@ import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelinePurpose;
 import com.ie.evalos.repository.PipelineStageRepository;
+import com.ie.evalos.repository.TeamMemberPipelineRepository;
 
 import org.junit.jupiter.api.Test;
 
@@ -29,17 +30,42 @@ class HiringPipelineNotifierTest {
 
 	private final NotificationService notifications = mock(NotificationService.class);
 	private final RecipientResolver recipients = mock(RecipientResolver.class);
+	private final TeamMemberPipelineRepository holders = mock(TeamMemberPipelineRepository.class);
 	private final HiringPipelineNotifier notifier = new HiringPipelineNotifier(notifications, recipients,
-			mock(PipelineStageRepository.class, invocation -> Optional.empty()));
+			mock(PipelineStageRepository.class, invocation -> Optional.empty()), holders);
 
 	@Test
 	void aStageChangeFromGhlOnAHiringPipelineTellsTheEnms() {
 		given(recipients.enms(BRAND)).willReturn(List.of(ENM));
+		given(holders.membersOn(any())).willReturn(List.of(ENM));
 
 		notifier.absorbed(hiring(true), deal("stage-2"), "stage-1", false);
 
 		verify(notifications).create(eq(BRAND), eq(List.of(ENM)), eq(NotificationType.HIRING_PIPELINE_UPDATED),
 				any(), contains("Dr Grace Hopper moved to"));
+	}
+
+	/** A hiring pipeline is granted per person, so an ENM who does not hold it is not told about its candidates. */
+	@Test
+	void onlyTheEnmsWhoHoldThePipelineAreTold() {
+		UUID other = UUID.randomUUID();
+		given(recipients.enms(BRAND)).willReturn(List.of(ENM, other));
+		given(holders.membersOn(any())).willReturn(List.of(ENM));
+
+		notifier.absorbed(hiring(true), deal("stage-2"), "stage-1", false);
+
+		verify(notifications).create(eq(BRAND), eq(List.of(ENM)), eq(NotificationType.HIRING_PIPELINE_UPDATED),
+				any(), contains("moved to"));
+	}
+
+	@Test
+	void aPipelineNoEnmHoldsNotifiesNobody() {
+		given(recipients.enms(BRAND)).willReturn(List.of(ENM));
+		given(holders.membersOn(any())).willReturn(List.of());
+
+		notifier.absorbed(hiring(true), deal("stage-2"), "stage-1", false);
+
+		verify(notifications, never()).create(any(), anyCollection(), any(), any(), any());
 	}
 
 	@Test

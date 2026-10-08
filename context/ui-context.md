@@ -102,21 +102,22 @@ mirrors it.** If the two disagree, the stylesheet is right and this is the bug.
 
 | Role                | CSS Variable          | Value     |
 | ------------------- | --------------------- | --------- |
-| Page background     | `--bg-base`           | `#FAFAFA` |
+| Page background     | `--bg-base`           | `#F6F6FB` |
 | Surface / card      | `--bg-surface`        | `#FFFFFF` |
 | Raised surface      | `--bg-raised`         | `#F1F3F5` |
 | Primary text        | `--text-primary`      | `#111827` |
 | Muted text          | `--text-muted`        | `#6B7280` |
 | Primary accent      | `--accent-primary`    | `#3C3DF2` |
 | Accent hover        | `--accent-hover`      | `#1D4ED8` |
-| **Nav rail**        | `--sidebar-bg`        | `#EBECFE` |
+| **Nav rail**        | `--sidebar-bg`        | `#D6D9F8` |
+| **Top bar**         | `--topbar-bg`         | `#E1E3F9` |
 | Nav rail text       | `--sidebar-text`      | `#0F1B3D` |
-| Nav rail muted      | `--sidebar-muted`     | `#2F3D5C` |
+| Nav rail muted      | `--sidebar-muted`     | `#44506A` |
 | Nav rail active     | `--sidebar-active-bg` | `#1F3A6D` |
-| Nav rail divider    | `--sidebar-border`    | `#C3D0EE` |
+| Nav rail divider    | `--sidebar-border`    | `#BFC4EE` |
 
 **The nav rail is its own surface: a pale blue, set apart from the grey canvas and white cards.** Contrast was measured, not
-assumed: rail text 11.1:1, rail muted 7.1:1, active-item white on the navy pill 11.1:1 — all above AA.
+assumed: rail text 13.4:1, rail muted 5.8:1, active-item white on the accent pill 6.7:1 (re-measured 2026-10-09 when the rail and top bar were darkened a notch) — all above AA.
 A future change to `--sidebar-bg` re-opens those three numbers.
 | Border              | `--border-default`    | `#E3E6EB` |
 | **Status — red**    | `--status-red`        | `#DC2626` |
@@ -184,11 +185,12 @@ not a second formatter. Asserted in `lib/money.test.ts`.
 | Context                                        | Class          | Value |
 | ---------------------------------------------- | -------------- | ----- |
 | Inline / small UI — badges, chips, **controls** | `rounded-md`   | 6px   |
-| Cards / panels / board column headers          | `rounded-lg`   | 8px   |
+| Board column headers                           | `rounded-lg`   | 8px   |
+| **Dashboard cards** (`Card`, `KpiCard`, `ChartCard`) | `rounded-[1.25rem]` | 20px, borderless, `--shadow-soft` |
 | Kanban cards on the boards (stage-tinted)      | `rounded-xl`   | 12px  |
 | Modals / drawers / overlays                    | `rounded-xl`   | 12px  |
 
-**Nothing exceeds 12px, and controls take `md`.** `--radius-xl` was 30px under the
+**Nothing exceeds 12px except dashboard cards (20px, 2026-10-09) and the top-bar pills (fully round), and controls take `md`.** `--radius-xl` was 30px under the
 previous language, which made every 36px control a pill; a row of pills across a dense
 operations header is noise. `xl` is now for overlays only — if a 36px button reaches for
 it, the button is wrong, not the token.

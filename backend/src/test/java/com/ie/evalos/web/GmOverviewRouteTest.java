@@ -67,7 +67,7 @@ class GmOverviewRouteTest {
 			new GmOverviewService.Sales(142, new BigDecimal("61000"), 9, new BigDecimal("22000"), 12),
 			List.of(), new GmOverviewService.Marketing(61, new BigDecimal("12000"), 61),
 			new GmOverviewService.Evaluation(34, new BigDecimal("28000"), 3, 28, new BigDecimal("41000")),
-			Instant.parse("2026-09-15T09:00:00Z"), null);
+			null, Instant.parse("2026-09-15T09:00:00Z"), null);
 
 	@Autowired
 	MockMvc mockMvc;

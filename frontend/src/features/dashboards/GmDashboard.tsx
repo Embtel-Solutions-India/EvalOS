@@ -1,12 +1,30 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { Card, ChartCard, KpiCard } from '../../components/ui/card'
-import type { CardState } from '../../components/ui/card'
-import { formatMoney } from '../../lib/money'
-import { rangeLabel, useFilters } from '../shell/filtersContext'
-import { fetchOpportunityBoard, type OpportunityBoard } from '../opportunities/opportunityApi'
-import { STALE_DAYS, staleDeals } from './dealAge'
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
+  CapacityBar,
+  Card,
+  ChartCard,
+  KpiCard,
+} from "../../components/ui/card";
+import type { CardState } from "../../components/ui/card";
+import { Donut } from "../../components/ui/widgets";
+import { formatCount, formatMoney } from "../../lib/money";
+import { rangeLabel, useFilters } from "../shell/filtersContext";
+import {
+  fetchOpportunityBoard,
+  type OpportunityBoard,
+} from "../opportunities/opportunityApi";
+import { STALE_DAYS, staleDeals } from "./dealAge";
 import {
   fetchExpertNetworkMetrics,
   fetchGmOverview,
@@ -16,12 +34,16 @@ import {
   setGmGoal,
   type ExpertNetworkMetrics,
   type GmOverview,
+  type GmTrend,
+  type GmTrendPoint,
   type PmMetrics,
   type RevenueMetrics,
   type TargetAmount,
-} from './pmMetricsApi'
-import { DeskTarget } from './DeskTarget'
-import { emptyWhen, useMetrics } from './useMetrics'
+} from "./pmMetricsApi";
+import { DeskTarget } from "./DeskTarget";
+import { SERIES } from "./journeyWidgets";
+import { TrendCard } from "./TrendCard";
+import { emptyWhen, useMetrics } from "./useMetrics";
 
 /**
  * The GM's monthly overview — the business on one screen, department by department.
@@ -52,34 +74,42 @@ import { emptyWhen, useMetrics } from './useMetrics'
  * header-contradicting-the-instrument failure this project has already had to clean up once.
  */
 export default function GmDashboard() {
-  const { activeBrandId, dateRange } = useFilters()
+  const { activeBrandId, dateRange } = useFilters();
 
   const gm = useMetrics<GmOverview>(
     (signal) => fetchGmOverview(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
-  )
+  );
   const revenue = useMetrics<RevenueMetrics>(
     (signal) => fetchRevenueMetrics(activeBrandId, signal),
     [activeBrandId],
-  )
+  );
   const pm = useMetrics<PmMetrics>(
     (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
-  )
-  const roster = useMetrics<ExpertNetworkMetrics>((signal) => fetchExpertNetworkMetrics(signal), [])
-  const board = useMetrics<OpportunityBoard>((signal) => fetchOpportunityBoard(signal), [])
+  );
+  const roster = useMetrics<ExpertNetworkMetrics>(
+    (signal) => fetchExpertNetworkMetrics(signal),
+    [],
+  );
+  const board = useMetrics<OpportunityBoard>(
+    (signal) => fetchOpportunityBoard(signal),
+    [],
+  );
 
-  const data = gm.data
-  const period = rangeLabel(dateRange).toLowerCase()
+  const data = gm.data;
+  const period = rangeLabel(dateRange).toLowerCase();
 
   // A desk's monthly target is for a calendar month, so the column exists only while the range is one
   // (the overview names the month in `goalMonth`). Amounts only: progress is on the rows already.
-  const targetMonth = data?.headline?.goalMonth ?? null
+  const targetMonth = data?.headline?.goalMonth ?? null;
   const targets = useMetrics<TargetAmount[]>(
-    (signal) => (targetMonth ? fetchTargets(targetMonth, signal) : Promise.resolve([])),
+    (signal) =>
+      targetMonth ? fetchTargets(targetMonth, signal) : Promise.resolve([]),
     [targetMonth],
-  )
-  const targetOf = (memberId: string) => targets.data?.find((t) => t.memberId === memberId)?.target ?? null
+  );
+  const targetOf = (memberId: string) =>
+    targets.data?.find((t) => t.memberId === memberId)?.target ?? null;
 
   /**
    * The state for a tile fed by the GHL half of `/metrics/gm`.
@@ -89,421 +119,597 @@ export default function GmDashboard() {
    * `$0` won for a month that may have gone well.
    */
   const pipelineState: CardState = data?.pipelineUnavailable
-    ? { kind: 'error', note: data.pipelineUnavailable, onRetry: gm.reload }
-    : gm.state
+    ? { kind: "error", note: data.pipelineUnavailable, onRetry: gm.reload }
+    : gm.state;
 
-  const untouched = staleDeals(board.data)
-  const openDeals = board.data?.totalDeals ?? null
+  const untouched = staleDeals(board.data);
+  const openDeals = board.data?.totalDeals ?? null;
+
+  const rankedServices = (data?.byService ?? [])
+    .filter((row) => row.openCases > 0)
+    .sort((a, b) => b.openCases - a.openCases);
+  const serviceSlices = [
+    ...rankedServices.slice(0, SERIES.length).map((row, i) => ({
+      name: readable(row.serviceType),
+      value: row.openCases,
+      color: SERIES[i],
+    })),
+    {
+      name: "Other",
+      value: rankedServices
+        .slice(SERIES.length)
+        .reduce((n, row) => n + row.openCases, 0),
+      color: "var(--text-muted)",
+    },
+  ].filter((slice) => slice.value > 0);
+
+  // A 12-column grid sized by the question each card answers: the headline is 4 beside four 2s, a trend or table
+  // is the full 12, a distribution is two 6s, an alert is one of six 2s.
+  const won = sparkOf(
+    data?.trend,
+    (p) => Number(p.won),
+    "Won value",
+    formatMoney,
+  );
+  const leads = sparkOf(data?.trend, (p) => p.leads, "New leads", formatCount);
 
   return (
     <section>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">The number — {period}</h1>
-        <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {activeBrandId ? 'one brand' : 'all brands'}
+        <h1 className="text-xl font-semibold tracking-tight">
+          The number — {period}
+        </h1>
+        <p
+          className="font-num text-xs tabular-nums"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {activeBrandId ? "one brand" : "all brands"}
         </p>
       </header>
 
-      {/* 1 — THE NUMBER. Won money, and the two ways it breaks down. */}
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="Business won"
-          wide
-          money
-          state={pipelineState}
-          value={data?.headline ? Math.round(data.headline.won) : null}
-          /* The goal is only ever shown over a calendar month — the server returns null for it on
+      {/* Figures and charts answer "how are we doing"; the two lists at the foot answer "what needs me" and
+          "what is the bench". */}
+      <div className="mt-4 grid grid-cols-12 gap-5">
+        <div className="col-span-12 grid grid-cols-12 content-start gap-5">
+          <KpiCard
+            className="col-span-12 md:col-span-4"
+            title="Business won"
+            money
+            spark={won.values}
+            sparkLabel={won.label}
+            state={pipelineState}
+            value={data?.headline ? Math.round(data.headline.won) : null}
+            /* The goal is only ever shown over a calendar month — the server returns null for it on
              any other window rather than dividing by a denominator that does not apply. */
-          denominator={
-            data?.headline?.goal
-              ? `${formatMoney(Math.round(data.headline.goal))} goal · ${data.headline.pctToGoal}% there`
-              : 'No monthly target set'
-          }
-          action={
-            data?.headline?.goalMonth ? (
-              <GoalButton month={data.headline.goalMonth} current={data.headline.goal} onSaved={gm.reload} />
-            ) : undefined
-          }
-          tone={
-            data?.headline?.pctToGoal == null
-              ? undefined
-              : data.headline.pctToGoal >= 100
-                ? 'good'
-                : data.headline.pctToGoal >= 70
-                  ? 'warn'
-                  : 'bad'
-          }
-          note="Sales desks' wins only — marketing nurtures the same leads, so counting its wins too would count each deal twice."
-        />
-
-        <ChartCard
-          title="Business by source"
-          wide
-          state={emptyWhen(pipelineState, (data?.bySource.length ?? 0) === 0, `No wins ${period}.`)}
-          note="The same sales wins, split by the source GHL holds on the opportunity."
-        >
-          <MoneyBars
-            rows={(data?.bySource ?? []).map((row) => ({
-              label: row.source,
-              value: Math.round(row.value),
-              detail: `${row.deals} deal${row.deals === 1 ? '' : 's'}`,
-            }))}
+            denominator={
+              data?.headline?.goal
+                ? `${formatMoney(Math.round(data.headline.goal))} goal · ${data.headline.pctToGoal}% there`
+                : "No monthly target set"
+            }
+            action={
+              data?.headline?.goalMonth ? (
+                <GoalButton
+                  month={data.headline.goalMonth}
+                  current={data.headline.goal}
+                  onSaved={gm.reload}
+                />
+              ) : undefined
+            }
+            tone={
+              data?.headline?.pctToGoal == null
+                ? undefined
+                : data.headline.pctToGoal >= 100
+                  ? "good"
+                  : data.headline.pctToGoal >= 70
+                    ? "warn"
+                    : "bad"
+            }
+            note=""
           />
-        </ChartCard>
+          <div className="col-span-12 grid grid-cols-2 gap-5 md:col-span-8">
+            <KpiCard
+              title="Sales · new leads"
+              state={pipelineState}
+              value={data?.sales ? data.sales.newLeads : null}
+              denominator={
+                data?.sales
+                  ? `worth ${formatMoney(Math.round(data.sales.newValue))}`
+                  : undefined
+              }
+              spark={leads.values}
+              sparkLabel={leads.label}
+              to="/opportunities/board"
+            />
+            <KpiCard
+              title="Sales · won"
+              money
+              spark={won.values}
+              sparkLabel={won.label}
+              state={pipelineState}
+              value={data?.sales ? Math.round(data.sales.wonValue) : null}
+              denominator={
+                data?.sales
+                  ? `${data.sales.won} deal${data.sales.won === 1 ? "" : "s"}`
+                  : undefined
+              }
+              delta={
+                data?.sales?.wonDeltaPct == null
+                  ? undefined
+                  : { value: data.sales.wonDeltaPct, better: "up" }
+              }
+            />
+            <KpiCard
+              title="Open deals"
+              state={board.state}
+              value={openDeals}
+              denominator={
+                board.data
+                  ? `worth ${formatMoney(Math.round(board.data.totalValue))}`
+                  : undefined
+              }
+              to="/opportunities/board"
+            />
+            <KpiCard
+              title="Marketing · new leads"
+              state={pipelineState}
+              value={data?.marketing ? data.marketing.newLeads : null}
+              denominator={
+                data?.marketing
+                  ? `worth ${formatMoney(Math.round(data.marketing.newValue))}`
+                  : undefined
+              }
+            />
+          </div>
 
-        <ChartCard
-          title="Business by service"
-          wide
-          state={emptyWhen(gm.state, (data?.byService.length ?? 0) === 0, 'No cases yet.')}
-          /* Stated on the tile because the two charts above and here do NOT sum to the same
-             total and never will: a source lives on a GHL opportunity, a service lives on an
-             EvalOS case, and a case exists only after a deal is won. */
-          note="Open and delivered case value by service. A case, not a deal — these two charts have different denominators."
-        >
-          <MoneyBars
-            rows={(data?.byService ?? []).map((row) => ({
-              label: readable(row.serviceType),
-              value: Math.round(row.openValue + row.deliveredValue),
-              detail: `${row.openCases} open · ${row.delivered} delivered`,
-            }))}
-          />
-        </ChartCard>
-      </div>
-
-      {/* 2 — SALES */}
-      <Heading>Sales</Heading>
-      <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="New leads"
-          state={pipelineState}
-          value={data?.sales ? data.sales.newLeads : null}
-          denominator={
-            data?.sales ? `worth ${formatMoney(Math.round(data.sales.newValue))}` : undefined
-          }
-          to="/opportunities/board"
-          note={`Opportunities opened on a sales desk ${period}.`}
-        />
-        <KpiCard
-          title="Won"
-          money
-          state={pipelineState}
-          value={data?.sales ? Math.round(data.sales.wonValue) : null}
-          denominator={
-            data?.sales
-              ? `${data.sales.won} deal${data.sales.won === 1 ? '' : 's'}`
-              : undefined
-          }
-          delta={
-            data?.sales?.wonDeltaPct == null
-              ? undefined
-              : { value: data.sales.wonDeltaPct, better: 'up' }
-          }
-          note="Against the previous period of the same length."
-        />
-        <KpiCard
-          title="Open deals"
-          state={board.state}
-          value={openDeals}
-          denominator={
-            board.data ? `worth ${formatMoney(Math.round(board.data.totalValue))}` : undefined
-          }
-          to="/opportunities/board"
-          note="Live from GHL, every desk of the selling brand."
-        />
-        {/* The PDF's "open, no movement". `bad` above zero rather than against a tolerance: one
-            deal nobody has touched in a working week is already the problem, and a threshold
-            would only decide how many of them are acceptable. */}
-        <KpiCard
-          title={`No movement ${STALE_DAYS}d+`}
-          state={board.state}
-          value={board.data ? untouched.length : null}
-          tone={board.data === null ? undefined : untouched.length > 0 ? 'bad' : 'good'}
-          denominator={
-            board.data
-              ? `worth ${formatMoney(Math.round(untouched.reduce((sum, deal) => sum + (deal.amount ?? 0), 0)))}`
-              : undefined
-          }
-          to="/opportunities/board"
-          note="Open deals with no activity in GHL for a working week."
-        />
-
-        <Card
-          title="By desk"
-          wide
-          state={emptyWhen(
-            pipelineState,
-            (data?.desks.length ?? 0) === 0,
-            'No salesperson has a GHL pipeline assigned. Assign one on the team screen.',
-          )}
-          /* Keyed on `team_member.ghl_pipeline_id`, not on GHL's `assignedTo`: EvalOS has no
+          <div className="col-span-12 xl:col-span-7">
+            <TrendCard
+              trend={data?.trend ?? null}
+              state={pipelineState}
+              period={period}
+            />
+          </div>
+          <Card
+            className="col-span-12 xl:col-span-5"
+            title="By desk"
+            state={emptyWhen(
+              pipelineState,
+              (data?.desks.length ?? 0) === 0,
+              "No salesperson has a GHL pipeline assigned. Assign one on the team screen.",
+            )}
+            /* Keyed on `team_member.ghl_pipeline_id`, not on GHL's `assignedTo`: EvalOS has no
              mapping from a GHL user to a team member, and the pipeline link is the one it owns. */
-          note="One row per desk — the pipelines that person is granted. New, Won and Value follow the date range; Open now is what the desk holds today."
-        >
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ color: 'var(--text-muted)' }}>
-                <th className="pb-1 text-left text-xs font-medium uppercase">Desk</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase" title="Deals created in the selected date range">New</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase">Won</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase">Value</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase" title="Open on the desk's pipelines right now — what their board's header shows">Open now</th>
-                {targetMonth && (
-                  <th className="pb-1 text-right text-xs font-medium uppercase" title="Sales: won value. Marketing: new leads. Click a cell to set the month's target.">Target</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {data?.desks.map((row) => (
-                <tr key={row.memberId}>
-                  <td className="py-1">
-                    <Link to={`/dashboard/${row.role === 'MARKETING' ? 'marketing' : 'sales'}?member=${row.memberId}`} className="hover:underline" style={{ color: 'var(--accent-primary)' }}>
-                      {row.name}
-                    </Link>
-                    {row.role === 'MARKETING' && (
-                      <span className="ml-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        marketing
-                      </span>
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ color: "var(--text-muted)" }}>
+                    <th className="pb-1 text-left text-xs font-medium uppercase">
+                      Desk
+                    </th>
+                    <th
+                      className="pb-1 text-right text-xs font-medium uppercase"
+                      title="Deals created in the selected date range"
+                    >
+                      New
+                    </th>
+                    <th className="pb-1 text-right text-xs font-medium uppercase">
+                      Won
+                    </th>
+                    <th className="pb-1 text-right text-xs font-medium uppercase">
+                      Value
+                    </th>
+                    <th
+                      className="pb-1 text-right text-xs font-medium uppercase"
+                      title="Open on the desk's pipelines right now — what their board's header shows"
+                    >
+                      Open now
+                    </th>
+                    {targetMonth && (
+                      <th
+                        className="pb-1 text-right text-xs font-medium uppercase"
+                        title="Sales: won value. Marketing: new leads. Click a cell to set the month's target."
+                      >
+                        Target
+                      </th>
                     )}
-                  </td>
-                  <td className="font-num py-1 text-right tabular-nums">{row.newLeads}</td>
-                  <td className="font-num py-1 text-right tabular-nums">{row.won}</td>
-                  <td className="font-num py-1 text-right tabular-nums">
-                    {formatMoney(Math.round(row.wonValue))}
-                  </td>
-                  <td className="font-num py-1 text-right tabular-nums">
-                    {row.open}
-                    <span className="ml-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {formatMoney(Math.round(row.openValue))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {data?.desks.map((row) => (
+                    <tr key={row.memberId}>
+                      <td className="py-1">
+                        <Link
+                          to={`/dashboard/${row.role === "MARKETING" ? "marketing" : "sales"}?member=${row.memberId}`}
+                          className="hover:underline"
+                          style={{ color: "var(--accent-primary)" }}
+                        >
+                          {row.name}
+                        </Link>
+                        {row.role === "MARKETING" && (
+                          <span
+                            className="ml-2 text-xs"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            marketing
+                          </span>
+                        )}
+                      </td>
+                      <td className="font-num py-1 text-right tabular-nums">
+                        {row.newLeads}
+                      </td>
+                      <td className="font-num py-1 text-right tabular-nums">
+                        {row.won}
+                      </td>
+                      <td className="font-num py-1 text-right tabular-nums">
+                        {formatMoney(Math.round(row.wonValue))}
+                      </td>
+                      <td className="font-num py-1 text-right tabular-nums">
+                        {row.open}
+                        <span
+                          className="ml-1 text-xs"
+                          style={{ color: "var(--text-muted)" }}
+                        >
+                          {formatMoney(Math.round(row.openValue))}
+                        </span>
+                      </td>
+                      {targetMonth && (
+                        <td className="py-1 text-right">
+                          <DeskTarget
+                            row={row}
+                            target={targetOf(row.memberId)}
+                            known={targets.state.kind === "ok"}
+                            month={targetMonth}
+                            onSaved={targets.reload}
+                          />
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          <Label>Distribution</Label>
+          <ChartCard
+            className="col-span-12 md:col-span-6"
+            title="Business by source"
+            state={emptyWhen(
+              pipelineState,
+              (data?.bySource.length ?? 0) === 0,
+              `No wins ${period}.`,
+            )}
+            note="The same sales wins, split by the source GHL holds on the opportunity."
+          >
+            <MoneyBars
+              rows={(data?.bySource ?? []).map((row) => ({
+                label: row.source,
+                value: Math.round(row.value),
+                detail: `${row.deals} deal${row.deals === 1 ? "" : "s"}`,
+              }))}
+            />
+          </ChartCard>
+          <ChartCard
+            className="col-span-12 md:col-span-6"
+            title="Business by service"
+            state={emptyWhen(
+              gm.state,
+              (data?.byService.length ?? 0) === 0,
+              "No cases yet.",
+            )}
+            note="Open and delivered case value by service. A case, not a deal — a different denominator from source."
+          >
+            <MoneyBars
+              rows={(data?.byService ?? []).map((row) => ({
+                label: readable(row.serviceType),
+                value: Math.round(row.openValue + row.deliveredValue),
+                detail: `${row.openCases} open · ${row.delivered} delivered`,
+              }))}
+            />
+          </ChartCard>
+
+          <Label>Production</Label>
+          <KpiCard
+            className="col-span-12 md:col-span-4"
+            title="Open cases"
+            state={gm.state}
+            value={data ? data.evaluation.openCases : null}
+            denominator={
+              data
+                ? `worth ${formatMoney(Math.round(data.evaluation.openValue))}`
+                : undefined
+            }
+            to="/board"
+          />
+          <KpiCard
+            className="col-span-12 md:col-span-4"
+            title="Delivered"
+            state={gm.state}
+            value={data ? data.evaluation.delivered : null}
+            denominator={
+              data
+                ? `worth ${formatMoney(Math.round(data.evaluation.deliveredValue))}`
+                : undefined
+            }
+            to="/delivery"
+          />
+          <KpiCard
+            className="col-span-12 md:col-span-4"
+            title="Delivered on time"
+            state={pm.state}
+            value={pm.data?.onTime.ratePct ?? null}
+            unit="%"
+            denominator={
+              pm.data ? `of ${pm.data.onTime.delivered} delivered` : undefined
+            }
+            delta={
+              pm.data?.onTime.deltaPoints == null
+                ? undefined
+                : { value: pm.data.onTime.deltaPoints, better: "up" }
+            }
+            tone={
+              pm.data?.onTime.ratePct == null
+                ? undefined
+                : pm.data.onTime.ratePct >= 90
+                  ? "good"
+                  : pm.data.onTime.ratePct >= 75
+                    ? "warn"
+                    : "bad"
+            }
+          />
+          <Card
+            className="col-span-12 md:col-span-6"
+            title="Open cases by service"
+            state={emptyWhen(
+              gm.state,
+              serviceSlices.length === 0,
+              "Nothing in the shop.",
+            )}
+          >
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <Donut
+                slices={serviceSlices}
+                centre={formatCount(data?.evaluation.openCases ?? 0)}
+                caption="open"
+                size={128}
+              />
+              <ul className="min-w-0 flex-1 space-y-1.5 text-sm">
+                {serviceSlices.map((slice) => (
+                  <li key={slice.name} className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ background: slice.color }}
+                      aria-hidden
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {slice.name}
                     </span>
-                  </td>
-                  {targetMonth && (
-                    <td className="py-1 text-right">
-                      <DeskTarget row={row} target={targetOf(row.memberId)} known={targets.state.kind === 'ok'} month={targetMonth} onSaved={targets.reload} />
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-      </div>
+                    <span className="font-num tabular-nums">
+                      {formatCount(slice.value)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Card>
+          <Card
+            className="col-span-12 md:col-span-6"
+            title="Case manager workload"
+            state={emptyWhen(
+              pm.state,
+              (pm.data?.workload.length ?? 0) === 0,
+              "No case manager is carrying cases.",
+            )}
+          >
+            {pm.data?.workload.map((cm) => (
+              <CapacityBar
+                key={cm.cmId}
+                label={cm.name}
+                used={cm.active}
+                capacity={cm.capacity}
+              />
+            ))}
+          </Card>
+        </div>
 
-      {/* 3 — MARKETING */}
-      <Heading>Marketing</Heading>
-      <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="New leads"
-          state={pipelineState}
-          value={data?.marketing ? data.marketing.newLeads : null}
-          denominator={
-            data?.marketing ? `worth ${formatMoney(Math.round(data.marketing.newValue))}` : undefined
-          }
-          note={`Opportunities opened on a marketing desk ${period}.`}
-        />
-        {/* The PDF's "leads with no source — needs fixing". Amber rather than red: unattributed
-            leads are a measurement failure, not an operational one, and painting it red would put
-            it beside "3 cases are late" as if they cost the same. */}
-        <KpiCard
-          title="Leads with no source"
-          state={pipelineState}
-          value={data?.marketing?.noSourcePct ?? null}
-          unit="%"
-          tone={
-            data?.marketing?.noSourcePct == null
-              ? undefined
-              : data.marketing.noSourcePct >= 25
-                ? 'warn'
-                : 'good'
-          }
-          note="Share of this period's opportunities GHL holds no source for — attribution that needs fixing at the form, not here."
-        />
-      </div>
+        <aside className="col-span-12 grid grid-cols-1 items-start gap-5 md:grid-cols-2">
+          {/* Late is past the promised date; `At risk` is the wider band — deliberately two rows, because one
+              word answering two definitions is how a dashboard stops being believed. `No movement` is `bad`
+              above zero rather than against a tolerance: one deal nobody has touched in a working week is
+              already the problem. Leads with no source is amber, not red: a measurement failure, not an
+              operational one. */}
+          <Card title="Needs attention" state={{ kind: "ok" }}>
+            <ul className="-mx-2 space-y-1">
+              <AttentionRow
+                label="Late"
+                sub="past promised date"
+                value={data ? data.evaluation.late : null}
+                tone={
+                  data === null
+                    ? undefined
+                    : data.evaluation.late > 0
+                      ? "bad"
+                      : "good"
+                }
+                to="/board?urgent=1"
+              />
+              <AttentionRow
+                label="At risk"
+                sub="late or in the red band"
+                value={pm.data ? pm.data.atRiskNow : null}
+                tone={
+                  pm.data === null
+                    ? undefined
+                    : pm.data.atRiskNow > 0
+                      ? "warn"
+                      : "good"
+                }
+                to="/board?urgent=1"
+              />
+              <AttentionRow
+                label={`No movement ${STALE_DAYS}d+`}
+                sub="open deals, no activity"
+                value={board.data ? untouched.length : null}
+                tone={
+                  board.data === null
+                    ? undefined
+                    : untouched.length > 0
+                      ? "bad"
+                      : "good"
+                }
+                to="/opportunities/board"
+              />
+              <AttentionRow
+                label="Unassigned"
+                sub="paid, no case manager"
+                value={pm.data ? pm.data.unassigned : null}
+                tone={
+                  pm.data === null
+                    ? undefined
+                    : pm.data.unassigned > 0
+                      ? "warn"
+                      : "good"
+                }
+                to="/board"
+              />
+              <AttentionRow
+                label="Coverage gaps"
+                sub="fields under 5 available"
+                value={
+                  roster.data
+                    ? roster.data.coverage.filter((row) => row.gap).length
+                    : null
+                }
+                tone={
+                  roster.data === null
+                    ? undefined
+                    : roster.data.coverage.some((row) => row.gap)
+                      ? "bad"
+                      : "good"
+                }
+                to="/experts"
+              />
+              <AttentionRow
+                label="Leads with no source"
+                sub="attribution to fix"
+                value={data?.marketing?.noSourcePct ?? null}
+                unit="%"
+                tone={
+                  data?.marketing?.noSourcePct == null
+                    ? undefined
+                    : data.marketing.noSourcePct >= 25
+                      ? "warn"
+                      : "good"
+                }
+              />
+            </ul>
+          </Card>
 
-      {/* 4 — EXPERT MANAGEMENT */}
-      <Heading>Expert network</Heading>
-      <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="Experts"
-          state={roster.state}
-          value={roster.data ? roster.data.roster.available + roster.data.roster.atCapacity : null}
-          denominator={
-            roster.data
-              ? `${roster.data.roster.inactive + roster.data.roster.onLeave} inactive of ${roster.data.roster.total}`
-              : undefined
-          }
-          to="/experts"
-          note="Available and at capacity — the bench that can actually take work."
-        />
-        <KpiCard
-          title="Onboarded"
-          state={roster.state}
-          value={roster.data ? roster.data.onboarding.thisMonth : null}
-          denominator={roster.data ? `of ${roster.data.onboarding.target} this month` : undefined}
-          tone={
-            roster.data === null
-              ? undefined
-              : roster.data.onboarding.thisMonth >= roster.data.onboarding.target
-                ? 'good'
-                : 'warn'
-          }
-          to="/experts"
-          note="Experts whose agreement was signed this calendar month."
-        />
-        <KpiCard
-          title="Offer acceptance"
-          state={roster.state}
-          value={roster.data?.acceptance.ratePct ?? null}
-          unit="%"
-          denominator={roster.data ? `${roster.data.acceptance.resolved} offers resolved` : undefined}
-          tone={
-            roster.data?.acceptance.ratePct == null
-              ? undefined
-              : roster.data.acceptance.ratePct >= 70
-                ? 'good'
-                : 'warn'
-          }
-          note="How often the roster says yes."
-        />
-        <KpiCard
-          title="Coverage gaps"
-          state={roster.state}
-          value={roster.data ? roster.data.coverage.filter((row) => row.gap).length : null}
-          tone={
-            roster.data === null
-              ? undefined
-              : roster.data.coverage.some((row) => row.gap)
-                ? 'bad'
-                : 'good'
-          }
-          to="/experts"
-          note="Fields with fewer than five available experts."
-        />
-      </div>
-
-      {/* 5 — EVALUATION DEPARTMENT */}
-      <Heading>Evaluation department</Heading>
-      <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="Open cases"
-          state={gm.state}
-          value={data ? data.evaluation.openCases : null}
-          denominator={
-            data ? `worth ${formatMoney(Math.round(data.evaluation.openValue))}` : undefined
-          }
-          to="/board"
-          note="Paid work in the shop — not yet delivered, not closed."
-        />
-        <KpiCard
-          title="Delivered"
-          state={gm.state}
-          value={data ? data.evaluation.delivered : null}
-          denominator={
-            data ? `worth ${formatMoney(Math.round(data.evaluation.deliveredValue))}` : undefined
-          }
-          to="/delivery"
-          note={`Signed and sent ${period}.`}
-        />
-        {/* Late is past the promised date. `atRiskNow` beside it is the wider band — deliberately
-            two tiles, because one word answering two definitions is how a dashboard stops being
-            believed. */}
-        <KpiCard
-          title="Late"
-          state={gm.state}
-          value={data ? data.evaluation.late : null}
-          tone={data === null ? undefined : data.evaluation.late > 0 ? 'bad' : 'good'}
-          to="/board?urgent=1"
-          note="Open cases already past their promised date."
-        />
-        <KpiCard
-          title="At risk"
-          state={pm.state}
-          value={pm.data ? pm.data.atRiskNow : null}
-          denominator={
-            pm.data && pm.data.onTime.ratePct !== null
-              ? `${pm.data.onTime.ratePct}% delivered on time`
-              : undefined
-          }
-          tone={pm.data === null ? undefined : pm.data.atRiskNow > 0 ? 'warn' : 'good'}
-          to="/board?urgent=1"
-          note="Late, or inside the red band against the stage SLA."
-        />
-
-        <Card
-          title="Open cases by service"
-          wide
-          state={emptyWhen(gm.state, (data?.byService.length ?? 0) === 0, 'Nothing in the shop.')}
-        >
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ color: 'var(--text-muted)' }}>
-                <th className="pb-1 text-left text-xs font-medium uppercase">Service</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase">Open</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase">Worth</th>
-                <th className="pb-1 text-right text-xs font-medium uppercase">Delivered</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.byService.map((row) => (
-                <tr key={row.serviceType}>
-                  <td className="py-1">{readable(row.serviceType)}</td>
-                  <td className="font-num py-1 text-right tabular-nums">{row.openCases}</td>
-                  <td className="font-num py-1 text-right tabular-nums">
-                    {formatMoney(Math.round(row.openValue))}
-                  </td>
-                  <td className="font-num py-1 text-right tabular-nums">{row.delivered}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
-
-        {/* The two money figures the PDF has no tile for and the GM still owns. Collected and
-            recognised are not repeated here — "business won" and "delivered, worth" above answer
-            the same two questions on this screen's own window. */}
-        <KpiCard
-          title="Open liability"
-          state={revenue.state}
-          money
-          value={revenue.data ? Math.round(revenue.data.total.openLiability) : null}
-          denominator={
-            revenue.data ? `${revenue.data.openCases} paid and not yet delivered` : undefined
-          }
-          tone={revenue.data === null ? undefined : revenue.data.openCases > 0 ? 'warn' : 'good'}
-          note="Money taken for work not yet delivered — the refund exposure."
-        />
-        <KpiCard
-          title="Refunded"
-          state={revenue.state}
-          money
-          value={revenue.data ? Math.round(revenue.data.total.refunded) : null}
-          tone={revenue.data && revenue.data.total.refunded > 0 ? 'bad' : undefined}
-          to="/payouts"
-          note="Shown beside the others and counted inside none of them."
-        />
+          {/* The money and the bench: neither is an alarm, both are the GM's to own. */}
+          <Card title="Money and bench" state={{ kind: "ok" }}>
+            <dl className="space-y-3 text-sm">
+              <Fact
+                label="Open liability"
+                sub={
+                  revenue.data
+                    ? `${revenue.data.openCases} paid, not delivered`
+                    : undefined
+                }
+                value={
+                  revenue.data
+                    ? formatMoney(Math.round(revenue.data.total.openLiability))
+                    : "–"
+                }
+              />
+              <Fact
+                label="Refunded"
+                value={
+                  revenue.data
+                    ? formatMoney(Math.round(revenue.data.total.refunded))
+                    : "–"
+                }
+                to="/payouts"
+              />
+              <Fact
+                label="Experts"
+                sub={
+                  roster.data
+                    ? `${roster.data.roster.inactive + roster.data.roster.onLeave} inactive of ${roster.data.roster.total}`
+                    : undefined
+                }
+                value={
+                  roster.data
+                    ? formatCount(
+                        roster.data.roster.available +
+                          roster.data.roster.atCapacity,
+                      )
+                    : "–"
+                }
+                to="/experts"
+              />
+              <Fact
+                label="Onboarded"
+                sub="agreements signed this month"
+                value={
+                  roster.data
+                    ? `${roster.data.onboarding.thisMonth} / ${roster.data.onboarding.target}`
+                    : "–"
+                }
+                to="/experts"
+              />
+              <Fact
+                label="Offer acceptance"
+                sub={
+                  roster.data
+                    ? `${roster.data.acceptance.resolved} offers resolved`
+                    : undefined
+                }
+                value={
+                  roster.data?.acceptance.ratePct == null
+                    ? "–"
+                    : `${roster.data.acceptance.ratePct}%`
+                }
+              />
+            </dl>
+          </Card>
+        </aside>
       </div>
     </section>
-  )
+  );
 }
 
 /** "Set monthly target": an inline amount field for the month the headline is showing. */
-function GoalButton({ month, current, onSaved }: { month: string; current: number | null; onSaved(): void }) {
-  const [editing, setEditing] = useState(false)
-  const [amount, setAmount] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [refusal, setRefusal] = useState<string | null>(null)
-  const label = new Date(`${month}T12:00:00Z`).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+function GoalButton({
+  month,
+  current,
+  onSaved,
+}: {
+  month: string;
+  current: number | null;
+  onSaved(): void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const label = new Date(`${month}T12:00:00Z`).toLocaleDateString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
 
   async function save() {
-    setSaving(true)
-    setRefusal(null)
+    setSaving(true);
+    setRefusal(null);
     try {
-      await setGmGoal(month, Number(amount))
-      setEditing(false)
-      onSaved()
+      await setGmGoal(month, Number(amount));
+      setEditing(false);
+      onSaved();
     } catch (error: unknown) {
-      setRefusal(error instanceof Error ? error.message : 'The target was not saved')
+      setRefusal(
+        error instanceof Error ? error.message : "The target was not saved",
+      );
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
@@ -512,27 +718,27 @@ function GoalButton({ month, current, onSaved }: { month: string; current: numbe
       <button
         type="button"
         onClick={() => {
-          setAmount(current ? String(Math.round(current)) : '')
-          setEditing(true)
+          setAmount(current ? String(Math.round(current)) : "");
+          setEditing(true);
         }}
         className="mt-3 rounded-md border px-3 py-1.5 text-sm font-medium"
-        style={{ borderColor: 'var(--border-default)' }}
+        style={{ borderColor: "var(--border-default)" }}
       >
-        {current ? 'Change monthly target' : 'Set monthly target'}
+        {current ? "Change monthly target" : "Set monthly target"}
       </button>
-    )
+    );
   }
 
   return (
     <form
       className="mt-3 flex flex-wrap items-center gap-2"
       onSubmit={(event) => {
-        event.preventDefault()
-        void save()
+        event.preventDefault();
+        void save();
       }}
     >
-      <label className="text-sm" style={{ color: 'var(--text-muted)' }}>
-        Target for {label}{' '}
+      <label className="text-sm" style={{ color: "var(--text-muted)" }}>
+        Target for {label}{" "}
         <input
           type="number"
           min={0}
@@ -542,14 +748,18 @@ function GoalButton({ month, current, onSaved }: { month: string; current: numbe
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
           className="font-num ml-1 w-32 rounded-md border px-2 py-1 text-sm tabular-nums"
-          style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-primary)' }}
+          style={{
+            borderColor: "var(--border-default)",
+            background: "var(--bg-surface)",
+            color: "var(--text-primary)",
+          }}
         />
       </label>
       <button
         type="submit"
-        disabled={saving || amount === ''}
+        disabled={saving || amount === ""}
         className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-        style={{ background: 'var(--accent-primary)' }}
+        style={{ background: "var(--accent-primary)" }}
       >
         Save
       </button>
@@ -557,21 +767,29 @@ function GoalButton({ month, current, onSaved }: { month: string; current: numbe
         type="button"
         onClick={() => setEditing(false)}
         className="rounded-md border px-3 py-1.5 text-sm font-medium"
-        style={{ borderColor: 'var(--border-default)' }}
+        style={{ borderColor: "var(--border-default)" }}
       >
         Cancel
       </button>
       {refusal && (
-        <p className="w-full text-sm" style={{ color: 'var(--status-red)' }}>
+        <p className="w-full text-sm" style={{ color: "var(--status-red)" }}>
           {refusal}
         </p>
       )}
     </form>
-  )
+  );
 }
 
-function Heading({ children }: { children: string }) {
-  return <h2 className="mt-8 text-lg font-semibold tracking-tight">{children}</h2>
+/** A quiet level label that spans the grid: the hierarchy is the order, not a louder heading. */
+function Label({ children }: { children: string }) {
+  return (
+    <h2
+      className="col-span-12 mt-2 text-xs font-semibold uppercase tracking-wider"
+      style={{ color: "var(--text-muted)" }}
+    >
+      {children}
+    </h2>
+  );
 }
 
 /**
@@ -585,16 +803,24 @@ function Heading({ children }: { children: string }) {
 function MoneyBars({
   rows,
 }: {
-  rows: readonly { label: string; value: number; detail: string }[]
+  rows: readonly { label: string; value: number; detail: string }[];
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={[...rows]} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--border-default)" horizontal={false} />
+      <BarChart
+        data={[...rows]}
+        layout="vertical"
+        margin={{ top: 4, right: 12, bottom: 0, left: 0 }}
+      >
+        <CartesianGrid
+          strokeDasharray="3 3"
+          stroke="var(--border-default)"
+          horizontal={false}
+        />
         <XAxis
           type="number"
           tickFormatter={(value: number) => formatMoney(value)}
-          tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+          tick={{ fontSize: 11, fill: "var(--text-muted)" }}
           tickLine={false}
           axisLine={false}
         />
@@ -602,34 +828,171 @@ function MoneyBars({
           type="category"
           dataKey="label"
           width={110}
-          tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+          tick={{ fontSize: 11, fill: "var(--text-muted)" }}
           tickLine={false}
           axisLine={false}
         />
         <Tooltip
-          cursor={{ fill: 'var(--bg-raised)' }}
+          cursor={{ fill: "var(--bg-raised)" }}
           contentStyle={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-default)',
-            borderRadius: 'var(--radius-md)',
-            fontSize: '0.8125rem',
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            borderRadius: "var(--radius-md)",
+            fontSize: "0.8125rem",
           }}
           // The exact amount on hover, with the count beside it: $14k over one deal and $14k over
           // twenty are not the same claim about a channel.
           formatter={(value, _name, item) =>
-            [`${formatMoney(Number(value))} (${item?.payload?.detail ?? ''})`, 'Value'] as [
-              string,
-              string,
-            ]
+            [
+              `${formatMoney(Number(value))} (${item?.payload?.detail ?? ""})`,
+              "Value",
+            ] as [string, string]
           }
         />
-        <Bar dataKey="value" fill="var(--accent-primary)" radius={[0, 4, 4, 0]} maxBarSize={18} />
+        <Bar
+          dataKey="value"
+          fill="var(--accent-primary)"
+          radius={[0, 4, 4, 0]}
+          maxBarSize={18}
+        >
+          {rows.map((row, i) => (
+            <Cell
+              key={row.label}
+              fill={i < SERIES.length ? SERIES[i] : "var(--text-muted)"}
+            />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
-  )
+  );
 }
 
 /** `CREDENTIAL_EVALUATION` → `Credential evaluation`. Same helper the PM's chart uses. */
 function readable(value: string): string {
-  return value.charAt(0) + value.slice(1).toLowerCase().replaceAll('_', ' ')
+  return value.charAt(0) + value.slice(1).toLowerCase().replaceAll("_", " ");
+}
+
+/**
+ * A tile's line, straight from the trend series the server cut the period into — one point per slice, the
+ * same numbers the trend chart plots. The label is what hover says, so the line can be read as a value.
+ */
+function sparkOf(
+  trend: GmTrend | null | undefined,
+  pick: (point: GmTrendPoint) => number,
+  what: string,
+  format: (n: number) => string,
+) {
+  const points = trend?.points ?? [];
+  const values = points.map(pick);
+  const per =
+    trend && trend.bucketDays > 1 ? `${trend.bucketDays}-day slice` : "day";
+  return {
+    values,
+    label: values.length
+      ? `${what} per ${per}, peak ${format(Math.round(Math.max(...values)))}`
+      : undefined,
+  };
+}
+
+/** One row of the alert list: what it is, what it means, and the count as a status pill. */
+function AttentionRow({
+  label,
+  sub,
+  value,
+  unit,
+  tone,
+  to,
+}: {
+  label: string;
+  sub: string;
+  value: number | null;
+  unit?: string;
+  tone?: "good" | "warn" | "bad";
+  to?: string;
+}) {
+  const colour =
+    tone === "bad"
+      ? "red"
+      : tone === "warn"
+        ? "amber"
+        : tone === "good"
+          ? "green"
+          : null;
+  const row = (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{label}</span>
+        <span
+          className="block truncate text-xs"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {sub}
+        </span>
+      </span>
+      <span
+        className="font-num shrink-0 rounded-full px-3 py-1 text-sm font-semibold tabular-nums"
+        style={
+          colour
+            ? {
+                background: `var(--status-${colour}-bg)`,
+                color: `var(--status-${colour})`,
+              }
+            : { background: "var(--bg-raised)", color: "var(--text-muted)" }
+        }
+      >
+        {value === null ? "–" : `${formatCount(value)}${unit ?? ""}`}
+      </span>
+    </>
+  );
+  const cls = "flex items-center gap-3 rounded-xl px-2 py-2";
+  return (
+    <li>
+      {to ? (
+        <Link to={to} className={`${cls} hover:bg-(--bg-raised)`}>
+          {row}
+        </Link>
+      ) : (
+        <div className={cls}>{row}</div>
+      )}
+    </li>
+  );
+}
+
+/** A label with a small explanation and its figure — the quiet list. */
+function Fact({
+  label,
+  sub,
+  value,
+  to,
+}: {
+  label: string;
+  sub?: string;
+  value: string;
+  to?: string;
+}) {
+  const body = (
+    <>
+      <dt className="min-w-0">
+        <span className="block truncate font-medium">{label}</span>
+        {sub && (
+          <span
+            className="block truncate text-xs"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {sub}
+          </span>
+        )}
+      </dt>
+      <dd className="font-num shrink-0 text-base font-semibold tabular-nums">
+        {value}
+      </dd>
+    </>
+  );
+  return to ? (
+    <Link to={to} className="flex items-center justify-between gap-3">
+      {body}
+    </Link>
+  ) : (
+    <div className="flex items-center justify-between gap-3">{body}</div>
+  );
 }

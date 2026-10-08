@@ -222,8 +222,8 @@ export default function OpportunityBoardPage() {
           style={{ background: 'rgb(0 0 0 / 0.4)' }}
         >
           <div
-            className="w-full max-w-md rounded-lg border p-5"
-            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+            className="w-full max-w-md rounded-[1.25rem] p-6"
+            style={{ background: 'var(--bg-surface)', boxShadow: 'var(--shadow-pop)' }}
           >
             <h2 className="mb-3 text-base font-semibold">Win this deal</h2>
             <WinNote
@@ -333,8 +333,8 @@ export default function OpportunityBoardPage() {
 
       {state.kind === 'error' ? (
         <div
-          className="rounded-lg border p-4"
-          style={{ background: 'var(--status-red-bg)', borderColor: 'var(--border-default)' }}
+          className="rounded-2xl p-4"
+          style={{ background: 'var(--status-red-bg)' }}
         >
           <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
             {state.note}

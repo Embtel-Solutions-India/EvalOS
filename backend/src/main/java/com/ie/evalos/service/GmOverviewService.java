@@ -193,10 +193,28 @@ public class GmOverviewService {
 			BigDecimal openValue) {
 	}
 
+	/**
+	 * One slice of the period, for the trend chart: the sales desks' new leads and won value, and the same
+	 * slice of the previous period of equal length ({@code start} is where the current slice begins).
+	 */
+	public record TrendPoint(LocalDate start, int leads, BigDecimal won, int previousLeads, BigDecimal previousWon) {
+	}
+
+	/**
+	 * The period cut into at most {@link #TREND_BUCKETS} equal slices — daily up to a month, wider beyond —
+	 * so one rule serves every range the shell's filter can make. {@code comparable} is false when the
+	 * previous period reaches back past the won lookback: its wins would be partial, and a partial
+	 * comparison is worse than none.
+	 */
+	public record Trend(boolean comparable, int bucketDays, List<TrendPoint> points) {
+	}
+
 	public record GmOverview(Headline headline, List<SourceRow> bySource, List<ServiceRow> byService, Sales sales,
-			List<DeskRow> desks, Marketing marketing, Evaluation evaluation, Instant readAt,
+			List<DeskRow> desks, Marketing marketing, Evaluation evaluation, Trend trend, Instant readAt,
 			String pipelineUnavailable) {
 	}
+
+	private static final int TREND_BUCKETS = 31;
 
 	// --- the read ------------------------------------------------------------
 
@@ -213,8 +231,8 @@ public class GmOverviewService {
 			// GHL is not answering; refusing the whole payload would take four working tiles
 			// down with the four that broke.
 			log.warn("GM overview served without its pipeline half: {}", unreachable.getMessage());
-			return new GmOverview(null, List.of(), byService, null, List.of(), null, evaluation, Instant.now(),
-					unreachable.getMessage());
+			return new GmOverview(null, List.of(), byService, null, List.of(), null, evaluation, null,
+					Instant.now(), unreachable.getMessage());
 		}
 	}
 
@@ -228,6 +246,16 @@ public class GmOverviewService {
 		Instant windowStart = window.startInstant();
 		Instant windowEnd = window.endInstant();
 		Instant previousStart = from.minusDays(span).atStartOfDay(window.zone()).toInstant();
+		LocalDate previousFrom = from.minusDays(span);
+		int bucketDays = (int) Math.ceil(span / (double) TREND_BUCKETS);
+		int buckets = (int) Math.ceil(span / (double) bucketDays);
+		boolean comparable = span <= wonLookbackDays;
+		int[] trendLeads = new int[buckets];
+		int[] trendPreviousLeads = new int[buckets];
+		BigDecimal[] trendWon = new BigDecimal[buckets];
+		BigDecimal[] trendPreviousWon = new BigDecimal[buckets];
+		java.util.Arrays.fill(trendWon, BigDecimal.ZERO);
+		java.util.Arrays.fill(trendPreviousWon, BigDecimal.ZERO);
 
 		// GHL's API cannot set an opportunity's native Source, so the back-fill (and any desk that
 		// fills it) writes the "Lead Source" custom field. A blank Source falls back to it, the
@@ -279,6 +307,19 @@ public class GmOverviewService {
 			BigDecimal deskWonValue = BigDecimal.ZERO;
 			BigDecimal deskNewValue = BigDecimal.ZERO;
 
+			if (desk.getRole() != Role.MARKETING) {
+				// The trend is the sales desks', like the headline it sits under.
+				for (GhlPipelineClient.Opportunity opportunity : created) {
+					bump(trendLeads, opportunity.createdAt(), from, bucketDays, window);
+				}
+				for (String pipelineId : held) {
+					for (GhlPipelineClient.Opportunity opportunity : ghl.opportunitiesIn(pipelineId, previousFrom,
+							from.minusDays(1))) {
+						bump(trendPreviousLeads, opportunity.createdAt(), previousFrom, bucketDays, window);
+					}
+				}
+			}
+
 			for (GhlPipelineClient.Opportunity opportunity : created) {
 				deskNewValue = deskNewValue.add(amountOf(opportunity));
 				opportunities++;
@@ -298,11 +339,15 @@ public class GmOverviewService {
 					// Sales wins only, same rule as the headline these bars split.
 					if (desk.getRole() != Role.MARKETING) {
 						merge(sourceTotals, win, leadSourceFieldId, mirrored);
+						add(trendWon, at, from, bucketDays, window, amountOf(win));
 					}
 				}
 				else if (!at.isBefore(previousStart) && at.isBefore(windowStart)) {
 					previousWon++;
 					previousWonValue = previousWonValue.add(amountOf(win));
+					if (desk.getRole() != Role.MARKETING) {
+						add(trendPreviousWon, at, previousFrom, bucketDays, window, amountOf(win));
+					}
 				}
 			}
 
@@ -341,8 +386,44 @@ public class GmOverviewService {
 				new Marketing(marketingNew, marketingNewValue,
 						opportunities == 0 ? null : Math.round(unattributed * 100f / opportunities)),
 				evaluation,
+				trend(from, bucketDays, comparable, trendLeads, trendPreviousLeads, trendWon, trendPreviousWon),
 				Instant.now(),
 				null);
+	}
+
+	private static Trend trend(LocalDate from, int bucketDays, boolean comparable, int[] leads, int[] previousLeads,
+			BigDecimal[] won, BigDecimal[] previousWon) {
+		List<TrendPoint> points = new ArrayList<>();
+		for (int i = 0; i < leads.length; i++) {
+			points.add(new TrendPoint(from.plusDays((long) i * bucketDays), leads[i], won[i],
+					comparable ? previousLeads[i] : 0, comparable ? previousWon[i] : BigDecimal.ZERO));
+		}
+		return new Trend(comparable, bucketDays, points);
+	}
+
+	/** The slice an instant falls in, counted from {@code base}; -1 when it is outside the period. */
+	private static int slice(Instant at, LocalDate base, int bucketDays, int buckets, DateWindow window) {
+		if (at == null) {
+			return -1;
+		}
+		long day = at.atZone(window.zone()).toLocalDate().toEpochDay() - base.toEpochDay();
+		int index = (int) (day / bucketDays);
+		return day < 0 || index >= buckets ? -1 : index;
+	}
+
+	private static void bump(int[] counts, Instant at, LocalDate base, int bucketDays, DateWindow window) {
+		int index = slice(at, base, bucketDays, counts.length, window);
+		if (index >= 0) {
+			counts[index]++;
+		}
+	}
+
+	private static void add(BigDecimal[] sums, Instant at, LocalDate base, int bucketDays, DateWindow window,
+			BigDecimal amount) {
+		int index = slice(at, base, bucketDays, sums.length, window);
+		if (index >= 0) {
+			sums[index] = sums[index].add(amount);
+		}
 	}
 
 	/**

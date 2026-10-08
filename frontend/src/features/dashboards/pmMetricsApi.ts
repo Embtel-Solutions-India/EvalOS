@@ -263,6 +263,12 @@ export type GmEvaluation = {
   openValue: number
 }
 
+/** One slice of the period and the same slice of the previous one (`GmOverviewService.TrendPoint`). */
+export type GmTrendPoint = { start: string; leads: number; won: number; previousLeads: number; previousWon: number }
+
+/** `comparable` is false when the previous period reaches back past the won lookback — then its wins are partial. */
+export type GmTrend = { comparable: boolean; bucketDays: number; points: GmTrendPoint[] }
+
 export type GmOverview = {
   headline: GmHeadline | null
   bySource: GmSourceRow[]
@@ -271,6 +277,8 @@ export type GmOverview = {
   desks: GmDeskRow[]
   marketing: GmMarketing | null
   evaluation: GmEvaluation
+  /** Null with the pipeline half: the series is GHL's. */
+  trend: GmTrend | null
   readAt: string
   /** Null when GHL answered. The reason it did not, otherwise. */
   pipelineUnavailable: string | null

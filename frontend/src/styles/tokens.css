@@ -9,7 +9,7 @@
 :root {
   /* Surfaces & text. A cool neutral canvas with white cards on it: the contrast between the
      two is small on purpose, so a dense screen reads as panels rather than as stripes. */
-  --bg-base: #fafafa;
+  --bg-base: #f6f6fb;
   --bg-surface: #ffffff;
   --bg-raised: #f3f4f4;
   --card-text-muted: #4b5563;
@@ -24,13 +24,15 @@
      opposite of what the previous language did (a white rounded card floating on a tinted
      canvas). The rail anchors the left edge and lets the content area stay quiet, which is
      what carries a screen holding this many panels at once. */
-  --sidebar-bg: #ebecfe;
+  --sidebar-bg: #d6d9f8;
   --sidebar-text: #131313;
-  --sidebar-muted: #606b81;
+  --sidebar-muted: #44506a;
   /* Active nav item: a lifted navy rather than the accent at alpha. On a tinted rail an alpha
      fill of the blue accent goes muddy, and the label has to stay legible against it. */
   --sidebar-active-bg: #3c3df2;
-  --sidebar-border: #dcddf2;
+  --sidebar-border: #bfc4ee;
+  /* The top bar: a notch lighter than the rail, so the two read as one frame around the canvas. */
+  --topbar-bg: #e1e3f9;
 
   /* Accent — the only decorative/brand color */
   --accent-primary: #3c3df2;
@@ -81,6 +83,8 @@
      between adjacent panels and the grid turns soupy. A hairline border plus a short shadow
      keeps twenty panels legible side by side. */
   --shadow-card: 12px 12px 24px rgb(10 11 56 / 0.07), -12px -12px 24px rgb(10 11 56 / 0.04);
+  /* The reference's card lift: wide, soft, faintly violet, no hard edge. Dashboards only. */
+  --shadow-soft: 0 10px 30px rgb(80 70 160 / 0.08);
   --shadow-pop: 0 8px 24px -4px rgb(17 24 39 / 0.12), 0 2px 6px -2px rgb(17 24 39 / 0.06);
   --ring-focus: 0 0 0 2px var(--bg-surface), 0 0 0 4px var(--accent-primary);
 

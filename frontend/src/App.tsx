@@ -67,7 +67,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/checklists': <ChecklistBoard />,
   '/contacts': <ContactsPage />,
   '/experts': <ExpertRoster />,
-  // Unit 65: the Payouts module. The weekly batch moved to Pay run.
+  // Unit 65: the Payouts module. The weekly batch moved to Payment batch.
   '/payouts': <PayoutsOverview />,
   '/payouts/cases': <PayoutRegister />,
   '/payouts/experts': <ExpertBalances />,

@@ -1,4 +1,4 @@
-import type { Role } from '../../lib/session'
+import type { Role } from "../../lib/session";
 
 /**
  * The nav and the route allow-list are one table, not two.
@@ -13,16 +13,16 @@ import type { Role } from '../../lib/session'
  * pointless click.
  */
 export type NavItem = {
-  path: string
-  label: string
-  roles: readonly Role[]
+  path: string;
+  label: string;
+  roles: readonly Role[];
   /** Shown under the label on the placeholder page, so it is clear what lands here. */
-  becomes: string
+  becomes: string;
   /**
    * The nav heading this item sits under. Grouping is by consecutive runs of this value,
    * so the order of {@link NAV_ITEMS} is the order on screen.
    */
-  group: NavGroup
+  group: NavGroup;
   /**
    * Whether this screen reads the one GHL sub-account named by `evalos.ghl.location-id`.
    *
@@ -39,7 +39,7 @@ export type NavItem = {
    * brand-locked SALES or MARKETING member can be scoped to it. That is an exception the test
    * states explicitly rather than one it fails to notice.
    */
-  readsGhlLocation?: true
+  readsGhlLocation?: true;
   /**
    * Whether this screen's brand is provable, so a pipeline-scoped role may reach it.
    *
@@ -52,10 +52,18 @@ export type NavItem = {
    * `readsGhlLocation` itself: a hardcoded list passes for the next screen somebody forgets to add
    * to it.
    */
-  brandProven?: true
-}
+  brandProven?: true;
+};
 
-export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Hiring' | 'Pipeline' | 'Records' | 'Payouts' | 'Admin'
+export type NavGroup =
+  | "Overview"
+  | "Marketing"
+  | "Sales"
+  | "Hiring"
+  | "Pipeline"
+  | "Records"
+  | "Payouts"
+  | "Admin";
 
 /**
  * Every role that works EvalOS's own cases — which is **no longer every role**.
@@ -67,13 +75,13 @@ export type NavGroup = 'Overview' | 'Marketing' | 'Sales' | 'Hiring' | 'Pipeline
  * every entry using this list correctly excludes them without anyone editing it.
  */
 const PRODUCTION_ROLES: readonly Role[] = [
-  'GM',
-  'BRAND_MANAGER',
-  'PROJECT_MANAGER',
-  'PROJECT_COORDINATOR',
-  'CASE_MANAGER',
-  'EXPERT_NETWORK_MANAGER',
-]
+  "GM",
+  "BRAND_MANAGER",
+  "PROJECT_MANAGER",
+  "PROJECT_COORDINATOR",
+  "CASE_MANAGER",
+  "EXPERT_NETWORK_MANAGER",
+];
 
 /**
  * The three payout roles, named once.
@@ -83,7 +91,11 @@ const PRODUCTION_ROLES: readonly Role[] = [
  * controller's `@PreAuthorize` to that constant, so the server side cannot drift; this is the
  * client half of the same fact.
  */
-const PAYOUT_ROLES: readonly Role[] = ['GM', 'BRAND_MANAGER', 'EXPERT_NETWORK_MANAGER']
+const PAYOUT_ROLES: readonly Role[] = [
+  "GM",
+  "BRAND_MANAGER",
+  "EXPERT_NETWORK_MANAGER",
+];
 
 export const NAV_ITEMS: readonly NavItem[] = [
   // **`PRODUCTION_ROLES` plus the two pipeline roles, spelled out rather than widened.**
@@ -92,21 +104,21 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // They join *this* entry and no other, because `RoleDashboard` gained them a landing screen on
   // 2026-09-14 (`PipelineDashboard`) that reads GHL opportunities and no case at all.
   {
-    path: '/dashboard',
-    label: 'Dashboard',
-    roles: [...PRODUCTION_ROLES, 'SALES', 'MARKETING', 'ADMIN'],
-    becomes: 'Role dashboard (Unit 17)',
-    group: 'Overview',
+    path: "/dashboard",
+    label: "Dashboard",
+    roles: [...PRODUCTION_ROLES, "SALES", "MARKETING", "ADMIN"],
+    becomes: "Role dashboard (Unit 17)",
+    group: "Overview",
   },
 
   // Case chat (Unit 57). Every role that sits in a conversation: the case team, pipeline Sales, and
   // GM / Brand Manager read-only. Marketing is in none (`ChatMembership`), so it has no entry.
   {
-    path: '/conversations',
-    label: 'Conversations',
-    roles: [...PRODUCTION_ROLES, 'SALES'],
-    becomes: 'Case conversations, grouped by case',
-    group: 'Overview',
+    path: "/conversations",
+    label: "Conversations",
+    roles: [...PRODUCTION_ROLES, "SALES"],
+    becomes: "Case conversations, grouped by case",
+    group: "Overview",
   },
 
   // **The two GHL funnel screens were removed on 2026-09-16, and the reason is the one the
@@ -142,18 +154,18 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // component scoped to one audience, with the team drill-down only the GM is offered. They read the
   // local mirror, not the GHL location, so they carry no `readsGhlLocation`.
   {
-    path: '/dashboard/sales',
-    label: 'Sales performance',
-    roles: ['GM', 'ADMIN'],
-    becomes: 'Sales dashboard, drillable to a salesperson',
-    group: 'Sales',
+    path: "/dashboard/sales",
+    label: "Sales performance",
+    roles: ["GM", "ADMIN"],
+    becomes: "Sales dashboard, drillable to a salesperson",
+    group: "Sales",
   },
   {
-    path: '/dashboard/marketing',
-    label: 'Marketing performance',
-    roles: ['GM', 'ADMIN'],
-    becomes: 'Marketing dashboard, drillable to a member',
-    group: 'Sales',
+    path: "/dashboard/marketing",
+    label: "Marketing performance",
+    roles: ["GM", "ADMIN"],
+    becomes: "Marketing dashboard, drillable to a member",
+    group: "Sales",
   },
   // **The first entry over the GHL location that is not GM-only**, and that is what Unit 36
   // paid for. The rule above — "one global `location-id`, EvalOS cannot prove whose brand, so
@@ -165,13 +177,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // same data; the server picks the pipeline from their own token. There is no variant to
   // choose and no parameter to pass.
   {
-    path: '/opportunities/board',
+    path: "/opportunities/board",
     readsGhlLocation: true,
     brandProven: true,
-    label: 'My pipeline',
-    roles: ['SALES', 'MARKETING', 'GM', 'ADMIN'],
-    becomes: 'GHL opportunities as cards, by stage',
-    group: 'Sales',
+    label: "My pipeline",
+    roles: ["SALES", "MARKETING", "GM", "ADMIN"],
+    becomes: "GHL opportunities as cards, by stage",
+    group: "Sales",
   },
 
   // **Opening a deal is a nav entry, not a button on the board** (2026-09-17, on the business's
@@ -183,80 +195,64 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // pipeline). Offering a salesperson the lead form would quietly overwrite a repeat client's
   // first deal, which is the trade `39` §3a took for marketing alone.
   {
-    path: '/opportunities/new',
+    path: "/opportunities/new",
     readsGhlLocation: true,
     brandProven: true,
-    label: 'Add opportunity',
-    roles: ['SALES'],
-    becomes: 'Open a deal on your own pipeline',
-    group: 'Sales',
+    label: "Add opportunity",
+    roles: ["SALES"],
+    becomes: "Open a deal on your own pipeline",
+    group: "Sales",
   },
 
   // The marketer's half. Same reasoning, same place; the form opens on its own screen rather than
   // inline above a board that had to load first.
   {
-    path: '/marketing/leads/new',
+    path: "/marketing/leads/new",
     readsGhlLocation: true,
     brandProven: true,
-    label: 'Add lead',
-    roles: ['MARKETING'],
-    becomes: 'Capture a lead on your own pipeline',
-    group: 'Sales',
+    label: "Add lead",
+    roles: ["MARKETING"],
+    becomes: "Capture a lead on your own pipeline",
+    group: "Sales",
   },
 
   // The salesperson's diary, and the one place a meeting can be booked without first finding the
   // deal on the board.
   //
-  // **SALES only, and Marketing is absent on purpose.** `39` §5 gives Marketing no booking action
-  // — a marketer nurtures a lead and hands it over; the meeting belongs to whoever closes. Adding
-  // Marketing here would offer a button the server refuses.
+  // **Sales and Marketing** (2026-10-09): every business-development desk books. This reverses `39` §5,
+  // which gave Marketing no booking action; the server's booking, calendar and diary routes now admit
+  // both, and each desk still sees only deals in its own pipelines (`PipelineScope`).
   //
   // Sits in the Sales group beside the funnel, because that is when it happens: a meeting is
   // worked before EvalOS takes custody at Handoff A.
   {
-    path: '/meetings',
-    label: 'Meetings',
-    roles: ['SALES'],
-    becomes: 'Your diary',
-    group: 'Sales',
-  },
-
-  // Booking, beside the diary rather than inside it (2026-09-17). Same move as Add opportunity and
-  // Add lead: the diary answers "what is booked", and adding to it is a different question.
-  //
-  // **Marked `readsGhlLocation`** because the form reads the location's calendars, its users and —
-  // live, always — its free slots. SALES only, for the reason the diary is: `39` §5 gives Marketing
-  // no booking action, so listing it for them would be a button the server refuses.
-  {
-    path: '/meetings/new',
-    readsGhlLocation: true,
-    brandProven: true,
-    label: 'Add meeting',
-    roles: ['SALES'],
-    becomes: 'Book an appointment in GHL',
-    group: 'Sales',
+    path: "/meetings",
+    label: "Meetings",
+    roles: ["SALES", "MARKETING"],
+    becomes: "Your diary",
+    group: "Sales",
   },
 
   // The ENM's hiring desk (Unit 63): the same board and lead form over their brand's EXPERT_HIRING
   // pipelines, which the server derives from the purpose tag. Brand-proven for the reason the Sales
   // board is: the pipeline's brand is the ENM's own, and the server refuses any other.
   {
-    path: '/hiring',
+    path: "/hiring",
     readsGhlLocation: true,
     brandProven: true,
-    label: 'Hiring pipeline',
-    roles: ['EXPERT_NETWORK_MANAGER'],
-    becomes: 'Expert candidates in GHL, by stage',
-    group: 'Hiring',
+    label: "Hiring pipeline",
+    roles: ["EXPERT_NETWORK_MANAGER"],
+    becomes: "Expert candidates in GHL, by stage",
+    group: "Hiring",
   },
   {
-    path: '/hiring/new',
+    path: "/hiring/new",
     readsGhlLocation: true,
     brandProven: true,
-    label: 'Add candidate',
-    roles: ['EXPERT_NETWORK_MANAGER'],
-    becomes: 'Open a candidate on the hiring pipeline',
-    group: 'Hiring',
+    label: "Add candidate",
+    roles: ["EXPERT_NETWORK_MANAGER"],
+    becomes: "Open a candidate on the hiring pipeline",
+    group: "Hiring",
   },
 
   // The production board. Four roles, one screen: the spec's per-role wording ("all
@@ -268,11 +264,17 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // *as this board* — so the one screen with live data was listed second, below a page that
   // could only ever say "not built yet". Two entries for one screen is how that happens.
   {
-    path: '/board',
-    label: 'Production board',
-    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'ADMIN'],
-    becomes: 'Kanban production board',
-    group: 'Pipeline',
+    path: "/board",
+    label: "Production board",
+    roles: [
+      "GM",
+      "BRAND_MANAGER",
+      "PROJECT_MANAGER",
+      "PROJECT_COORDINATOR",
+      "ADMIN",
+    ],
+    becomes: "Kanban production board",
+    group: "Pipeline",
   },
 
   // The PM's two working queues (Unit 22, slice 1). Both read `/api/cases/board` rather than
@@ -290,22 +292,22 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // one of them from the board or the case page — what they no longer have is a queue of
   // somebody else's work in their sidebar.
   {
-    path: '/inbox',
-    label: 'Cases inbox',
-    roles: ['PROJECT_MANAGER'],
-    becomes: 'Incoming and at-risk cases',
-    group: 'Pipeline',
+    path: "/inbox",
+    label: "Cases inbox",
+    roles: ["PROJECT_MANAGER"],
+    becomes: "Incoming and at-risk cases",
+    group: "Pipeline",
   },
   // PM-only, and unlike `/inbox` above this one matches its backend gate exactly: Unit 23a
   // removed `GM_OR` from `draft/pm-approve` and `draft/pm-return` outright. Reviewing a Case
   // Manager's draft is the judgement of the PM who assigned it; a superuser override around the
   // reviewer is a second reviewer, not oversight.
   {
-    path: '/drafts',
-    label: 'Draft review',
-    roles: ['PROJECT_MANAGER'],
-    becomes: 'Drafts awaiting your review',
-    group: 'Pipeline',
+    path: "/drafts",
+    label: "Draft review",
+    roles: ["PROJECT_MANAGER"],
+    becomes: "Drafts awaiting your review",
+    group: "Pipeline",
   },
 
   // The expert assignment board (Unit 17's PM widget, `17-dashboards.md`): who is waiting for an
@@ -321,11 +323,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // is the same split `ExpertShortlistController` already draws and which
   // `CaseController.expertTimedOut` enforces on the server.
   {
-    path: '/expert-assignment',
-    label: 'Expert assignment',
-    roles: ['PROJECT_MANAGER'],
-    becomes: 'Cases waiting for an expert, availability, overdue signatures',
-    group: 'Pipeline',
+    path: "/expert-assignment",
+    label: "Expert assignment",
+    roles: ["PROJECT_MANAGER"],
+    becomes: "Cases waiting for an expert, availability, overdue signatures",
+    group: "Pipeline",
   },
 
   // What the PM asked for, on every case that is the CM's (Unit 32b).
@@ -339,11 +341,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // The two screens draw the same cases and share no component: this one lists notes with nothing
   // to expand, because a "PM notes" screen that hides the notes repeats the problem it fixes.
   {
-    path: '/pm-notes',
-    label: 'PM notes',
-    roles: ['CASE_MANAGER'],
+    path: "/pm-notes",
+    label: "PM notes",
+    roles: ["CASE_MANAGER"],
     becomes: "The PM's strategy notes for your cases",
-    group: 'Pipeline',
+    group: "Pipeline",
   },
 
   // The Case Manager's own drafting queue (Unit 32a): what the PM told them, and what became of
@@ -359,21 +361,21 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // deliberately a different screen: theirs is a work queue of other people's drafts, this is a
   // status board of your own.
   {
-    path: '/my-drafts',
-    label: 'My drafts',
-    roles: ['CASE_MANAGER'],
-    becomes: 'PM strategy notes and your draft history',
-    group: 'Pipeline',
+    path: "/my-drafts",
+    label: "My drafts",
+    roles: ["CASE_MANAGER"],
+    becomes: "PM strategy notes and your draft history",
+    group: "Pipeline",
   },
 
   // Case Manager. Their docket is the same board narrowed by their own assignment, which
   // the server does — so this is the board, not a second screen.
   {
-    path: '/my-cases',
-    label: 'My cases',
-    roles: ['CASE_MANAGER'],
-    becomes: 'Cases assigned to you',
-    group: 'Pipeline',
+    path: "/my-cases",
+    label: "My cases",
+    roles: ["CASE_MANAGER"],
+    becomes: "Cases assigned to you",
+    group: "Pipeline",
   },
 
   // The delivery queue (Unit 22, slice 2) — the /delivery entry the tracker's G3 asked for, now
@@ -381,11 +383,11 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // GM_OR PROJECT_COORDINATOR. The Brand Manager is absent, which is the correction the previous
   // /delivery entry needed — it listed a role its own backend gate refused for a whole unit.
   {
-    path: '/delivery',
-    label: 'Delivery queue',
-    roles: ['GM', 'PROJECT_COORDINATOR'],
-    becomes: 'Cases ready to send',
-    group: 'Pipeline',
+    path: "/delivery",
+    label: "Delivery queue",
+    roles: ["GM", "PROJECT_COORDINATOR"],
+    becomes: "Cases ready to send",
+    group: "Pipeline",
   },
 
   // The Coordinator's document-collection stage. The role list is the backend gate for that
@@ -397,8 +399,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // is back above, with a screen behind it and roles taken from the transitions it drives. The
   // rule it was really stating still holds: **add the entry with the screen, never ahead of it.**
   {
-    path: '/checklists',
-    label: 'Doc checklists',
+    path: "/checklists",
+    label: "Doc checklists",
     // ChecklistController.COORDINATION, minus the GM as of Unit 23 — the same nav-only narrowing
     // the inbox above takes, for the same reason. Chasing a client for a transcript is the
     // Coordinator's day and the Brand Manager's oversight; it was never the GM's, and the entry
@@ -407,9 +409,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
     // The backend gate keeps `GM_OR`, so this is a listing decision and not a capability one: a
     // GM who needs to tick an item off can still reach it from the case.
     // Unit 61 (D60): the CM sends a case's checklist too, so the CM gets the board.
-    roles: ['BRAND_MANAGER', 'PROJECT_COORDINATOR', 'CASE_MANAGER'],
-    becomes: 'Document checklist tracking',
-    group: 'Pipeline',
+    roles: ["BRAND_MANAGER", "PROJECT_COORDINATOR", "CASE_MANAGER"],
+    becomes: "Document checklist tracking",
+    group: "Pipeline",
   },
 
   // The expert database, live as of Unit 11: roster, availability board, sheet upload.
@@ -435,33 +437,84 @@ export const NAV_ITEMS: readonly NavItem[] = [
     read of the shared location.
   */
   {
-    path: '/contacts',
-    label: 'Contacts',
-    roles: ['GM', 'BRAND_MANAGER', 'SALES', 'MARKETING'],
-    becomes: 'Everyone in the CRM, at the width your role reads',
-    group: 'Records',
+    path: "/contacts",
+    label: "Contacts",
+    roles: ["GM", "BRAND_MANAGER", "SALES", "MARKETING"],
+    becomes: "Everyone in the CRM, at the width your role reads",
+    group: "Records",
   },
   {
-    path: '/experts',
-    label: 'Expert database',
-    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER'],
-    becomes: 'Expert roster + sheet upload',
-    group: 'Records',
+    path: "/experts",
+    label: "Expert database",
+    roles: ["GM", "BRAND_MANAGER", "PROJECT_MANAGER", "EXPERT_NETWORK_MANAGER"],
+    becomes: "Expert roster + sheet upload",
+    group: "Records",
   },
 
   // Unit 65: payouts is its own module — one question per screen. The Overview keeps `/payouts`,
   // so an old bookmark lands on the module's front page rather than a 404.
-  { path: '/payouts', label: 'Overview', roles: PAYOUT_ROLES, becomes: 'Where the money stands', group: 'Payouts' },
-  { path: '/payouts/cases', label: 'Cases', roles: PAYOUT_ROLES, becomes: 'Every case: fee, status, done', group: 'Payouts' },
-  { path: '/payouts/experts', label: 'Experts', roles: PAYOUT_ROLES, becomes: 'Who is owed how much', group: 'Payouts' },
-  { path: '/payouts/pay', label: 'Pay run', roles: PAYOUT_ROLES, becomes: 'Weekly payout batch', group: 'Payouts' },
+  {
+    path: "/payouts",
+    label: "Overview",
+    roles: PAYOUT_ROLES,
+    becomes: "Where the money stands",
+    group: "Payouts",
+  },
+  {
+    path: "/payouts/cases",
+    label: "Cases",
+    roles: PAYOUT_ROLES,
+    becomes: "Every case: fee, status, done",
+    group: "Payouts",
+  },
+  {
+    path: "/payouts/experts",
+    label: "Experts",
+    roles: PAYOUT_ROLES,
+    becomes: "Who is owed how much",
+    group: "Payouts",
+  },
+  {
+    path: "/payouts/pay",
+    label: "Payment batch",
+    roles: PAYOUT_ROLES,
+    becomes: "Weekly payout batch",
+    group: "Payouts",
+  },
 
   // Unit 68: the GM's admin. Staff reads the location's GHL users (its GHL user field) and Pipelines
   // the mirrored location's pipelines, so both are marked: GM-only by invariant 1, not by choice.
-  { path: '/admin/staff', label: 'Staff', roles: ['ADMIN'], becomes: 'Staff directory', group: 'Admin', readsGhlLocation: true },
-  { path: '/admin/pipelines', label: 'Pipelines', roles: ['ADMIN'], becomes: 'GHL pipelines and their purpose', group: 'Admin', readsGhlLocation: true },
-  { path: '/admin/sync', label: 'Sync health', roles: ['ADMIN'], becomes: 'Drift and the GHL push queue', group: 'Admin', readsGhlLocation: true },
-  { path: '/brands', label: 'Brands', roles: ['GM', 'ADMIN'], becomes: 'The brands, read-only', group: 'Admin' },
+  {
+    path: "/admin/staff",
+    label: "Staff",
+    roles: ["ADMIN"],
+    becomes: "Staff directory",
+    group: "Admin",
+    readsGhlLocation: true,
+  },
+  {
+    path: "/admin/pipelines",
+    label: "Pipelines",
+    roles: ["ADMIN"],
+    becomes: "GHL pipelines and their purpose",
+    group: "Admin",
+    readsGhlLocation: true,
+  },
+  {
+    path: "/admin/sync",
+    label: "Sync health",
+    roles: ["ADMIN"],
+    becomes: "Drift and the GHL push queue",
+    group: "Admin",
+    readsGhlLocation: true,
+  },
+  {
+    path: "/brands",
+    label: "Brands",
+    roles: ["GM", "ADMIN"],
+    becomes: "The brands, read-only",
+    group: "Admin",
+  },
 
   // Unit 19's sweeps: are they still running?
   //
@@ -474,13 +527,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // open when a chase did not happen, which is exactly the failure a background job produces
   // — silence, with nothing on any dashboard to show for it.
   {
-    path: '/admin/jobs',
-    label: 'Background jobs',
-    roles: ['ADMIN'],
-    becomes: 'Sweep status and run ledger',
-    group: 'Admin',
+    path: "/admin/jobs",
+    label: "Background jobs",
+    roles: ["ADMIN"],
+    becomes: "Sweep status and run ledger",
+    group: "Admin",
   },
-]
+];
 
 /**
  * Routes that are reachable but not listed, because they need a parameter.
@@ -491,7 +544,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
  * unguarded. Every staff role can open a case; **which** cases is the server's scope, which is
  * why the list here is every role rather than a subset.
  */
-export const CASE_DETAIL_PATH = '/cases/:id'
+export const CASE_DETAIL_PATH = "/cases/:id";
 
 /**
  * One opportunity: the contact, the request they sent, the notes and the actions.
@@ -500,57 +553,68 @@ export const CASE_DETAIL_PATH = '/cases/:id'
  * **Pipeline-scoped on the server**, not by this table: every read behind it calls
  * `PipelineScope.requireMine`, so pasting another desk's id answers 403 rather than a page.
  */
-export const DEAL_DETAIL_PATH = '/opportunities/:opportunityId'
+export const DEAL_DETAIL_PATH = "/opportunities/:opportunityId";
 
 /** One conversation, open in the inbox. Where a staff push notification lands (`ChatPushNotifier`). */
-export const CONVERSATION_PATH = '/conversations/:conversationId'
+export const CONVERSATION_PATH = "/conversations/:conversationId";
 
-/** One expert's pending drafts and their payment history. Reached from the Experts screen and the pay run. */
-export const EXPERT_PAYOUTS_PATH = '/payouts/experts/:expertId'
+/** One expert's pending drafts and their payment history. Reached from the Experts screen and the payment batch. */
+export const EXPERT_PAYOUTS_PATH = "/payouts/experts/:expertId";
 
 /** One transfer and every draft it settled. Reached from a payment history row. */
-export const PAYMENT_DETAIL_PATH = '/payouts/payments/:paymentId'
-
+export const PAYMENT_DETAIL_PATH = "/payouts/payments/:paymentId";
 
 const PARAMETERIZED: readonly NavItem[] = [
+  // Booking is a button on the diary now (2026-10-09), not a sidebar entry, so it is reached rather than listed.
+  // Marked `readsGhlLocation` because the form reads the location's calendars, users and — live, always — its
+  // free slots; both desks that book are brand-proven for the reason the opportunity board is.
+  {
+    path: "/meetings/new",
+    readsGhlLocation: true,
+    brandProven: true,
+    label: "Add meeting",
+    roles: ["SALES", "MARKETING"],
+    becomes: "Book an appointment in GHL",
+    group: "Sales",
+  },
   {
     path: CONVERSATION_PATH,
-    label: 'Conversation',
-    roles: [...PRODUCTION_ROLES, 'SALES'],
-    becomes: 'One conversation',
-    group: 'Overview',
+    label: "Conversation",
+    roles: [...PRODUCTION_ROLES, "SALES"],
+    becomes: "One conversation",
+    group: "Overview",
   },
   {
     path: DEAL_DETAIL_PATH,
     readsGhlLocation: true,
     brandProven: true,
-    label: 'Opportunity',
-    roles: ['SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER'],
-    becomes: 'One deal: contact, request, notes',
-    group: 'Sales',
+    label: "Opportunity",
+    roles: ["SALES", "MARKETING", "GM", "EXPERT_NETWORK_MANAGER"],
+    becomes: "One deal: contact, request, notes",
+    group: "Sales",
   },
   {
     path: CASE_DETAIL_PATH,
-    label: 'Case',
+    label: "Case",
     roles: PRODUCTION_ROLES,
-    becomes: 'Case detail',
-    group: 'Pipeline',
+    becomes: "Case detail",
+    group: "Pipeline",
   },
   {
     path: EXPERT_PAYOUTS_PATH,
-    label: 'Expert payouts',
+    label: "Expert payouts",
     roles: PAYOUT_ROLES,
-    becomes: 'One expert: pending drafts and payment history',
-    group: 'Payouts',
+    becomes: "One expert: pending drafts and payment history",
+    group: "Payouts",
   },
   {
     path: PAYMENT_DETAIL_PATH,
-    label: 'Payment',
+    label: "Payment",
     roles: PAYOUT_ROLES,
-    becomes: 'One transfer and the drafts it settled',
-    group: 'Payouts',
+    becomes: "One transfer and the drafts it settled",
+    group: "Payouts",
   },
-]
+];
 
 /**
  * Whether a nav link lights up only on its own path. True where another nav item lives beneath it
@@ -559,11 +623,11 @@ const PARAMETERIZED: readonly NavItem[] = [
  * its parent.
  */
 export function matchesExactly(path: string): boolean {
-  return NAV_ITEMS.some((item) => item.path.startsWith(`${path}/`))
+  return NAV_ITEMS.some((item) => item.path.startsWith(`${path}/`));
 }
 
 export function navFor(role: Role): readonly NavItem[] {
-  return NAV_ITEMS.filter((item) => item.roles.includes(role))
+  return NAV_ITEMS.filter((item) => item.roles.includes(role));
 }
 
 /**
@@ -572,14 +636,16 @@ export function navFor(role: Role): readonly NavItem[] {
  * Built from consecutive runs rather than by filtering per group, so the table's order is
  * the screen's order and a heading can never appear twice.
  */
-export function navSectionsFor(role: Role): readonly { group: NavGroup; items: readonly NavItem[] }[] {
-  const sections: { group: NavGroup; items: NavItem[] }[] = []
+export function navSectionsFor(
+  role: Role,
+): readonly { group: NavGroup; items: readonly NavItem[] }[] {
+  const sections: { group: NavGroup; items: NavItem[] }[] = [];
   for (const item of navFor(role)) {
-    const last = sections.at(-1)
-    if (last?.group === item.group) last.items.push(item)
-    else sections.push({ group: item.group, items: [item] })
+    const last = sections.at(-1);
+    if (last?.group === item.group) last.items.push(item);
+    else sections.push({ group: item.group, items: [item] });
   }
-  return sections
+  return sections;
 }
 
 /**
@@ -593,11 +659,12 @@ export function boardPathFor(role: Role): { path: string; label: string } {
   // `/opportunities/board` is last because it is the narrowest: only Sales and Marketing land
   // there, and only because they reach neither case board nor a dashboard. A role that has a
   // production board should still be sent to it.
-  for (const path of ['/board', '/my-cases', '/opportunities/board']) {
-    const item = itemFor(path)
-    if (item && mayReach(role, path)) return { path, label: `Go to ${item.label.toLowerCase()}` }
+  for (const path of ["/board", "/my-cases", "/opportunities/board"]) {
+    const item = itemFor(path);
+    if (item && mayReach(role, path))
+      return { path, label: `Go to ${item.label.toLowerCase()}` };
   }
-  return { path: '/dashboard', label: 'Back to your dashboard' }
+  return { path: "/dashboard", label: "Back to your dashboard" };
 }
 
 /**
@@ -609,11 +676,11 @@ export function boardPathFor(role: Role): { path: string; label: string } {
  * that is, for them, both board and dashboard.
  */
 export function homePathFor(role: Role): string {
-  return mayReach(role, '/dashboard') ? '/dashboard' : boardPathFor(role).path
+  return mayReach(role, "/dashboard") ? "/dashboard" : boardPathFor(role).path;
 }
 
 export function itemFor(path: string): NavItem | undefined {
-  return NAV_ITEMS.find((item) => item.path === path)
+  return NAV_ITEMS.find((item) => item.path === path);
 }
 
 /**
@@ -623,6 +690,7 @@ export function itemFor(path: string): NavItem | undefined {
  * the safe direction, and the reason this stays a lookup instead of a default-allow.
  */
 export function mayReach(role: Role, path: string): boolean {
-  const item = itemFor(path) ?? PARAMETERIZED.find((candidate) => candidate.path === path)
-  return item?.roles.includes(role) ?? false
+  const item =
+    itemFor(path) ?? PARAMETERIZED.find((candidate) => candidate.path === path);
+  return item?.roles.includes(role) ?? false;
 }

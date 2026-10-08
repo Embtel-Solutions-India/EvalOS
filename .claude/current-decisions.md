@@ -471,13 +471,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   payout at that amount; the pending-payout amount correction is **removed** (only a *missing* amount can still be set, once). **No adjustments** —
   no bonus, deduction, advance or change after acceptance: per case it is offered amount, status,
   done or not. Every set, edit and outcome is in `audit_event`. Payouts becomes its own staff module
-  (Overview, Cases register, Experts, Pay run) on the shell's period and brand filters.
+  (Overview, Cases register, Experts, Payment batch) on the shell's period and brand filters.
 - **D61.** **The ENM runs the expert lifecycle in EvalOS, and the hiring pipeline is a GHL
   pipeline** (2026-09-29, the business; Unit 63, spec `63-enm-workspace.md`). This reverses the two
   written refusals `00d` §7 names and replaces `00d` Phase 5's `expert_application` design. A GM
   tags a mirrored pipeline `EXPERT_HIRING` (stages *New Lead, Meeting Scheduled, Meeting Done, In
-  Process, Onboarded, Dropped* live in GHL; EvalOS hard-codes none). **Every ENM of that pipeline's
-  brand works it — the tag is the grant**, derived in `TeamMemberPipelineRepository.ghlIdsFor`.
+  Process, Onboarded, Dropped* live in GHL; EvalOS hard-codes none). **An ENM works the hiring pipelines the Administrator
+  grants them, one person at a time** (edited 2026-10-09; it was every ENM of the brand, derived from the tag): the tag only makes a pipeline one that can be granted, `V89` carried each existing ENM's
+  access across, and the grant is refused unless the pipeline is `EXPERT_HIRING` and of the ENM's own brand.
   The ENM uses the Sales desk's board, stage move (mirror + outbox, D44), candidate upsert and deal
   notes; `PipelineScope` bounds every id. **A won hiring opportunity never opens a case**
   (`CaseIntakeService`, a second lock on invariant 8). *Onboarded* leads to the expert database by

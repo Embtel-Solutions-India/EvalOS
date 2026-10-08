@@ -7,6 +7,8 @@ import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Pipeline;
+import com.ie.evalos.domain.PipelinePurpose;
+import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.PipelineRepository;
 import com.ie.evalos.repository.TeamMemberPipelineRepository;
@@ -75,6 +77,12 @@ public class PipelineAssignmentService {
 		TeamMember member = pipelineScopedMember(memberId);
 		Pipeline pipeline = mirrored(pipelineId);
 
+		if (member.getRole() == Role.EXPERT_NETWORK_MANAGER && pipeline.getPurpose() != PipelinePurpose.EXPERT_HIRING) {
+			// An ENM works candidates, not clients: a sales or marketing pipeline would put a client's deal on
+			// a screen whose won-deal behaviour (no case, ever) is different.
+			throw new InvalidRequestException(
+					"An expert network manager works hiring pipelines only. Tag this one Expert hiring first.");
+		}
 		if (!pipeline.isLive()) {
 			// A pipeline GHL has stopped returning cannot be worked. Assigning it would hand
 			// somebody a board that is empty for a reason no screen explains.
@@ -119,11 +127,16 @@ public class PipelineAssignmentService {
 	private TeamMember pipelineScopedMember(UUID memberId) {
 		TeamMember member = teamMembers.findById(memberId)
 				.orElseThrow(() -> new InvalidRequestException("No such team member"));
-		if (!member.getRole().isPipelineScoped()) {
-			throw new InvalidRequestException(
-					"Only SALES and MARKETING members work a pipeline; " + member.getRole() + " does not");
+		boolean hiring = member.getRole() == Role.EXPERT_NETWORK_MANAGER;
+		if (!member.getRole().isPipelineScoped() && !hiring) {
+			throw new InvalidRequestException("Only SALES, MARKETING and EXPERT_NETWORK_MANAGER members work a pipeline; "
+					+ member.getRole() + " does not");
 		}
-		requireSellingBrand(member);
+		// The selling-brand ceiling guards the desks' client funnels. A hiring pipeline is held by an ENM of the
+		// pipeline's own brand, which `grant` checks next, so it needs no second brand rule.
+		if (!hiring) {
+			requireSellingBrand(member);
+		}
 		return member;
 	}
 

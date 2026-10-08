@@ -257,3 +257,21 @@ input[type='file']:hover::file-selector-button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Scrolls, but draws no scrollbar — the sidebar's list (wheel, touch and keyboard still work). */
+.scroll-hidden {
+  scrollbar-width: none;
+}
+.scroll-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+/* The greeting's caret: a block that blinks. The reduced-motion block above stops it. */
+.caret {
+  animation: caret-blink 1s steps(1) infinite;
+}
+@keyframes caret-blink {
+  50% {
+    opacity: 0;
+  }
+}

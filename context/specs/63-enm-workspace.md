@@ -16,10 +16,11 @@ dashboard. This unit is mostly assembly; the new pieces are listed per phase.
   with the stages *New Lead, Meeting Scheduled, Meeting Done, In Process, Onboarded, Dropped* and
   tags it on the existing pipelines screen. **EvalOS hard-codes no stage**: the mirror carries
   GHL's stages, so a stage renamed or added in GHL shows up on the next sweep.
-- **The ENM's pipeline set is every live `EXPERT_HIRING` pipeline in their own brand** — derived
-  in `TeamMemberPipelineRepository.ghlIdsFor`, not granted. No assignment row, no assignment UI:
-  the purpose tag is the grant. An ENM of a brand that does not own the location gets none
-  (`sales-brand`, D19a), so the brand stays provable.
+- **The ENM's pipeline set is the live `EXPERT_HIRING` pipelines they are granted** (edited 2026-10-09 — it was every live
+  `EXPERT_HIRING` pipeline of their brand, derived, with no grant). The Administrator ticks them on the Staff screen, over the
+  same `team_member_pipeline` grant routes the desks use; `PipelineAssignmentService.grant` refuses a pipeline that is not
+  `EXPERT_HIRING` or is of another brand. `V89` granted every existing ENM the hiring pipelines they held, so deploy
+  changes nobody's access. A hiring pipeline nobody holds notifies nobody (`HiringPipelineNotifier` tells only its holders).
 - **The ENM uses the desk machinery unchanged**: the board (`/api/opportunities/board`), stage moves
   (`PUT /api/sales/opportunities/{id}/stage` — mirror write + outbox push, D44), candidate create
   (`POST /api/marketing/leads` — the upsert on contact + pipeline, so one candidate is one card),

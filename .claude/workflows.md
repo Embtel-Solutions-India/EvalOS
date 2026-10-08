@@ -428,7 +428,7 @@ PM / PC / ENM / GM offers the case with a fee (blank = standard fee; retake keep
 Delivered → payout PENDING at the accepted fee (a missing amount can be set once) → PAYOUT_DUE to ENMs
   → ENM records the transfer → PAID, shown "Processing"
   → expert presses "Confirm received" in the portal → CONFIRMED, shown "Paid" → PAYOUT_CONFIRMED to the recorder
-ENM pays weekly from Pay run (/payouts/pay: one week's due payouts, one transfer per expert)
+ENM pays weekly from Payment batch (/payouts/pay: one week's due payouts, one transfer per expert)
 Payouts module: Overview (/payouts: Committed / Pending / Processing / Paid per currency on the
   shell's period and brand, needs attention, the weekly / monthly / yearly Summary and its two CSVs)
   · Cases (/payouts/cases: fee, status, done, per-offer log, CSV) · Experts (/payouts/experts)

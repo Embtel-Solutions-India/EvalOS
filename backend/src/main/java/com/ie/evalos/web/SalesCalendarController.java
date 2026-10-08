@@ -137,7 +137,7 @@ public class SalesCalendarController {
 	}
 
 	@GetMapping("/calendars")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<GhlCalendarClient.CalendarOption>> calendars() {
 		return ApiResponse.ok(meetings.calendars());
 	}
@@ -154,7 +154,7 @@ public class SalesCalendarController {
 	 * @param timezone IANA zone; GHL renders the slots in it and the form shows which one
 	 */
 	@GetMapping("/calendars/{calendarId}/slots")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.FreeSlots> slots(@PathVariable String calendarId,
 			@RequestParam long from, @RequestParam long to, @RequestParam String timezone,
 			@RequestParam(required = false) String userId) {
@@ -168,7 +168,7 @@ public class SalesCalendarController {
 
 	/** The caller's own blocked time inside a window, read live from GHL (Unit 60). */
 	@GetMapping("/blocked-time")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<GhlCalendarClient.BlockedTime>> blockedTime(
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
@@ -176,14 +176,14 @@ public class SalesCalendarController {
 	}
 
 	@PostMapping("/blocked-time")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.BlockedTime> block(
 			@RequestBody @jakarta.validation.Valid BlockTimeRequest request) {
 		return ApiResponse.ok(meetings.block(request.title(), request.startTime(), request.endTime()));
 	}
 
 	@DeleteMapping("/blocked-time/{eventId}")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<Void> unblock(@PathVariable String eventId) {
 		meetings.unblock(eventId);
 		return ApiResponse.ok(null);
@@ -205,7 +205,7 @@ public class SalesCalendarController {
 	 * @param to   exclusive ISO-8601 instant; must be after {@code from}
 	 */
 	@GetMapping("/meetings")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<MeetingView>> diary(
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {

@@ -41,17 +41,15 @@ public class TeamMemberPipelineRepository {
 	 * {@code 00d} C4's failure in miniature.
 	 */
 	public List<String> ghlIdsFor(UUID memberId) {
-		// Unit 63: an ENM holds every live EXPERT_HIRING pipeline of their own brand, derived rather
-		// than granted — the GM's purpose tag is the grant, so there is no row to forget.
+		// Granted, for every role that holds one. An ENM's hiring pipelines were derived from the purpose tag
+		// until 2026-10-09 (Unit 63): every ENM of the brand held every EXPERT_HIRING pipeline. They are granted
+		// per person now, so one ENM can own one hiring pipeline; V89 granted the existing ones what they held.
 		return jdbc.queryForList("""
 				SELECT p.ghl_id FROM pipeline p
 				 WHERE p.missing_since IS NULL
-				   AND (p.id IN (SELECT tmp.pipeline_id FROM team_member_pipeline tmp
-				                  WHERE tmp.team_member_id = ? AND tmp.revoked_at IS NULL)
-				        OR (p.purpose = 'EXPERT_HIRING' AND p.brand_id IN (
-				              SELECT m.brand_id FROM team_member m
-				               WHERE m.id = ? AND m.role = 'EXPERT_NETWORK_MANAGER')))
-				 ORDER BY p.position, p.name""", String.class, memberId, memberId);
+				   AND p.id IN (SELECT tmp.pipeline_id FROM team_member_pipeline tmp
+				                 WHERE tmp.team_member_id = ? AND tmp.revoked_at IS NULL)
+				 ORDER BY p.position, p.name""", String.class, memberId);
 	}
 
 	/**

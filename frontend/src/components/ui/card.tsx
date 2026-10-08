@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { formatCount, formatMoney } from "../../lib/money";
+import { Sparkline } from "./widgets";
 
 /**
  * The dashboard card system: one shell, one state union, and the specialisations that actually
@@ -66,27 +67,34 @@ type CardProps = {
    * `tile` is its KPI box: no rule, a small muted label over the figure.
    */
   variant?: "panel" | "tile";
+  /** Grid placement, e.g. `col-span-12 xl:col-span-8` — the 12-column dashboards size cards by question, not equally. */
+  className?: string;
   children?: ReactNode;
 };
 
-export function Card({ title, note, state, to, wide, action, variant = "panel", children }: CardProps) {
+export function Card({
+  title,
+  note,
+  state,
+  to,
+  wide,
+  action,
+  variant = "panel",
+  className: place = "",
+  children,
+}: CardProps) {
   const interactive = to !== undefined && state.kind !== "loading";
 
+  // The reference look: no rule under the heading, a plain title, generous padding. A tile is the
+  // same card with a smaller label over a large figure.
   const tile = variant === "tile";
   const body = (
     <>
       <div
-        className={
-          tile
-            ? "flex items-start justify-between gap-2 px-4 pt-4"
-            : "flex min-h-[3.625rem] items-center justify-between gap-2 border-b px-4 py-2"
-        }
-        style={tile ? undefined : { borderColor: "var(--border-default)" }}
+        className={`flex items-start justify-between gap-2 px-5 ${tile ? "pt-4" : "pt-5"}`}
       >
         <h2
-          className={
-            tile ? "text-xs" : "text-[0.9375rem] font-semibold"
-          }
+          className={tile ? "text-xs font-medium" : "text-base font-semibold"}
           style={tile ? { color: "var(--text-muted)" } : undefined}
         >
           {title}
@@ -110,7 +118,7 @@ export function Card({ title, note, state, to, wide, action, variant = "panel", 
         </div>
       </div>
 
-      <div className={tile ? "px-4 pt-2 pb-4" : "p-4"}>
+      <div className={tile ? "px-5 pt-2 pb-4" : "px-5 pt-3 pb-5"}>
         {renderState(state, children)}
         {note && state.kind !== "unavailable" && (
           <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
@@ -121,14 +129,12 @@ export function Card({ title, note, state, to, wide, action, variant = "panel", 
     </>
   );
 
-  const className = `group block rounded-lg border text-left ${wide ? "md:col-span-2" : ""}`;
+  const className = `group block rounded-[1.25rem] text-left ${wide ? "md:col-span-2" : ""} ${place}`;
   const style = {
     background: "var(--bg-surface)",
-    borderColor:
-      state.kind === "warning"
-        ? "var(--status-amber)"
-        : "var(--border-default)",
-    boxShadow: "var(--shadow-card)",
+    // Borderless: the shadow lifts the card. Only a warning draws an edge, because that edge is a status.
+    border: state.kind === "warning" ? "1px solid var(--status-amber)" : "none",
+    boxShadow: "var(--shadow-soft)",
   };
 
   if (interactive) {
@@ -230,6 +236,9 @@ export function KpiCard({
   delta,
   tone,
   action,
+  className,
+  spark,
+  sparkLabel,
 }: Omit<CardProps, "children"> & {
   value: number | null;
   /**
@@ -252,18 +261,39 @@ export function KpiCard({
   tone?: KpiTone;
   /** A control under the figure, e.g. the GM's "Set monthly target". */
   action?: ReactNode;
+  /** The figure's recent shape, drawn beside it. Pass it only when a real series exists — never a decoration. */
+  spark?: number[];
+  /** What the line is, on hover — e.g. "Won value per day, peak $5,000". */
+  sparkLabel?: string;
 }) {
   return (
-    <Card title={title} note={note} state={state} to={to} wide={wide} variant="tile">
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span
-          className={`font-num tabular-nums ${wide ? "text-3xl leading-none" : "text-2xl leading-none"} font-semibold tracking-tight`}
-          style={{ color: tone ? TONE_COLOR[tone] : "var(--text-primary)" }}
-        >
-          {(money ? formatMoney : formatCount)(value ?? 0)}
-          {unit}
-        </span>
-        {delta && <Delta {...delta} />}
+    <Card
+      title={title}
+      note={note}
+      state={state}
+      to={to}
+      wide={wide}
+      variant="tile"
+      className={className}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span
+            className={`font-num tabular-nums ${wide ? "text-3xl leading-none" : "text-2xl leading-none"} font-semibold tracking-tight`}
+            style={{ color: tone ? TONE_COLOR[tone] : "var(--text-primary)" }}
+          >
+            {(money ? formatMoney : formatCount)(value ?? 0)}
+            {unit}
+          </span>
+          {delta && <Delta {...delta} />}
+        </div>
+        {spark && spark.length > 1 && (
+          <Sparkline
+            values={spark}
+            label={sparkLabel}
+            color={tone ? TONE_COLOR[tone] : "var(--accent-primary)"}
+          />
+        )}
       </div>
       {denominator && (
         <p
@@ -320,10 +350,18 @@ export function ChartCard({
   state,
   to,
   wide,
+  className,
   children,
 }: CardProps) {
   return (
-    <Card title={title} note={note} state={state} to={to} wide={wide}>
+    <Card
+      title={title}
+      note={note}
+      state={state}
+      to={to}
+      wide={wide}
+      className={className}
+    >
       <div className="h-56 w-full">{children}</div>
     </Card>
   );
