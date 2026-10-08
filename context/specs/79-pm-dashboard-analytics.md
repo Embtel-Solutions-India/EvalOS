@@ -1,6 +1,6 @@
 # Spec 79 — PM dashboard analytics (slice 1 of the production-dashboard redesign)
 
-**Status:** designed 2026-10-09, **not built**. No decision in `current-decisions.md` changes; open
+**Status:** built 2026-10-09 (browser check not done — see `implementation-status.md`). No decision in `current-decisions.md` changes; open
 questions are in `.claude/open-decisions.md` (Q20–Q22). Later slices (CM, PC, GM, Expert) each get their
 own spec and reuse the components named in §4.
 
@@ -54,7 +54,7 @@ Labels come from one frontend table (extend `boardRules.ts` `STAGE_COLUMNS`/labe
 | Ready to deliver | now | cases in `READY_TO_DELIVER` |
 | Stage count / median age | now | count per stage; age = `now - stage_entered_at` on the business calendar, median per stage |
 | Delivered, on-time % | period | existing `onTime` (reused) |
-| Throughput | period | delivered per day (≤31 days) or per ISO week, from the delivery stage-change audit rows |
+| Throughput | period | delivered per day (≤31 days) or per ISO week, from `deliveryDate` (the field `onTime` already reads) |
 | Rework rate | period | existing `revisionRateByCm`, summed across CMs |
 | Overdue per CM | now | scoped open cases of that CM whose `DeadlineRisk == OVERDUE` |
 
@@ -72,12 +72,12 @@ PmOverview {
   stages:   [{ stage, count, medianAgeBusinessHours | null }]      // 11 rows, live (DELIVERED = period)
   active, blocked, awaitingReview, awaitingQc, readyToDeliver: int
   queues: { draftReview: [QueueRow], finalQc: [QueueRow] }          // capped 25 each, oldest first
-  workload: [{ cmId, name, active, overdue, capacity }]            // extends CmWorkload with overdue
   throughput: [{ bucket, delivered }] | null
 }
 QueueRow { caseId, caseCode, serviceType, ownerName, deadline, risk, waitingBusinessHours }
 ```
 
+- **Workload** is not in this payload: `overdue` was added to `CmWorkload` on `/api/metrics/pm` (additive), so there is one workload source.
 - **Reuse:** scope loading, `DeadlineRiskCalculator`, business-calendar helper, `CmWorkload` source —
   move shared private helpers to package-private rather than copying them.
 - **Query shape:** one scoped case load, grouped in memory (the same pattern `PmMetricsService` uses);
@@ -93,10 +93,10 @@ Reuse `Card`, `KpiCard`, `ChartCard`, `CapacityBar`, `useMetrics`, `pmMetricsApi
 requests fired once each via `useMetrics`). New shared pieces, built to be reused by later slices:
 
 - `StageFunnel` — horizontal bars, one per stage, count + median age, each a link to
-  `/inbox?stage=<STAGE>` (add the filter to `InboxPage` only if it does not exist; otherwise reuse).
+  `/inbox?stage=<STAGE>` (the inbox had no stage filter; `?stage=` was added to `inboxQueue`/`InboxPage`). The Delivered row does not link: `/api/cases/board` omits delivered cases.
 - `QueueTable` — case code, service, owner, deadline chip (risk colour), waiting time; rows link to the
   existing case page / `DraftQueuePage`. No new actions.
-- `TrendLine` — line chart over buckets (`TrendCard` already exists; extend, do not duplicate).
+- `ThroughputCard` — line chart over buckets. `TrendCard` is GM/money-specific (`GmTrend`, `formatMoney`), so a small new card, not an extension.
 - Workload bars gain an "overdue" segment on the existing `CapacityBar`.
 
 Page order: KPI strip (now | period groups, labelled) → `StageFunnel` → two `QueueTable`s → workload →
