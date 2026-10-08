@@ -1,7 +1,7 @@
 # Spec 79 — PM dashboard analytics (slice 1 of the production-dashboard redesign)
 
-**Status:** built 2026-10-09 (browser check not done — see `implementation-status.md`). No decision in `current-decisions.md` changes; open
-questions are in `.claude/open-decisions.md` (Q20–Q22). Later slices (CM, PC, GM, Expert) each get their
+**Status:** built 2026-10-09 (browser check not done — see `implementation-status.md`). Decisions D79–D81 (blocked, first-pass QC, reassignment) are in
+`.claude/current-decisions.md`. Later slices (CM, PC, GM, Expert) each get their
 own spec and reuse the components named in §4.
 
 ## Why
@@ -48,7 +48,7 @@ Labels come from one frontend table (extend `boardRules.ts` `STAGE_COLUMNS`/labe
 | Active | now | scoped cases not `DELIVERED`/`CLOSED` |
 | Unassigned | now | existing `PmMetricsService.unassigned` (reused) |
 | At risk | now | existing `atRiskNow` (`DeadlineRiskCalculator`, excludes READY_TO_DELIVER+) (reused) |
-| Blocked | now | `exception_state != NONE` (on hold awaiting client, expert declined/rematching, refund requested) — see Q20 |
+| Blocked | now | `exception_state != NONE` (on hold awaiting client, expert declined/rematching, refund requested) — see D79 |
 | Awaiting my review | now | cases in `DRAFT_REVIEW` |
 | Awaiting QC | now | cases in `FINAL_QC` |
 | Ready to deliver | now | cases in `READY_TO_DELIVER` |
@@ -82,7 +82,7 @@ QueueRow { caseId, caseCode, serviceType, ownerName, deadline, risk, waitingBusi
   move shared private helpers to package-private rather than copying them.
 - **Query shape:** one scoped case load, grouped in memory (the same pattern `PmMetricsService` uses);
   no per-case queries. Queue rows come from that same list.
-- **First-pass QC rate** is *not* in the payload (Q21).
+- **First-pass QC rate** is *not* in the payload (D80).
 - Tests: stage counts sum to `active`; a case outside the caller's scope never appears; empty scope
   returns zeroed stages and `throughput: []`, not null; brand A's PM never sees brand B's rows.
 
@@ -108,10 +108,10 @@ existing six tiles, so the two loads are independent.
 
 | Brief item | Status |
 | ---------- | ------ |
-| First-pass QC rate, QC outcome breakdown | No per-case QC decision record exists (Q21) — shown "Not tracked yet" |
+| First-pass QC rate, QC outcome breakdown | No per-case QC decision record exists (D80) — shown "Not tracked yet" |
 | Capacity for PC and Expert | Only CM capacity is configured — PC/Expert workload shows counts without a capacity bar |
 | Per-task / checklist counts | Out of this slice (CM/PC specs) |
-| Cases "requiring reassignment" | No such state; shown only as blocked `EXPERT_DECLINED_REMATCHING` (Q22) |
+| Cases "requiring reassignment" | No such state; shown only as blocked `EXPERT_DECLINED_REMATCHING` (D81) |
 | Stage-age history (past aging) | Only current `stage_entered_at` exists; aging is "now", not trend |
 
 ## 6. Verification

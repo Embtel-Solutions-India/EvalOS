@@ -241,7 +241,7 @@ export default function PmDashboard() {
         />
         <Card
           title="First-pass QC rate"
-          state={{ kind: 'unavailable', blockedBy: 'Q21 — no QC outcome is recorded per case' }}
+          state={{ kind: 'unavailable', blockedBy: 'D80 — no QC outcome is recorded per case' }}
         />
       </div>
     </section>

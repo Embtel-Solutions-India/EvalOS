@@ -73,7 +73,7 @@ public class PmOverviewService {
 	/**
 	 * @param stages     the 11 funnel stages in pipeline order. Ten are live; {@code DELIVERED} counts
 	 *                   deliveries inside the window.
-	 * @param blocked    open cases with an exception state — see Q20
+	 * @param blocked    open cases with an exception state — see D79
 	 * @param throughput zero-filled: a day with no deliveries is a real zero, unlike an unmeasured metric
 	 */
 	public record PmOverview(List<StageCount> stages, int active, int blocked, int awaitingReview,

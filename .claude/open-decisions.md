@@ -5,6 +5,8 @@ House rule: every question carries a recommendation.
 
 ## Blocking the request lifecycle
 
+_Q20–Q22 (PM dashboard: blocked, first-pass QC, reassignment) were answered on 2026-10-09 and left for D79–D81._
+
 _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents) were resolved on
 2026-09-17 and left for `current-decisions.md` D33–D35. Q7 (portal deployment) left for D38, and
 carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on
@@ -49,11 +51,3 @@ removes the application table, so no lead shares it (D8)._
 | i3  | Does the GM's board span every brand or the selected one?  | The selected brand, consistently.                                                                                                                   |
 | j   | Should brand isolation move to Postgres RLS?               | No. Composite FKs plus a test forbidding `findById` on a `ScopedRepository` outside a token-authorised path.                                        |
 | k   | Do the `…FromPortal` method twins collapse?                | Yes, while splitting `CaseLifecycleService`, not before.                                                                                            |
-
-## PM dashboard analytics (spec 79)
-
-| #   | Question | Recommendation |
-| --- | -------- | -------------- |
-| Q20 | What is a "blocked" case? No `blocked` state exists; `exception_state` has hold-awaiting-client, expert-declined-rematching and refund-requested. | **Blocked = `exception_state != NONE`.** It is the only recorded off-path state; do not infer blocks from missing documents until a rule is stated. |
-| Q21 | First-pass QC rate needs a per-case QC outcome (pass / returned). None is stored. | **Show "Not tracked yet".** If wanted, add an append-only QC decision row written by the existing Final QC action — a separate decision, not part of this UI work. |
-| Q22 | The brief asks for "cases requiring reassignment". No such state exists. | **Show blocked-with-`EXPERT_DECLINED_REMATCHING` only**, labelled as that, and add nothing else. |

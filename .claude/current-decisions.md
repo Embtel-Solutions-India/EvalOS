@@ -597,3 +597,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   reads revenue, which is gated to whoever may see a deal value. Only an Admin creates an Admin; the first
   comes from the seed (`V916` local, `V961` prod from the `admin-password-hash` / `admin-email` placeholders,
   `V954` testprod). **Prod must hold an Admin before this ships**, or nobody can add staff.
+
+- **D79.** **A "blocked" case is one whose `exception_state` is not `NONE`** (2026-10-09, spec 79, was Q20). On hold
+  awaiting client, expert declined / rematching, refund requested — the only recorded off-path states. Missing
+  documents are not inferred as blocks until the business states a rule.
+- **D80.** **First-pass QC rate is not shown until a per-case QC outcome is stored** (2026-10-09, spec 79, was Q21).
+  The PM dashboard renders it "unavailable". Storing the outcome would be an append-only row written by the existing
+  Final QC action — a separate decision, not part of UI work.
+- **D81.** **"Cases requiring reassignment" is shown only as blocked cases in `EXPERT_DECLINED_REMATCHING`** (2026-10-09,
+  spec 79, was Q22). No other reassignment state exists and none is invented.
