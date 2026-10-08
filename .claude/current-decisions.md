@@ -467,7 +467,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **Edited 2026-09-30 (Unit 65, spec `65-case-fee-and-payouts-module.md` — built 2026-09-30):**
   **every offer carries the amount the case pays** (a blank fee means the expert's standard fee, a
   retake keeps the declined offer's fee, no fee at all is refused; set by GM / PM / PC / ENM; a CM
-  offers at the standard fee only), **editable only while the offer is open**, **shown to the expert before they accept**, and frozen at acceptance. Delivery opens the
+  offers at the standard fee only, and reads the fee on offers in their scope — the fee read has no role gate, 2026-10-09), **editable only while the offer is open**, **shown to the expert before they accept**, and frozen at acceptance. Delivery opens the
   payout at that amount; the pending-payout amount correction is **removed** (only a *missing* amount can still be set, once). **No adjustments** —
   no bonus, deduction, advance or change after acceptance: per case it is offered amount, status,
   done or not. Every set, edit and outcome is in `audit_event`. Payouts becomes its own staff module
