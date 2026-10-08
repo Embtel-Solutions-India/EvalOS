@@ -376,10 +376,13 @@ export function CapacityBar({
   label,
   used,
   capacity,
+  overdue,
 }: {
   label: string;
   used: number;
   capacity: number;
+  /** Open cases already past their deadline — stated as text, so the bar's colour is not the only signal. */
+  overdue?: number;
 }) {
   const pct = capacity > 0 ? Math.round((used / capacity) * 100) : 0;
   const tone = pct > 90 ? "red" : pct >= 70 ? "amber" : "green";
@@ -399,13 +402,18 @@ export function CapacityBar({
           <span className="ml-2" style={{ color }}>
             {pct}%
           </span>
+          {overdue ? (
+            <span className="ml-2" style={{ color: "var(--status-red)" }}>
+              {overdue} overdue
+            </span>
+          ) : null}
         </span>
       </div>
       <div
         className="mt-1 h-1.5 w-full overflow-hidden rounded-md"
         style={{ background: "var(--bg-raised)" }}
         role="img"
-        aria-label={`${label}: ${used} of ${capacity} cases, ${pct}% of capacity`}
+        aria-label={`${label}: ${used} of ${capacity} cases, ${pct}% of capacity, ${overdue ?? 0} overdue`}
       >
         <div
           className="h-full rounded-md"
