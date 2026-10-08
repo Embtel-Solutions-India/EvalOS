@@ -1,4 +1,5 @@
 import { useId, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient, unwrap } from '@shared/services/apiClient'
 import { Logo } from '@shared/components/common/Logo'
@@ -89,7 +90,7 @@ function AcceptTerms({
         <div className="max-w-xl space-y-2">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">Before you continue</h1>
           <p className="text-sm text-muted-foreground">
-            Please read how we work with you and your information. You only need to do this once.
+            Please read how we work with you and your information.
           </p>
         </div>
 
@@ -105,8 +106,19 @@ function AcceptTerms({
           <div className="flex items-start gap-3">
             <Checkbox id={checkboxId} checked={agreed} onCheckedChange={(value) => setAgreed(value === true)} className="mt-0.5" />
             <label htmlFor={checkboxId} className="text-sm leading-relaxed text-foreground">
-              I have read and accept the {LEGAL.privacy.label}, the {LEGAL.disclaimer.label} and the{' '}
-              {LEGAL.retention.label}.
+              I acknowledge the AI assistance described above and accept the{' '}
+              <Link to={LEGAL.privacy.to} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-4">
+                {LEGAL.privacy.label}
+              </Link>
+              ,{' '}
+              <Link to={LEGAL.disclaimer.to} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-4">
+                {LEGAL.disclaimer.label}
+              </Link>{' '}
+              and{' '}
+              <Link to={LEGAL.retention.to} target="_blank" rel="noopener noreferrer" className="font-medium underline underline-offset-4">
+                {LEGAL.retention.label}
+              </Link>
+              .
             </label>
           </div>
           {failed && (
