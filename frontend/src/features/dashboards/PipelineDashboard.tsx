@@ -1,12 +1,13 @@
 import { ArrowLeft } from 'lucide-react'
-import { useState, type CSSProperties } from 'react'
+import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Card } from '../../components/ui/card'
+import { PillButton, PillSelect, PillToggle } from '../../components/ui/widgets'
 import { useMe } from '../../lib/authContext'
 import { fetchOpportunityBoard, type OpportunityBoard } from '../opportunities/opportunityApi'
 import { countUndated, daysSince, STALE_DAYS, staleDeals } from './dealAge'
 import { fetchJourney, type Audience } from './journeyApi'
-import { DeskCard, JourneyChart, LeadsCard, SourceCard, StageCard, TargetCard } from './journeyWidgets'
+import { DeskCard, JourneyChart, KpiRow, SourceCard, StageCard } from './journeyWidgets'
 import { emptyWhen, useMetrics } from './useMetrics'
 
 /**
@@ -83,30 +84,22 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
         </div>
 
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Dashboard filters">
-          <label className="sr-only" htmlFor="journey-year">Year</label>
-          <select id="journey-year" value={year} onChange={(e) => set('year', e.target.value === String(thisYear) ? null : e.target.value)} className={SELECT} style={SELECT_STYLE}>
+          <PillSelect label="Year" value={String(year)} onChange={(e) => set('year', e.target.value === String(thisYear) ? null : e.target.value)}>
             {years.map((y) => <option key={y} value={y}>{y === thisYear ? `${y} · this year` : y}</option>)}
-          </select>
-          <label className="sr-only" htmlFor="journey-source">Lead source</label>
-          <select id="journey-source" value={source ?? ''} onChange={(e) => set('source', e.target.value || null)} className={SELECT} style={SELECT_STYLE}>
+          </PillSelect>
+          <PillSelect label="Lead source" value={source ?? ''} onChange={(e) => set('source', e.target.value || null)}>
             <option value="">All sources</option>
             {(data?.sources ?? []).map((s) => <option key={s.source} value={s.source}>{s.source}</option>)}
             {source && !(data?.sources ?? []).some((s) => s.source.toLowerCase() === source.toLowerCase()) && <option value={source}>{source}</option>}
-          </select>
+          </PillSelect>
         </div>
       </header>
 
-      <div className="mt-5 grid gap-4 lg:grid-cols-5">
-        <div className="min-w-0 lg:col-span-3">
-          <TargetCard data={data} state={cardState} audience={audience} canSetTarget={isGm && !memberId} />
-        </div>
-        <div className="min-w-0 lg:col-span-2">
-          <LeadsCard data={data} state={cardState} source={source} />
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-3">
-        <div className="min-w-0 xl:col-span-2">
+      {/* The Sketch's grid: a main column and a 255px rail. Questions run down the main column in the order
+          a manager asks them; the rail answers "who" and "where from". */}
+      <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16rem]">
+        <div className="min-w-0 space-y-4">
+          <KpiRow data={data} state={cardState} audience={audience} canSetTarget={isGm && !memberId} source={source} />
           <JourneyChart
             data={data}
             state={cardState}
@@ -115,58 +108,31 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
             thisMonth={currentMonth}
             controls={
               <>
-                <Segmented value={metric} onChange={setMetric} options={[['leads', 'Leads'], ['value', 'Value']]} label="Chart measure" />
-                <button
-                  type="button"
+                <PillToggle value={metric} onChange={setMetric} options={[['leads', 'Leads'], ['value', 'Value']]} label="Chart measure" />
+                <PillButton
                   onClick={() => setCompare((on) => !on)}
-                  aria-pressed={compare && metric === 'leads'}
+                  on={compare && metric === 'leads'}
                   disabled={metric === 'value'}
                   title={metric === 'value' ? 'Source comparison is by lead count' : undefined}
-                  className="rounded-lg border px-2.5 py-1 text-xs font-medium disabled:opacity-50"
-                  style={{ borderColor: 'var(--border-default)', background: compare && metric === 'leads' ? 'var(--accent-soft)' : 'var(--bg-surface)' }}
                 >
                   Compare sources
-                </button>
+                </PillButton>
               </>
             }
           />
-        </div>
-        <SourceCard data={data} state={cardState} selected={source} onSelect={(s) => set('source', s)} colored={compare && metric === 'leads'} />
-      </div>
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <div className={`min-w-0 ${isGm && memberId ? 'xl:col-span-2' : ''}`}>
           <StageCard data={data} state={cardState} to={isGm ? undefined : '/opportunities/board'} />
         </div>
-        {isGm && !memberId ? (
-          <DeskCard desks={data?.desks ?? []} state={cardState} audience={audience} onOpen={(id) => set('member', id)} />
-        ) : (
-          !isGm && <UntouchedDeals audience={audience} />
-        )}
+
+        <div className="min-w-0 space-y-4">
+          {isGm && !memberId ? (
+            <DeskCard desks={data?.desks ?? []} state={cardState} audience={audience} onOpen={(id) => set('member', id)} />
+          ) : (
+            !isGm && <UntouchedDeals audience={audience} />
+          )}
+          <SourceCard data={data} state={cardState} selected={source} onSelect={(s) => set('source', s)} colored={compare && metric === 'leads'} />
+        </div>
       </div>
     </section>
-  )
-}
-
-const SELECT = 'rounded-lg border px-3 py-1.5 text-sm font-medium'
-const SELECT_STYLE: CSSProperties = { borderColor: 'var(--border-default)', background: 'var(--bg-surface)', color: 'var(--text-primary)' }
-
-function Segmented<T extends string>({ value, onChange, options, label }: { value: T; onChange: (value: T) => void; options: [T, string][]; label: string }) {
-  return (
-    <div className="inline-flex rounded-lg border p-0.5" style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)' }} role="group" aria-label={label}>
-      {options.map(([key, text]) => (
-        <button
-          key={key}
-          type="button"
-          onClick={() => onChange(key)}
-          aria-pressed={value === key}
-          className="rounded-md px-2.5 py-0.5 text-xs font-medium"
-          style={value === key ? { background: 'var(--accent-primary)', color: '#fff' } : { color: 'var(--text-muted)' }}
-        >
-          {text}
-        </button>
-      ))}
-    </div>
   )
 }
 

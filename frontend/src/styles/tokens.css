@@ -91,7 +91,7 @@
      240px holds. The board is five 288px columns and every pixel of chrome costs part of one;
      240 is 18% of the 1366 laptop the staff actually run and the labels fit with room. The
      header stays 72px: enough for a 36px control row, and no more above the fold. */
-  --sidebar-width: 15rem;
+  --sidebar-width: 16rem;
   --shell-gutter: 1.25rem;
   --header-height: 4.5rem;
 

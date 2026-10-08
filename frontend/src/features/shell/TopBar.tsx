@@ -1,4 +1,4 @@
-import { useAuth } from '../../lib/authContext'
+import { useAuth, useMe } from '../../lib/authContext'
 import BrandSwitcher from './BrandSwitcher'
 import DateFilter from './DateFilter'
 import NotificationBell from './NotificationBell'
@@ -25,6 +25,7 @@ import NotificationBell from './NotificationBell'
  */
 export default function TopBar() {
   const { logout } = useAuth()
+  const first = useMe().displayName.trim().split(/\s+/)[0]
 
   return (
     <header
@@ -35,6 +36,10 @@ export default function TopBar() {
         padding: `0 var(--shell-gutter)`,
       }}
     >
+      {/* The Sketch's header opens with a greeting; it goes first and yields to the controls on
+          narrow screens rather than pushing them off the bar. */}
+      <p className="hidden shrink-0 text-base font-semibold min-[1500px]:block">Hello {first}, welcome back!</p>
+
       <div className="flex items-center gap-2">
         <BrandSwitcher />
         <DateFilter />
@@ -46,7 +51,7 @@ export default function TopBar() {
           <SearchIcon />
           <input
             type="search"
-            placeholder="Search — not available yet"
+            placeholder="Search"
             disabled
             title="Case search has no endpoint yet"
             className="h-9 w-full pr-4 pl-9 text-sm"

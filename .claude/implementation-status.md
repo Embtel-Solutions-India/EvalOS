@@ -603,4 +603,15 @@ references, so `--noEmit` typechecks nothing and exits 0.)
   inherits via `Card`. **Rule amended (B2):** decorative hues allowed on non-status surfaces; RAG
   keeps its meaning and is never the only carrier; yellow/green are fills only (contrast).
   Evidence: `tsc` clean, dashboard vitest 22/22. **Browser-checked 2026-10-08** (GM Sales + Marketing at 1440/1024/390, CM dashboard at 1440; fixed `Achieved null%` on a $0 target and a 22-row source list stretching the layout). **Not dark mode** (Sketch has
-  one; the app does not). Restyled screens beyond tokens + `Card` + journey widgets: none yet.
+  one; the app does not). **Layout match (2026-10-08, same day):** measured from the Sketch's artboard (main column + 16rem
+  rail, 58px bordered card headers, KPI tiles, donut, member list). New `components/ui/widgets.tsx`
+  (`PillSelect/PillToggle/PillButton/Donut/Avatar`); `Card` gained `action` + `variant: panel|tile`
+  (`KpiCard` is a tile everywhere); Sales/Marketing = `KpiRow` + journey + stage donut in the main
+  column, team + sources in the rail; nav icons are one Lucide set (`LeftNav`); header greets from
+  1500px; sidebar 16rem. Same-named stages across pipelines are summed by name on the stage card.
+  **Correction:** the earlier "tsc clean" ran `tsc -p .`, which checks nothing (root `files: []`);
+  the real check is `tsc -p tsconfig.app.json` — clean, plus vitest 218/218. Browser-checked: Sales,
+  Marketing (1512/1366), Production board, CM dashboard. **Not checked: GM/PM/Expert Network
+  dashboards, Contacts and others — the local backend answers 500 on `/api/metrics/*` and
+  `/api/contacts` (stale process; needs a restart).** Kept out: card "⋯" menus (no actions to put
+  in them), the Upgrade-to-Pro promo, dark mode, phone-width shell.

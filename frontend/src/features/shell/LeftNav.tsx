@@ -1,5 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import {
+  BadgeDollarSign, Briefcase, Building2, CalendarDays, CalendarPlus, Circle, Contact, FileText, GitBranch,
+  Inbox, Kanban, LayoutDashboard, ListChecks, Megaphone, MessageSquare, PackageCheck, PlusCircle, Receipt,
+  RefreshCw, StickyNote, Timer, TrendingUp, UserCheck, UserCog, UserPlus, Users, Wallet, type LucideIcon,
+} from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useMe } from '../../lib/authContext'
 import { ROLE_LABELS } from '../../lib/session'
@@ -93,7 +97,7 @@ export default function LeftNav() {
                     })}
                   >
                     <span aria-hidden className="shrink-0">
-                      {NAV_ICONS[item.path] ?? NAV_ICONS.fallback}
+                      <NavIcon path={item.path} />
                     </span>
                     <span className="truncate">{item.label}</span>
                     <Badge path={item.path} badges={badges} />
@@ -164,93 +168,47 @@ function Badge({ path, badges }: { path: string; badges: NavBadges | null }) {
 }
 
 /**
- * One glyph per nav path, keyed by the same `path` the router uses so there is no second
- * list to keep in step — an entry missing here degrades to the fallback rather than
- * breaking the item. Purely presentational: `navigation.ts` is untouched.
+ * One Lucide glyph per nav path, keyed by the same `path` the router uses so there is no second
+ * list to keep in step — an entry missing here degrades to the fallback rather than breaking the
+ * item. Purely presentational: `navigation.ts` is untouched. One icon set, as in the Sketch.
  */
-const NAV_ICONS: Record<string, ReactNode> = {
-  '/conversations': (
-    <Glyph>
-      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" />
-    </Glyph>
-  ),
-  '/dashboard': (
-    <Glyph>
-      <rect x="3" y="3" width="7" height="9" rx="1.5" />
-      <rect x="14" y="3" width="7" height="5" rx="1.5" />
-      <rect x="14" y="12" width="7" height="9" rx="1.5" />
-      <rect x="3" y="16" width="7" height="5" rx="1.5" />
-    </Glyph>
-  ),
-  '/board': (
-    <Glyph>
-      <rect x="3" y="4" width="5" height="16" rx="1.5" />
-      <rect x="10" y="4" width="5" height="11" rx="1.5" />
-      <rect x="17" y="4" width="4" height="7" rx="1.5" />
-    </Glyph>
-  ),
-  '/my-cases': (
-    <Glyph>
-      <path d="M4 7h16v13H4z" />
-      <path d="M9 7V4h6v3" />
-    </Glyph>
-  ),
-  // A calendar page. The diary, which is EvalOS's own mirrored record rather than a GHL read, so
-  // it deliberately does not reuse the funnel corner's shapes.
-  '/meetings': (
-    <Glyph>
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M3 10h18M8 3v4M16 3v4" />
-    </Glyph>
-  ),
-  '/checklists': (
-    <Glyph>
-      <path d="M9 5h10M9 12h10M9 19h10" />
-      <path d="m3 5 2 2 2-3M3 12l2 2 2-3M3 19l2 2 2-3" />
-    </Glyph>
-  ),
-  '/experts': (
-    <Glyph>
-      <circle cx="9" cy="8" r="3.5" />
-      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-      <path d="M17 11a2.5 2.5 0 1 0 0-5" />
-      <path d="M19 20c0-2.2-.9-4.2-2.3-5.6" />
-    </Glyph>
-  ),
-  '/payouts': (
-    <Glyph>
-      <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
-      <circle cx="12" cy="12" r="2.5" />
-      <path d="M6 12h.01M18 12h.01" />
-    </Glyph>
-  ),
-  '/brands': (
-    <Glyph>
-      <path d="M4 20V9l8-5 8 5v11" />
-      <path d="M10 20v-6h4v6" />
-    </Glyph>
-  ),
-  fallback: (
-    <Glyph>
-      <circle cx="12" cy="12" r="8" />
-    </Glyph>
-  ),
+const ICONS: Record<string, LucideIcon> = {
+  '/dashboard': LayoutDashboard,
+  '/conversations': MessageSquare,
+  '/dashboard/sales': TrendingUp,
+  '/dashboard/marketing': Megaphone,
+  '/opportunities/board': Kanban,
+  '/opportunities/new': PlusCircle,
+  '/marketing/leads/new': PlusCircle,
+  '/meetings': CalendarDays,
+  '/meetings/new': CalendarPlus,
+  '/hiring': UserPlus,
+  '/hiring/new': UserPlus,
+  '/board': Kanban,
+  '/inbox': Inbox,
+  '/drafts': FileText,
+  '/expert-assignment': UserCheck,
+  '/pm-notes': StickyNote,
+  '/my-drafts': FileText,
+  '/my-cases': Briefcase,
+  '/delivery': PackageCheck,
+  '/checklists': ListChecks,
+  '/contacts': Contact,
+  '/experts': Users,
+  '/payouts': Wallet,
+  '/payouts/cases': Receipt,
+  '/payouts/experts': Users,
+  '/payouts/pay': BadgeDollarSign,
+  '/admin/staff': UserCog,
+  '/admin/pipelines': GitBranch,
+  '/admin/sync': RefreshCw,
+  '/admin/jobs': Timer,
+  '/brands': Building2,
 }
 
-function Glyph({ children }: { children: ReactNode }) {
-  return (
-    <svg
-      className="h-5 w-5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {children}
-    </svg>
-  )
+function NavIcon({ path }: { path: string }) {
+  const Icon = ICONS[path] ?? Circle
+  return <Icon className="h-5 w-5" strokeWidth={1.6} aria-hidden />
 }
 
 /** First and last initial, so "Brandon Iyer" reads BI and a single name still renders. */

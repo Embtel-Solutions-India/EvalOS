@@ -59,43 +59,69 @@ type CardProps = {
   to?: string;
   /** Spans two columns in the dashboard grid — the role's PRIMARY KPI, per `ui-context.md`. */
   wide?: boolean;
+  /** A control in the header's right edge — the Sketch's pill filter ("Current Week ▾"). */
+  action?: ReactNode;
+  /**
+   * `panel` is the Sketch's chart/list card: a 58px header over a hairline, then the body.
+   * `tile` is its KPI box: no rule, a small muted label over the figure.
+   */
+  variant?: "panel" | "tile";
   children?: ReactNode;
 };
 
-export function Card({ title, note, state, to, wide, children }: CardProps) {
+export function Card({ title, note, state, to, wide, action, variant = "panel", children }: CardProps) {
   const interactive = to !== undefined && state.kind !== "loading";
 
+  const tile = variant === "tile";
   const body = (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <h2 className="text-[0.9375rem] font-semibold">{title}</h2>
-        {state.kind === "warning" && (
-          <AlertTriangle
-            className="h-4 w-4 shrink-0"
-            style={{ color: "var(--status-amber)" }}
-            aria-hidden
-          />
-        )}
-        {interactive && (
-          <ArrowRight
-            className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-            style={{ color: "var(--accent-primary)" }}
-            aria-hidden
-          />
-        )}
+      <div
+        className={
+          tile
+            ? "flex items-start justify-between gap-2 px-4 pt-4"
+            : "flex min-h-[3.625rem] items-center justify-between gap-2 border-b px-4 py-2"
+        }
+        style={tile ? undefined : { borderColor: "var(--border-default)" }}
+      >
+        <h2
+          className={
+            tile ? "text-xs" : "text-[0.9375rem] font-semibold"
+          }
+          style={tile ? { color: "var(--text-muted)" } : undefined}
+        >
+          {title}
+        </h2>
+        <div className="flex shrink-0 items-center gap-2">
+          {action}
+          {state.kind === "warning" && (
+            <AlertTriangle
+              className="h-4 w-4 shrink-0"
+              style={{ color: "var(--status-amber)" }}
+              aria-hidden
+            />
+          )}
+          {interactive && (
+            <ArrowRight
+              className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+              style={{ color: "var(--accent-primary)" }}
+              aria-hidden
+            />
+          )}
+        </div>
       </div>
 
-      <div className="mt-3">{renderState(state, children)}</div>
-
-      {note && state.kind !== "unavailable" && (
-        <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
-          {note}
-        </p>
-      )}
+      <div className={tile ? "px-4 pt-2 pb-4" : "p-4"}>
+        {renderState(state, children)}
+        {note && state.kind !== "unavailable" && (
+          <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
+            {note}
+          </p>
+        )}
+      </div>
     </>
   );
 
-  const className = `group block rounded-lg border p-5 text-left ${wide ? "md:col-span-2" : ""}`;
+  const className = `group block rounded-lg border text-left ${wide ? "md:col-span-2" : ""}`;
   const style = {
     background: "var(--bg-surface)",
     borderColor:
@@ -228,10 +254,10 @@ export function KpiCard({
   action?: ReactNode;
 }) {
   return (
-    <Card title={title} note={note} state={state} to={to} wide={wide}>
+    <Card title={title} note={note} state={state} to={to} wide={wide} variant="tile">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <span
-          className={`font-num tabular-nums ${wide ? "text-[2.25rem] leading-none" : "text-3xl leading-none"} font-semibold tracking-tight`}
+          className={`font-num tabular-nums ${wide ? "text-3xl leading-none" : "text-2xl leading-none"} font-semibold tracking-tight`}
           style={{ color: tone ? TONE_COLOR[tone] : "var(--text-primary)" }}
         >
           {(money ? formatMoney : formatCount)(value ?? 0)}
