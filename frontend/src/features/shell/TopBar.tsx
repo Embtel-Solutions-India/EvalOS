@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import { useAuth, useMe } from '../../lib/authContext'
 import DateFilter from './DateFilter'
 import NotificationBell from './NotificationBell'
@@ -24,7 +25,11 @@ import NotificationBell from './NotificationBell'
  */
 export default function TopBar() {
   const { logout } = useAuth()
-  const first = useMe().displayName.trim().split(/\s+/)[0]
+  const me = useMe()
+  const first = me.displayName.trim().split(/\s+/)[0]
+  // The period filter drives the role dashboards only. Everywhere else it filtered nothing, so it is not drawn;
+  // the Administrator's overview has no period either.
+  const showPeriod = useLocation().pathname === '/dashboard' && me.role !== 'ADMIN'
 
   return (
     <header
@@ -37,11 +42,13 @@ export default function TopBar() {
     >
       {/* The Sketch's header opens with a greeting; it goes first and yields to the controls on
           narrow screens rather than pushing them off the bar. */}
-      <p className="hidden shrink-0 text-base font-semibold min-[1500px]:block">Hello {first}, welcome back!</p>
+      <p className="hidden shrink-0 text-2xl font-semibold tracking-tight lg:block">Hello {first}, welcome back!</p>
 
-      <div className="flex items-center gap-2">
-        <DateFilter />
-      </div>
+      {showPeriod && (
+        <div className="flex items-center gap-2">
+          <DateFilter />
+        </div>
+      )}
 
       {/* The brand switcher and the search box are hidden for now (2026-10-08) and come back later:
           `BrandSwitcher.tsx` stays in the tree untouched, and the GM keeps the all-brands view. */}

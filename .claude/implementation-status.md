@@ -596,6 +596,7 @@ references, so `--noEmit` typechecks nothing and exits 0.)
   on the dashboard (*Set monthly target*); until either exists the tile shows the won amount with
   *"No monthly target set"*.
 
+- **Top bar (2026-10-08):** the period filter (`DateFilter`) is drawn only on `/dashboard`, and not for the Administrator whose overview has no period; the greeting is `text-2xl` from `lg`. The search box and brand switcher stay hidden for now.
 - **Administrator account (D78, spec 78), 2026-10-08.** `Role.ADMIN` + `V88` (role CHECK, brand rule) + seeds
   (`V916` local, `V961` prod placeholders `ADMIN_PASSWORD_HASH`/`ADMIN_EMAIL` — **new required env vars on every prod
   boot**, `V954` testprod). Staff/GHL-pipeline/jobs/sync endpoints moved GM→ADMIN; `AdminAllowlist` (default-deny
