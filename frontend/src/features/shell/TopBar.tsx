@@ -44,17 +44,13 @@ export default function TopBar() {
           narrow screens rather than pushing them off the bar. */}
       <p className="hidden shrink-0 text-2xl font-semibold tracking-tight lg:block">Hello {first}, welcome back!</p>
 
-      {showPeriod && (
-        <div className="flex items-center gap-2">
-          <DateFilter />
-        </div>
-      )}
-
       {/* The brand switcher and the search box are hidden for now (2026-10-08) and come back later:
           `BrandSwitcher.tsx` stays in the tree untouched, and the GM keeps the all-brands view. */}
       <div className="min-w-0 flex-1" />
 
       <div className="flex items-center gap-2">
+        {/* Next to the bell, on the right: it is a control for the screen, like the bell is for the account. */}
+        {showPeriod && <DateFilter />}
         <NotificationBell />
         <button
           type="button"
