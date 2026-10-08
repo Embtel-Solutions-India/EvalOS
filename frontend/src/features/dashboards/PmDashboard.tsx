@@ -2,7 +2,10 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { Card, CapacityBar, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
 import { useFilters, rangeLabel } from '../shell/filtersContext'
-import { fetchPmMetrics, type PmMetrics } from './pmMetricsApi'
+import { fetchPmMetrics, fetchPmOverview, type PmMetrics, type PmOverview } from './pmMetricsApi'
+import { QueueTable } from './QueueTable'
+import { StageFunnel } from './StageFunnel'
+import { ThroughputCard } from './ThroughputCard'
 import { useMetrics } from './useMetrics'
 
 /**
@@ -17,6 +20,12 @@ export default function PmDashboard() {
   // One state for every tile, so a failed load cannot leave half the board showing stale zeroes.
   const { data: metrics, state: base } = useMetrics<PmMetrics>(
     (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
+    [dateRange, activeBrandId],
+  )
+
+  // A separate load, so a failed overview cannot blank the six tiles below it or the reverse.
+  const { data: overview, state: overviewState } = useMetrics<PmOverview>(
+    (signal) => fetchPmOverview(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
   )
 
@@ -37,6 +46,32 @@ export default function PmDashboard() {
           {rangeLabel(dateRange)}
         </p>
       </header>
+
+      <p className="mt-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+        Right now — these cases ignore the period above.
+      </p>
+      <div className="mt-2 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <KpiCard title="Active cases" state={overviewState} to="/inbox" value={overview?.active ?? null} />
+        <KpiCard
+          title="Blocked cases"
+          state={overviewState}
+          value={overview?.blocked ?? null}
+          note="On hold, expert declined, or refund requested."
+        />
+        <KpiCard title="Drafts awaiting review" state={overviewState} to="/drafts" value={overview?.awaitingReview ?? null} />
+        <KpiCard
+          title="Cases awaiting QC"
+          state={overviewState}
+          to="/inbox?stage=FINAL_QC"
+          value={overview?.awaitingQc ?? null}
+        />
+        <KpiCard
+          title="Ready to deliver"
+          state={overviewState}
+          to="/inbox?stage=READY_TO_DELIVER"
+          value={overview?.readyToDeliver ?? null}
+        />
+      </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
@@ -154,7 +189,7 @@ export default function PmDashboard() {
         >
           <div>
             {metrics?.workload.map((row) => (
-              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} />
+              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} overdue={row.overdue} />
             ))}
           </div>
         </Card>
@@ -187,6 +222,28 @@ export default function PmDashboard() {
         />
       </div>
 
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <StageFunnel stages={overview?.stages} state={overviewState} />
+        <ThroughputCard points={overview?.throughput} state={overviewState} period={rangeLabel(dateRange)} />
+        <QueueTable
+          title="Draft review queue"
+          note="Cases waiting on a PM decision. Owner is the draft's author."
+          rows={overview?.queues.draftReview}
+          state={overviewState}
+          emptyNote="No drafts are waiting for review."
+        />
+        <QueueTable
+          title="Final QC queue"
+          note="Cases waiting on final quality check. Owner is the assigned PM."
+          rows={overview?.queues.finalQc}
+          state={overviewState}
+          emptyNote="Nothing is waiting for final QC."
+        />
+        <Card
+          title="First-pass QC rate"
+          state={{ kind: 'unavailable', blockedBy: 'Q21 — no QC outcome is recorded per case' }}
+        />
+      </div>
     </section>
   )
 }
