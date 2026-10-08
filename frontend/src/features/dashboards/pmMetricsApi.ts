@@ -1,5 +1,5 @@
 import { api, unwrap } from '../../lib/api'
-import type { DeadlineRisk } from '../board/boardRules'
+import type { DeadlineRisk, Stage } from '../board/boardRules'
 import { rangeParams, type DateRange } from '../shell/filtersContext'
 
 /** `PmMetricsService.OnTimeDelivery`. */
@@ -34,6 +34,8 @@ export type CmWorkload = {
   cmId: string
   name: string
   active: number
+  /** Open cases of this CM whose deadline risk is OVERDUE (the red band). */
+  overdue: number
   capacity: number
 }
 
@@ -63,6 +65,40 @@ export async function fetchPmMetrics(
   const params: Record<string, string> = rangeParams(range)
   if (brandId) params.brandId = brandId
   return unwrap<PmMetrics>(api.get('/metrics/pm', { params, signal }))
+}
+
+/** `PmOverviewService.PmOverview` — see spec 79 §3. */
+export type StageCount = { stage: Stage; count: number; medianAgeBusinessHours: number | null }
+export type QueueRow = {
+  caseId: string
+  caseCode: string
+  serviceType: string | null
+  ownerName: string | null
+  deadline: string | null
+  risk: DeadlineRisk | null
+  /** Null when the case has no stage-entry time — unknown, not zero. */
+  waitingBusinessHours: number | null
+}
+export type ThroughputPoint = { bucket: string; delivered: number }
+export type PmOverview = {
+  stages: StageCount[]
+  active: number
+  blocked: number
+  awaitingReview: number
+  awaitingQc: number
+  readyToDeliver: number
+  queues: { draftReview: QueueRow[]; finalQc: QueueRow[] }
+  throughput: ThroughputPoint[]
+}
+
+export async function fetchPmOverview(
+  range: DateRange,
+  brandId: string | null,
+  signal?: AbortSignal,
+): Promise<PmOverview> {
+  const params: Record<string, string> = rangeParams(range)
+  if (brandId) params.brandId = brandId
+  return unwrap<PmOverview>(api.get('/metrics/pm/overview', { params, signal }))
 }
 
 // --- the other four roles ---------------------------------------------------

@@ -111,7 +111,7 @@ function Greeting({ name }: { name: string }) {
     <p
       aria-label={text}
       className="hidden shrink-0 items-center text-3xl leading-none font-normal lg:flex"
-      style={{ fontFamily: "var(--font-mono)", color: "#000000" }}
+      style={{ color: "#000000" }}
     >
       <span aria-hidden>{text.slice(0, typed)}</span>
       {/* The caret rides the typing and goes when the line is written. */}
