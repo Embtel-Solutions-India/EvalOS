@@ -189,7 +189,7 @@ export default function PmDashboard() {
         >
           <div>
             {metrics?.workload.map((row) => (
-              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} overdue={row.overdue} />
+              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} critical={row.critical} />
             ))}
           </div>
         </Card>

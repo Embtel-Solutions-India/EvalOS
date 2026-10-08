@@ -1,10 +1,8 @@
 import { Link } from 'react-router-dom'
 import { Card, type CardState } from '../../components/ui/card'
 import type { QueueRow } from './pmMetricsApi'
+import { riskColor, riskLabel } from '../queues/queueRules'
 import { ageText } from './pmOverviewRules'
-
-const RISK_COLOR = { OVERDUE: 'var(--status-red)', AT_RISK: 'var(--status-amber)', ON_TRACK: 'var(--text-muted)' } as const
-const RISK_TEXT = { OVERDUE: 'Overdue', AT_RISK: 'At risk', ON_TRACK: 'On track' } as const
 
 /** A waiting queue, longest wait first. Rows open the existing case page; no new actions live here. */
 export function QueueTable({
@@ -31,7 +29,7 @@ export function QueueTable({
               <td className="py-1.5">{row.ownerName ?? '—'}</td>
               <td className="py-1.5">
                 {/* Status is text as well as colour: colour alone never carries it. */}
-                {row.risk ? <span style={{ color: RISK_COLOR[row.risk] }}>{RISK_TEXT[row.risk]}</span> : '—'}
+                {row.risk ? <span style={{ color: riskColor(row.risk) }}>{riskLabel(row.risk)}</span> : '—'}
                 {row.deadline ? (
                   <span className="font-num ml-2 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
                     {new Date(row.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

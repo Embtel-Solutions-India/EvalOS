@@ -78,7 +78,7 @@ public class PmMetricsService {
 	public record CmRevisionRate(UUID cmId, String name, int cases, int revised, Integer ratePct) {
 	}
 
-	public record CmWorkload(UUID cmId, String name, int active, int overdue, int capacity) {
+	public record CmWorkload(UUID cmId, String name, int active, int critical, int capacity) {
 	}
 
 	/**

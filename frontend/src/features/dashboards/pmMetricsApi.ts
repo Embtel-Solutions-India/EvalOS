@@ -34,8 +34,8 @@ export type CmWorkload = {
   cmId: string
   name: string
   active: number
-  /** Open cases of this CM whose deadline risk is OVERDUE (the red band). */
-  overdue: number
+  /** Open cases of this CM in the red deadline band: past the date or under 24 business hours left. */
+  critical: number
   capacity: number
 }
 

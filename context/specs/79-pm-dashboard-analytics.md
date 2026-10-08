@@ -56,7 +56,7 @@ Labels come from one frontend table (extend `boardRules.ts` `STAGE_COLUMNS`/labe
 | Delivered, on-time % | period | existing `onTime` (reused) |
 | Throughput | period | delivered per day (≤31 days) or per ISO week, from `deliveryDate` (the field `onTime` already reads) |
 | Rework rate | period | existing `revisionRateByCm`, summed across CMs |
-| Overdue per CM | now | scoped open cases of that CM whose `DeadlineRisk == OVERDUE` |
+| Critical per CM | now | scoped open cases of that CM whose `DeadlineRisk == OVERDUE` — the red band (past the date or <24 business hours), labelled "critical", never "overdue" |
 
 Case counts, never task/draft/checklist counts: tile subtitles say "cases". The period filter applies
 only to *period* rows; *now* tiles carry the note "Right now — ignores the period" as `atRiskNow` does.
@@ -77,7 +77,7 @@ PmOverview {
 QueueRow { caseId, caseCode, serviceType, ownerName, deadline, risk, waitingBusinessHours }
 ```
 
-- **Workload** is not in this payload: `overdue` was added to `CmWorkload` on `/api/metrics/pm` (additive), so there is one workload source.
+- **Workload** is not in this payload: `critical` was added to `CmWorkload` on `/api/metrics/pm` (additive), so there is one workload source.
 - **Reuse:** scope loading, `DeadlineRiskCalculator`, business-calendar helper, `CmWorkload` source —
   move shared private helpers to package-private rather than copying them.
 - **Query shape:** one scoped case load, grouped in memory (the same pattern `PmMetricsService` uses);
@@ -97,7 +97,7 @@ requests fired once each via `useMetrics`). New shared pieces, built to be reuse
 - `QueueTable` — case code, service, owner, deadline chip (risk colour), waiting time; rows link to the
   existing case page / `DraftQueuePage`. No new actions.
 - `ThroughputCard` — line chart over buckets. `TrendCard` is GM/money-specific (`GmTrend`, `formatMoney`), so a small new card, not an extension.
-- Workload bars gain an "overdue" segment on the existing `CapacityBar`.
+- Workload bars gain a "critical" segment on the existing `CapacityBar`.
 
 Page order: KPI strip (now | period groups, labelled) → `StageFunnel` → two `QueueTable`s → workload →
 throughput + rework. States per card via the existing `CardState`: loading skeleton, `empty` note,
