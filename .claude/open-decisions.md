@@ -49,3 +49,11 @@ removes the application table, so no lead shares it (D8)._
 | i3  | Does the GM's board span every brand or the selected one?  | The selected brand, consistently.                                                                                                                   |
 | j   | Should brand isolation move to Postgres RLS?               | No. Composite FKs plus a test forbidding `findById` on a `ScopedRepository` outside a token-authorised path.                                        |
 | k   | Do the `…FromPortal` method twins collapse?                | Yes, while splitting `CaseLifecycleService`, not before.                                                                                            |
+
+## PM dashboard analytics (spec 79)
+
+| #   | Question | Recommendation |
+| --- | -------- | -------------- |
+| Q20 | What is a "blocked" case? No `blocked` state exists; `exception_state` has hold-awaiting-client, expert-declined-rematching and refund-requested. | **Blocked = `exception_state != NONE`.** It is the only recorded off-path state; do not infer blocks from missing documents until a rule is stated. |
+| Q21 | First-pass QC rate needs a per-case QC outcome (pass / returned). None is stored. | **Show "Not tracked yet".** If wanted, add an append-only QC decision row written by the existing Final QC action — a separate decision, not part of this UI work. |
+| Q22 | The brief asks for "cases requiring reassignment". No such state exists. | **Show blocked-with-`EXPERT_DECLINED_REMATCHING` only**, labelled as that, and add nothing else. |
