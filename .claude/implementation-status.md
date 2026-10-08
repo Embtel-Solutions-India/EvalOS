@@ -596,6 +596,12 @@ references, so `--noEmit` typechecks nothing and exits 0.)
   on the dashboard (*Set monthly target*); until either exists the tile shows the won amount with
   *"No monthly target set"*.
 
+- **GM pipeline = sales only, stages summed (D19e amended), 2026-10-08.** `OpportunityBoardService.pipelinesFor(GM)`
+  reads `TeamMemberPipelineRepository.salesGhlIds` (active SALES members' pipelines + purpose `SALES`) ∩ live
+  mirror; `draw(..., foldSameNames=true)` folds same-named stages for the GM only (`foldedColumns`). Evidence:
+  `OpportunityBoardServiceTest` 26/26 (3 new), `DomainInvariantsTest`, `OpportunityRepositoryScopeTest`,
+  `PipelineJourneyServiceTest`, `GmOverviewRouteTest` pass. **Not browser-checked** (local backend is a stale
+  process). Also hidden for now: top-bar search box and brand switcher (components kept, to return later).
 - **Sketch visual language (B2), 2026-10-08.** `tokens.css` now carries the CoreDashboard Sketch
   values: accent `#3c3df2`, lavender rail `#ebecfe`, canvas `#fafafa`, radii 8/12/16, dual ambient
   card shadow, Libre Franklin (figures stay Inter for tabular width). Chart series `--chart-1..5`

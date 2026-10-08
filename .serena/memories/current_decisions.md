@@ -165,9 +165,10 @@ GHL holds on the deal and its contact.
 
 **D19d/e/f (2026-09-17).** `evalos.ghl.sales-brand` takes a **brand slug** — a UUID is right in one
 database only (IE = 1111… local, 3333… testprod) — resolved once by `SellingBrand`, which replaced
-nine copies and fails the boot on a value matching no brand. The **GM's board is every live mirrored
-pipeline**, not the union of assignments: the old query hid unowned pipelines (Case Delivery, Master)
-AND read `team_member.ghl_pipeline_id`, the column 44b replaced. **`WY6bW2xUCI8Tz8gw7aLJ` is the
+nine copies and fails the boot on a value matching no brand. The **GM's board is the SALES pipelines only**
+(D19e, amended 2026-10-08): live mirrored pipelines held by an active SALES member or tagged purpose SALES
+(`salesGhlIds`), with same-named stages summed into one column (GM only; salespeople drag, so theirs never
+fold). Marketing funnels, Case Delivery, hiring and Master are not on it. **`WY6bW2xUCI8Tz8gw7aLJ` is the
 final location**; the abandoned id is purged from every live file.
 
 **D19g/h (2026-09-17).** `StartupSync` fills the mirror once at boot (PIPELINE_MIRROR →

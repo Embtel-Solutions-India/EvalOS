@@ -297,31 +297,21 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   services that each parsed the property themselves, and a value matching no brand **fails the
   boot** naming the fix. **Blank is legal and means no brand sells yet** — and switches every
   mirror off, which the board now says out loud (`syncConfigured`).
-- **D19e.** **The GM's board is every LIVE MIRRORED pipeline, not the union of assignments**
-  (2026-09-17). Deriving it from the roster hid exactly the pipelines that belong to the business
-  rather than to a person — `00d` §6.7's unowned Case Delivery, and the location's Master Pipeline
-  — and it read `team_member.ghl_pipeline_id`, the column Unit 44b replaced, so it answered empty
-  once assignment moved to `team_member_pipeline`. The GM is `Tier.ALL`; the mirror is the list.
-  **A GM holds no assignment rows and must not** — `team_member_pipeline_matches_role` permits
-  SALES/MARKETING only.
-- **D19f.** **`WY6bW2xUCI8Tz8gw7aLJ` is the final GHL location** (confirmed 2026-09-17). The
-  abandoned sub-account's id is removed from every live config and spec so it cannot be copied back
-  in. It survives only where it cannot be edited or cannot mislead: an applied seed (a checksum
-  mismatch refuses the boot), recorded review diffs, a build log, `context/archive/`, and the dated
-  `context/audit/2026-09-13/` evidence.
-- **D19g.** **The mirror fills itself at startup, and the Refresh button can fix an empty one**
-  (2026-09-17). `StartupSync` runs `PIPELINE_MIRROR` → `REFERENCE_MIRROR` → `MIRROR_DELTA` once when
-  the app is ready, in that order and on its own thread. `fixedDelay` counts from the end of the
-  previous run, so a fresh start was otherwise an hour from its first pipelines — an hour of empty
-  boards whose only remedy was a GM running a job by hand. **Nobody should have to run a job to see
-  their own pipeline.** The board's Refresh now syncs **pipelines before deals** for the same
-  reason: in the one state somebody presses it, an empty mirror, there were no pipelines to refresh
-  deals for, so the button could not fix what it was offered for.
-- **D19h.** **A desk's pipeline claim is re-read when the token carries none.** D19b's set is read
-  at sign-in — a deliberate staleness bound for a *reassignment*, and a trap for a *first*
-  assignment: a desk that signed in before the mirror ran saw an empty board for the whole session.
-  An empty claim now means "ask again", not "you have none". It widens nothing: same member, own
-  row, and a member with no assignment still gets an empty list.
+- **D19e.** **The GM's board is the SALES pipelines only, with same-named stages summed into one
+  column** (amended 2026-10-08; was *every live mirrored pipeline*, 2026-09-17). A pipeline is a sales
+  pipeline when it is held by an active SALES member of the selling brand
+  (`team_member_pipeline`, not revoked) **or** a GM has tagged it purpose `SALES`
+  (`TeamMemberPipelineRepository.salesGhlIds`) — the same assignment signal the Sales dashboard reads
+  (D76), so the two cannot disagree. Marketing funnels, Case Delivery, expert hiring and the location's
+  Master Pipeline are mirrored but are **not** on this board; they have their own screens. Stages are
+  matched by name (trimmed, case-insensitive) across those pipelines and drawn as ONE column in the
+  position of the first, holding every pipeline's deals with the summed value — so no stage name
+  appears twice. **Only the GM's board folds:** a salesperson drags cards, and a drop onto a column that
+  stands for several pipelines' stages has no single stage to move the deal to. The GM cannot drag
+  (`canMove` is SALES/ENM), so nothing is lost. The reason the 2026-09-17 rule is gone: it existed to
+  stop deriving the GM's view from the roster hiding unowned pipelines, and "unowned" is exactly what
+  Case Delivery and the Master Pipeline are — they are not sales, so showing them was the error.
+  Still gated on the mirror, so a pipeline GHL stopped returning is not offered.
 - **D19a.** `/api/opportunities/board` is the one narrowed case: `evalos.ghl.sales-brand` names the
   brand that owns the location and assignment refuses any other brand's member with a 400, so that
   screen's brand _is_ provable and SALES/MARKETING reach it.

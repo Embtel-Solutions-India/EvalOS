@@ -55,6 +55,27 @@ public class TeamMemberPipelineRepository {
 	}
 
 	/**
+	 * The brand's live <strong>sales</strong> pipelines as GHL's ids: held by an active SALES member, or
+	 * tagged {@code SALES} by a GM. This is what "a sales pipeline" means on the GM's board (D19e).
+	 *
+	 * <p>Marketing funnels, Case Delivery, hiring and the location's Master Pipeline are not in it.
+	 * Assignment is the primary signal because it is what the Sales dashboard already reads
+	 * (D76), so the two screens cannot disagree about which pipelines are sales; the purpose tag
+	 * covers a sales pipeline nobody holds yet.
+	 */
+	public List<String> salesGhlIds(UUID brandId) {
+		return jdbc.queryForList("""
+				SELECT p.ghl_id FROM pipeline p
+				 WHERE p.missing_since IS NULL AND p.brand_id = ?
+				   AND (p.purpose = 'SALES'
+				        OR p.id IN (SELECT tmp.pipeline_id FROM team_member_pipeline tmp
+				                      JOIN team_member m ON m.id = tmp.team_member_id
+				                     WHERE tmp.revoked_at IS NULL AND m.active AND m.role = 'SALES'
+				                       AND m.brand_id = ?))
+				 ORDER BY p.position, p.name""", String.class, brandId, brandId);
+	}
+
+	/**
 	 * Finishes Unit 44b's migration for members still described by the column it replaced.
 	 *
 	 * <p><strong>This exists because a seed cannot do it.</strong> {@code V54} backfills from

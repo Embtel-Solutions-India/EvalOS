@@ -1,5 +1,4 @@
 import { useAuth, useMe } from '../../lib/authContext'
-import BrandSwitcher from './BrandSwitcher'
 import DateFilter from './DateFilter'
 import NotificationBell from './NotificationBell'
 
@@ -41,29 +40,12 @@ export default function TopBar() {
       <p className="hidden shrink-0 text-base font-semibold min-[1500px]:block">Hello {first}, welcome back!</p>
 
       <div className="flex items-center gap-2">
-        <BrandSwitcher />
         <DateFilter />
       </div>
 
-      <div className="min-w-0 flex-1">
-        <label className="relative block max-w-sm">
-          <span className="sr-only">Search cases</span>
-          <SearchIcon />
-          <input
-            type="search"
-            placeholder="Search"
-            disabled
-            title="Case search has no endpoint yet"
-            className="h-9 w-full pr-4 pl-9 text-sm"
-            style={{
-              background: 'var(--bg-surface)',
-              border: '1px solid var(--border-default)',
-              borderRadius: 'var(--radius-md)',
-              color: 'var(--text-muted)',
-            }}
-          />
-        </label>
-      </div>
+      {/* The brand switcher and the search box are hidden for now (2026-10-08) and come back later:
+          `BrandSwitcher.tsx` stays in the tree untouched, and the GM keeps the all-brands view. */}
+      <div className="min-w-0 flex-1" />
 
       <div className="flex items-center gap-2">
         <NotificationBell />
@@ -82,24 +64,5 @@ export default function TopBar() {
         </button>
       </div>
     </header>
-  )
-}
-
-/** Inline for the reason the bell's is: a handful of icons do not earn a dependency. */
-function SearchIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="pointer-events-none absolute top-1/2 left-3.5 h-3.5 w-3.5 -translate-y-1/2"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      style={{ color: 'var(--text-muted)' }}
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
   )
 }
