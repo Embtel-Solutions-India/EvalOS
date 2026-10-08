@@ -29,7 +29,9 @@ import { emptyWhen, useMetrics } from './useMetrics'
  * the one question a Kanban cannot answer (`dealAge`), and it reads the caller's board.
  */
 export default function PipelineDashboard({ audience }: { audience: Audience }) {
-  const isGm = useMe().role === 'GM'
+  const role = useMe().role
+  // The GM and the read-only Administrator both see the whole team and may drill down; only the GM sets targets.
+  const isGm = role === 'GM' || role === 'ADMIN'
   const [params, setParams] = useSearchParams()
   const thisYear = new Date().getFullYear()
   const year = Number(params.get('year')) || thisYear
@@ -99,7 +101,7 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
           a manager asks them; the rail answers "who" and "where from". */}
       <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="min-w-0 space-y-4">
-          <KpiRow data={data} state={cardState} audience={audience} canSetTarget={isGm && !memberId} source={source} />
+          <KpiRow data={data} state={cardState} audience={audience} canSetTarget={role === 'GM' && !memberId} source={source} />
           <JourneyChart
             data={data}
             state={cardState}

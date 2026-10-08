@@ -72,14 +72,14 @@ public class TeamMemberController {
 	// --- Unit 68: the GM's staff directory writes ------------------------------
 
 	@org.springframework.web.bind.annotation.PostMapping
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<TeamMemberSummary> create(@RequestBody @jakarta.validation.Valid CreateRequest r) {
 		return ApiResponse.ok(TeamMemberSummary.of(admin.create(new com.ie.evalos.service.TeamMemberAdminService.Details(
 				r.displayName(), r.email(), r.role(), r.brandId(), r.segment(), r.ghlUserId()), r.password())));
 	}
 
 	@PutMapping("/{id}")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<TeamMemberSummary> update(@PathVariable UUID id,
 			@RequestBody @jakarta.validation.Valid UpdateRequest r) {
 		return ApiResponse.ok(TeamMemberSummary.of(admin.update(id, new com.ie.evalos.service.TeamMemberAdminService.Details(
@@ -87,20 +87,20 @@ public class TeamMemberController {
 	}
 
 	@PutMapping("/{id}/active")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<TeamMemberSummary> setActive(@PathVariable UUID id, @RequestBody ActiveRequest r) {
 		return ApiResponse.ok(TeamMemberSummary.of(admin.setActive(id, r.active())));
 	}
 
 	@PutMapping("/{id}/password")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<Void> setPassword(@PathVariable UUID id, @RequestBody @jakarta.validation.Valid PasswordRequest r) {
 		admin.setPassword(id, r.password());
 		return ApiResponse.ok(null);
 	}
 
 	@GetMapping
-	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER')")
+	@PreAuthorize("hasAnyRole('ADMIN', 'BRAND_MANAGER')")
 	public ApiResponse<List<TeamMemberSummary>> list() {
 		return ApiResponse.ok(teamMembers.listForCaller().stream().map(TeamMemberSummary::of).toList());
 	}
@@ -117,7 +117,7 @@ public class TeamMemberController {
 	}
 
 	@GetMapping("/assignable")
-	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
+	@PreAuthorize("hasAnyRole('ADMIN', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
 	public ApiResponse<List<AssignableMember>> assignable(@RequestParam Role role) {
 		return ApiResponse.ok(teamMembers.assignable(role).stream()
 				.map(member -> new AssignableMember(member.getId(), member.getDisplayName()))
@@ -153,21 +153,21 @@ public class TeamMemberController {
 	 * another brand's desk.
 	 */
 	@PutMapping("/{id}/pipelines")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<PipelineAssignment> grantPipeline(@PathVariable UUID id,
 			@RequestBody @jakarta.validation.Valid PipelineGrantRequest request) {
 		return ApiResponse.ok(new PipelineAssignment(id, pipelines.grant(id, request.pipelineId())));
 	}
 
 	@DeleteMapping("/{id}/pipelines/{pipelineId}")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<PipelineAssignment> revokePipeline(@PathVariable UUID id,
 			@PathVariable UUID pipelineId) {
 		return ApiResponse.ok(new PipelineAssignment(id, pipelines.revoke(id, pipelineId)));
 	}
 
 	@GetMapping("/{id}/pipelines")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<PipelineAssignment> pipelinesOf(@PathVariable UUID id) {
 		return ApiResponse.ok(new PipelineAssignment(id, pipelines.assignedTo(id)));
 	}

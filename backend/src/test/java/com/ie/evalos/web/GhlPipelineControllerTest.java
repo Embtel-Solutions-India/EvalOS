@@ -68,15 +68,15 @@ class GhlPipelineControllerTest {
 
 	private String bearer(Role role) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), role + "@evalos.local", "Staff", role,
-				role == Role.GM ? null : BRAND_IE, null, null, true);
+				(role == Role.GM || role == Role.ADMIN) ? null : BRAND_IE, null, null, true);
 		return "Bearer " + jwtService.issue(principal);
 	}
 
 	@Test
-	void theGmGetsIdAndNameForEveryPipeline() throws Exception {
+	void theAdminGetsIdAndNameForEveryPipeline() throws Exception {
 		given(pipelines.all()).willReturn(PIPELINES);
 
-		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.length()").value(2))
 				.andExpect(jsonPath("$.data[0].id").value("pipe_aditya_01"))
@@ -96,7 +96,7 @@ class GhlPipelineControllerTest {
 		given(pipelines.all()).willReturn(PIPELINES);
 		given(pipelines.stagesOf(org.mockito.ArgumentMatchers.any())).willReturn(List.of());
 
-		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data[0].stages").value(0))
 				.andExpect(jsonPath("$.data[0].syncedAt").exists())
@@ -105,7 +105,7 @@ class GhlPipelineControllerTest {
 	}
 
 	/**
-	 * Every role but the GM, including the two Unit 36 adds.
+	 * Every role but the Admin (the GM included, D78), including the two Unit 36 adds.
 	 *
 	 * <p><strong>SALES and MARKETING are refused too, and that is the point of asserting over
 	 * the whole enum.</strong> They are the roles the pipeline list exists to serve, which makes
@@ -113,7 +113,7 @@ class GhlPipelineControllerTest {
 	 * role the names of every other desk's funnel on a location EvalOS cannot attribute.
 	 */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "ADMIN")
 	void everyOtherRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());
@@ -141,7 +141,7 @@ class GhlPipelineControllerTest {
 	void anUnfilledMirrorAnswersWithAnEmptyListRatherThanAnError() throws Exception {
 		given(pipelines.all()).willReturn(List.of());
 
-		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.length()").value(0));
 	}
@@ -150,16 +150,16 @@ class GhlPipelineControllerTest {
 	@Test
 	void anUnknownPurposeIsRefusedWithTheAllowedValues() throws Exception {
 		mockMvc.perform(put("/api/ghl/pipelines/" + UUID.randomUUID() + "/purpose")
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
 				.content("{\"purpose\":\"WHATEVER\"}"))
 				.andExpect(status().isBadRequest());
 	}
 
-	/** Setting a purpose is a GM act: it decides where a client's request is routed. */
+	/** Setting a purpose is an Administrator act: it decides where a client's request is routed. */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
-	void onlyTheGmMaySetAPurpose(Role role) throws Exception {
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "ADMIN")
+	void onlyTheAdminMaySetAPurpose(Role role) throws Exception {
 		mockMvc.perform(put("/api/ghl/pipelines/" + UUID.randomUUID() + "/purpose")
 				.header(HttpHeaders.AUTHORIZATION, bearer(role))
 				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)

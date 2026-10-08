@@ -112,7 +112,7 @@ public class TeamMemberAdminService {
 		TeamMember member = existing(id);
 		member.setPasswordHash(passwords.encode(password));
 		members.save(member);
-		audit.recordEvent(OBJECT_TYPE, member.getId(), AuditAction.UPDATED, me(), null, "password set by the GM");
+		audit.recordEvent(OBJECT_TYPE, member.getId(), AuditAction.UPDATED, me(), null, "password set by an administrator");
 	}
 
 	private Details validated(Details d, TeamMember current) {
@@ -131,9 +131,10 @@ public class TeamMemberAdminService {
 				.ifPresent(other -> {
 					throw new InvalidRequestException("Another staff member already signs in with " + email);
 				});
-		// The GM is cross-brand and only the GM is (team_member_brand_required).
-		UUID brandId = d.role() == Role.GM ? null : d.brandId();
-		if (d.role() != Role.GM && (brandId == null || brands.findById(brandId).isEmpty())) {
+		// The GM and the Admin are cross-brand and only they are (team_member_brand_required).
+		boolean crossBrand = d.role() == Role.GM || d.role() == Role.ADMIN;
+		UUID brandId = crossBrand ? null : d.brandId();
+		if (!crossBrand && (brandId == null || brands.findById(brandId).isEmpty())) {
 			throw new InvalidRequestException("Choose this member's brand");
 		}
 		// A segment for the two desks and nobody else (team_member_segment_matches_role).

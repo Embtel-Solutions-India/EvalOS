@@ -10,6 +10,7 @@ import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, homePathFor, itemFor, matche
 
 const ALL_ROLES: readonly Role[] = [
   'GM',
+  'ADMIN',
   'BRAND_MANAGER',
   'PROJECT_MANAGER',
   'PROJECT_COORDINATOR',
@@ -271,13 +272,15 @@ describe('the nav and route table', () => {
         // is SALES, capturing a lead is MARKETING.
         // Unit 63: the ENM too — their pipelines are derived server-side from their own brand's
         // EXPERT_HIRING pipelines, so they carry the same binding a desk's assignment does.
-        const bound = ['GM', 'SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER']
+        const bound = ['GM', 'ADMIN', 'SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER']
         expect(reachers.every((role) => bound.includes(role)),
           `${item.path} reached by ${reachers.join(', ')}`).toBe(true)
         continue
       }
 
-      expect(reachers, item.path).toEqual(['GM'])
+      // The cross-brand roles only — the GM, and the Administrator who owns the admin screens (spec 78).
+      expect(reachers.length, item.path).toBeGreaterThan(0)
+      expect(reachers.every((role) => role === 'GM' || role === 'ADMIN'), `${item.path} reached by ${reachers.join(', ')}`).toBe(true)
     }
   })
 

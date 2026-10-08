@@ -94,6 +94,7 @@ export const setPurpose = (mirrorId: string, purpose: string) =>
 /** Roles in the order a GM thinks of them, and the words they use. */
 export const ROLE_LABEL: Record<Role, string> = {
   GM: 'General manager',
+  ADMIN: 'Administrator',
   BRAND_MANAGER: 'Brand manager',
   PROJECT_MANAGER: 'Project manager',
   PROJECT_COORDINATOR: 'Project coordinator',

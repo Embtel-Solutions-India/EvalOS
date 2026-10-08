@@ -198,7 +198,7 @@ function StaffSheet({
               ))}
             </select>
           </label>
-          {form.role !== 'GM' && (
+          {form.role !== 'GM' && form.role !== 'ADMIN' && (
             <label className="text-sm">
               Brand
               <select className={INPUT} style={INPUT_STYLE} value={form.brandId ?? ''} onChange={(e) => set('brandId', e.target.value || null)}>

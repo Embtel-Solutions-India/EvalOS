@@ -182,7 +182,7 @@ public class OpportunityBoardService {
 
 		// Only the GM's board folds same-named stages together: a salesperson drags cards, and a drop onto a
 		// column that stands for several pipelines' stages would have no single stage to move the deal to.
-		return draw(mine, deals.onPipelines(mine), caller.role() == Role.GM);
+		return draw(mine, deals.onPipelines(mine), caller.role().hasGmView());
 	}
 
 	/**
@@ -282,8 +282,8 @@ public class OpportunityBoardService {
 	 * check.
 	 */
 	private List<String> pipelinesFor(TenantContext caller) {
-		if (caller.role() == Role.GM) {
-			// The GM's board is the SALES pipelines only (D19e, amended 2026-10-08): marketing funnels,
+		if (caller.role().hasGmView()) {
+			// The GM's (and the Admin's read-only) board is the SALES pipelines only (D19e, amended 2026-10-08): marketing funnels,
 			// Case Delivery, hiring and the Master Pipeline have their own screens. Still gated on the
 			// mirror, so a pipeline GHL stopped returning is not offered.
 			if (sellingBrandId == null) {

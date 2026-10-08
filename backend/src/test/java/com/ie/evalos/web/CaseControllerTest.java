@@ -241,7 +241,10 @@ class CaseControllerTest {
 		given(lifecycle.addNote(any(), any())).willReturn(aCase());
 
 		for (Role role : Role.values()) {
-			perform(new Route("/notes", role, null, "{\"note\":\"chased the client again\"}"), role, 200);
+			// D78: the Administrator is default-deny (AdminAllowlist). This route has no @PreAuthorize at all,
+			// so it is the allowlist alone that refuses it — which is the point of that class.
+			perform(new Route("/notes", role, null, "{\"note\":\"chased the client again\"}"), role,
+					role == Role.ADMIN ? 403 : 200);
 		}
 	}
 

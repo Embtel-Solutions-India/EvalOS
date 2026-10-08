@@ -39,13 +39,13 @@ public class JobAdminController {
 	}
 
 	@GetMapping("/runs")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<List<ScheduledJob>> runs() {
 		return ApiResponse.ok(jobs.recentRuns());
 	}
 
 	@GetMapping("/sweeps")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<List<JobAdminService.SweepStatus>> sweeps() {
 		return ApiResponse.ok(jobs.statuses());
 	}
@@ -58,7 +58,7 @@ public class JobAdminController {
 	 * read that as reassurance rather than as an error to retry.
 	 */
 	@PostMapping("/{jobType}/run")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<RunResult> run(@PathVariable String jobType) {
 		boolean started = jobs.runNow(jobType);
 		return ApiResponse.ok(new RunResult(jobType, started,

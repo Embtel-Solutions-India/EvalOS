@@ -273,7 +273,7 @@ export default function BoardView() {
             className="text-[11px] font-semibold tracking-[0.08em] uppercase"
             style={{ color: 'var(--text-muted)' }}
           >
-            {me.role === 'GM' ? (activeBrandId ? 'One brand' : 'All brands') : 'Your brand'}
+            {me.role === 'GM' || me.role === 'ADMIN' ? (activeBrandId ? 'One brand' : 'All brands') : 'Your brand'}
             {ownerFilter === 'mine' && ' · assigned to you'}
           </p>
           {/* Titled from the nav table, so `/my-cases` is headed "My cases" rather than telling a

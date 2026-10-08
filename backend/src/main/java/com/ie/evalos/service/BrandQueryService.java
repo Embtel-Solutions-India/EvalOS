@@ -31,8 +31,8 @@ public class BrandQueryService {
 
 	@Transactional(readOnly = true)
 	public List<Brand> selectable() {
-		if (TenantContext.current().role() != Role.GM) {
-			throw new ForbiddenException("Only the GM may list brands");
+		if (!TenantContext.current().role().hasGmView()) {
+			throw new ForbiddenException("Only the GM or an administrator may list brands");
 		}
 		return brands.findByActiveTrueOrderByNameAsc();
 	}

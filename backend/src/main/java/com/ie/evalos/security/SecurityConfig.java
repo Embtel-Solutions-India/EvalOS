@@ -54,6 +54,9 @@ public class SecurityConfig {
 						// five-minute token in the path IS the credential, and a document opened in
 						// a new tab carries no Authorization header to check.
 						.requestMatchers("/api/local-documents/**").permitAll()
+						// The Admin account is default-deny (spec 78): anything it may not call is refused here, before
+						// any controller annotation is consulted.
+						.requestMatchers(AdminAllowlist::refuses).denyAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling
 						.authenticationEntryPoint((request, response, ex) -> apiErrors.write(

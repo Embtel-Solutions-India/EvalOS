@@ -89,7 +89,7 @@ public class SyncStatusController {
 	}
 
 	@GetMapping("/drift")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<SyncStatus> drift() {
 		List<SyncAuditService.Assessed> open = audit.openAssessed();
 		return ApiResponse.ok(new SyncStatus(

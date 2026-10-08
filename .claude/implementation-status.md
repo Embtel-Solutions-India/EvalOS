@@ -596,6 +596,16 @@ references, so `--noEmit` typechecks nothing and exits 0.)
   on the dashboard (*Set monthly target*); until either exists the tile shows the won amount with
   *"No monthly target set"*.
 
+- **Administrator account (D78, spec 78), 2026-10-08.** `Role.ADMIN` + `V88` (role CHECK, brand rule) + seeds
+  (`V916` local, `V961` prod placeholders `ADMIN_PASSWORD_HASH`/`ADMIN_EMAIL` — **new required env vars on every prod
+  boot**, `V954` testprod). Staff/GHL-pipeline/jobs/sync endpoints moved GM→ADMIN; `AdminAllowlist` (default-deny
+  request matcher) bounds the account. Frontend: `ADMIN` in `Role`, nav (Admin group ADMIN-only, Brands GM+ADMIN),
+  `AdminDashboard`, board stages read-only, no chat, no nav-badge poll. Evidence: `AdminAllowlistTest` 7, route tests
+  updated (GhlPipeline, TeamMember*, GmOverview, OpportunityBoard, CaseController, SecurityFlow), full backend run
+  1542 tests with only the intended failures fixed, frontend 218/218, `tsc -p tsconfig.app.json` clean.
+  **Browser/API-checked** on a fresh backend: Admin 200 on the allowed set and 403 on cases, contacts, experts, payouts,
+  chat, revenue, board refresh, goal write; GM 403 on staff/pipelines/sync, 200 on brands/gm/board. Not done: a board
+  card does not open for the Admin (case detail is outside its allowlist); creating an Admin is Admin-only.
 - **GM pipeline = sales only, stages summed (D19e amended), 2026-10-08.** `OpportunityBoardService.pipelinesFor(GM)`
   reads `TeamMemberPipelineRepository.salesGhlIds` (active SALES members' pipelines + purpose `SALES`) ∩ live
   mirror; `draw(..., foldSameNames=true)` folds same-named stages for the GM only (`foldedColumns`). Evidence:

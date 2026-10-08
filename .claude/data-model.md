@@ -92,7 +92,7 @@ only write path was delete-all-then-insert-all per pipeline — is why it could 
 
 | Field | Values |
 |---|---|
-| `team_member.role` | GM, BRAND_MANAGER, PROJECT_MANAGER, PROJECT_COORDINATOR, CASE_MANAGER, EXPERT_NETWORK_MANAGER, SALES, MARKETING |
+| `team_member.role` | GM, **ADMIN** (`V88`, D78; NULL brand like the GM), BRAND_MANAGER, PROJECT_MANAGER, PROJECT_COORDINATOR, CASE_MANAGER, EXPERT_NETWORK_MANAGER, SALES, MARKETING |
 | `team_member.segment` | ATTORNEY, EMPLOYER_FIRM, INDIVIDUAL (required iff SALES/MARKETING) |
 | `evalos_case.current_stage` | the 12 stages (see `architecture.md`) |
 | `evalos_case.exception_state` | NONE plus hold / refund states |

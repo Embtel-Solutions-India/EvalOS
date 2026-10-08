@@ -104,8 +104,8 @@ public class SalesCalendarController {
 	 * who takes the call; both desks pick the opportunity's owner (D64).
 	 */
 	@GetMapping("/users")
-	// Unit 68: and the GM, for the staff sheet's GHL user field (a location read, GM-only by invariant 1).
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM')")
+	// Unit 68: and the GM and the Admin, for the staff sheet's GHL user field (a location read, never a desk's by invariant 1; the staff sheet is the Admin's since D78).
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'ADMIN')")
 	public ApiResponse<List<GhlUserClient.User>> ghlUsers() {
 		return ApiResponse.ok(reference.locationUsers().stream()
 				.map((row) -> new GhlUserClient.User(row.getGhlId(), row.getName(), row.getEmail()))

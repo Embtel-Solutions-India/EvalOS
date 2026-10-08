@@ -723,3 +723,5 @@ BUILT. A GM who is not a conversation member may write in any open conversation 
 **Sketch layout match 2026-10-08:** widgets.tsx (Pill*/Donut/Avatar), Card action+tile variant, Sales/Marketing KpiRow+rail, Lucide nav icons, sidebar 16rem, greeting >=1500px. Real typecheck is `tsc -p tsconfig.app.json` (root tsconfig checks nothing). GM/PM/ENM dashboards unchecked: local backend 500s (stale process).
 
 **GM board = sales only, stages summed (D19e amended) 2026-10-08:** `pipelinesFor(GM)` = `salesGhlIds` ∩ live mirror; `draw(foldSameNames)` folds by name for GM only. OpportunityBoardServiceTest 26/26 + structural suites green. Not browser-checked (stale local backend). Top-bar search + brand switcher hidden for now.
+
+**Admin account (D78) 2026-10-08:** Role.ADMIN + V88 + seeds; endpoints GM→ADMIN; AdminAllowlist default-deny matcher; AdminDashboard; Role union/nav/boardRules/chat updated. Backend full run + frontend 218/218 + live API probe (Admin 200 allowed / 403 client data; GM 403 on staff/pipelines/sync). Prod needs ADMIN_PASSWORD_HASH + ADMIN_EMAIL env vars on every boot.

@@ -12,6 +12,7 @@
 
 export type Role =
   | 'GM'
+  | 'ADMIN'
   | 'BRAND_MANAGER'
   | 'PROJECT_MANAGER'
   | 'PROJECT_COORDINATOR'
@@ -35,6 +36,7 @@ export type Role =
  */
 export const ROLE_LABELS: Record<Role, string> = {
   GM: 'General Manager',
+  ADMIN: 'Administrator',
   BRAND_MANAGER: 'Brand Manager',
   PROJECT_MANAGER: 'Project Manager',
   PROJECT_COORDINATOR: 'Project Coordinator',

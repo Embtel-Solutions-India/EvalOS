@@ -36,7 +36,12 @@ export default function LeftNav() {
   // re-read the counts. Failure stays silent — a rail showing an error where a count should be is
   // worse than one with no counts; the screens report their own load failures.
   const badges: NavBadges | null =
-    useQuery({ queryKey: ['nav-badges'], queryFn: ({ signal }) => fetchNavBadges(signal) }).data ?? null
+    useQuery({
+      queryKey: ['nav-badges'],
+      queryFn: ({ signal }) => fetchNavBadges(signal),
+      // The Administrator is outside `/api/metrics/nav` (spec 78) and has no queues to count.
+      enabled: me.role !== 'ADMIN',
+    }).data ?? null
 
   return (
     <nav
@@ -66,7 +71,7 @@ export default function LeftNav() {
               down on `/api/me`. The GM is cross-brand and says so. */}
           <span className="block truncate text-sm font-semibold">{me.brandName ?? 'EvalOS'}</span>
           <span className="block truncate text-[11px]" style={{ color: 'var(--sidebar-muted)' }}>
-            {me.role === 'GM' ? 'All brands' : 'EvalOS'}
+            {me.role === 'GM' || me.role === 'ADMIN' ? 'All brands' : 'EvalOS'}
           </span>
         </span>
       </div>

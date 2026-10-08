@@ -125,7 +125,7 @@ public class MetricsController {
 	 *              control and this parameter cannot drift apart
 	 */
 	@GetMapping("/gm")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasAnyRole('GM', 'ADMIN')")
 	public ApiResponse<GmOverviewService.GmOverview> gm(@RequestParam(defaultValue = "month") String range,
 			@RequestParam(required = false) String from,
 			@RequestParam(required = false) String to,
@@ -143,7 +143,7 @@ public class MetricsController {
 	 * but yourself as a desk role is a 403.
 	 */
 	@GetMapping("/journey")
-	@PreAuthorize("hasAnyRole('GM', 'SALES', 'MARKETING')")
+	@PreAuthorize("hasAnyRole('GM', 'ADMIN', 'SALES', 'MARKETING')")
 	public ApiResponse<PipelineJourneyService.Journey> journey(@RequestParam(required = false) Integer year,
 			@RequestParam(required = false) String audience, @RequestParam(required = false) UUID memberId,
 			@RequestParam(required = false) String source) {

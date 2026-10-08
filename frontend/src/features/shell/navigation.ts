@@ -94,7 +94,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: '/dashboard',
     label: 'Dashboard',
-    roles: [...PRODUCTION_ROLES, 'SALES', 'MARKETING'],
+    roles: [...PRODUCTION_ROLES, 'SALES', 'MARKETING', 'ADMIN'],
     becomes: 'Role dashboard (Unit 17)',
     group: 'Overview',
   },
@@ -144,14 +144,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: '/dashboard/sales',
     label: 'Sales performance',
-    roles: ['GM'],
+    roles: ['GM', 'ADMIN'],
     becomes: 'Sales dashboard, drillable to a salesperson',
     group: 'Sales',
   },
   {
     path: '/dashboard/marketing',
     label: 'Marketing performance',
-    roles: ['GM'],
+    roles: ['GM', 'ADMIN'],
     becomes: 'Marketing dashboard, drillable to a member',
     group: 'Sales',
   },
@@ -169,7 +169,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     readsGhlLocation: true,
     brandProven: true,
     label: 'My pipeline',
-    roles: ['SALES', 'MARKETING', 'GM'],
+    roles: ['SALES', 'MARKETING', 'GM', 'ADMIN'],
     becomes: 'GHL opportunities as cards, by stage',
     group: 'Sales',
   },
@@ -270,7 +270,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: '/board',
     label: 'Production board',
-    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR'],
+    roles: ['GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'PROJECT_COORDINATOR', 'ADMIN'],
     becomes: 'Kanban production board',
     group: 'Pipeline',
   },
@@ -458,10 +458,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
   // Unit 68: the GM's admin. Staff reads the location's GHL users (its GHL user field) and Pipelines
   // the mirrored location's pipelines, so both are marked: GM-only by invariant 1, not by choice.
-  { path: '/admin/staff', label: 'Staff', roles: ['GM'], becomes: 'Staff directory', group: 'Admin', readsGhlLocation: true },
-  { path: '/admin/pipelines', label: 'Pipelines', roles: ['GM'], becomes: 'GHL pipelines and their purpose', group: 'Admin', readsGhlLocation: true },
-  { path: '/admin/sync', label: 'Sync health', roles: ['GM'], becomes: 'Drift and the GHL push queue', group: 'Admin', readsGhlLocation: true },
-  { path: '/brands', label: 'Brands', roles: ['GM'], becomes: 'The brands, read-only', group: 'Admin' },
+  { path: '/admin/staff', label: 'Staff', roles: ['ADMIN'], becomes: 'Staff directory', group: 'Admin', readsGhlLocation: true },
+  { path: '/admin/pipelines', label: 'Pipelines', roles: ['ADMIN'], becomes: 'GHL pipelines and their purpose', group: 'Admin', readsGhlLocation: true },
+  { path: '/admin/sync', label: 'Sync health', roles: ['ADMIN'], becomes: 'Drift and the GHL push queue', group: 'Admin', readsGhlLocation: true },
+  { path: '/brands', label: 'Brands', roles: ['GM', 'ADMIN'], becomes: 'The brands, read-only', group: 'Admin' },
 
   // Unit 19's sweeps: are they still running?
   //
@@ -476,7 +476,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: '/admin/jobs',
     label: 'Background jobs',
-    roles: ['GM'],
+    roles: ['ADMIN'],
     becomes: 'Sweep status and run ledger',
     group: 'Admin',
   },
