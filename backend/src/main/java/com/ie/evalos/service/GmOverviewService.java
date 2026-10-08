@@ -379,7 +379,7 @@ public class GmOverviewService {
 	}
 
 	/** The newest target the GM set for this month, else {@code SALES_MONTHLY_GOAL}. */
-	private BigDecimal goalFor(LocalDate month) {
+	BigDecimal goalFor(LocalDate month) {
 		if (sellingBrandId == null) {
 			return monthlyGoal;
 		}

@@ -23,6 +23,7 @@ import ExpertBalances from './features/payouts/ExpertBalances'
 import ExpertPayouts from './features/payouts/ExpertPayouts'
 import PaymentDetail from './features/payouts/PaymentDetail'
 import LoginPage from './features/auth/LoginPage'
+import PipelineDashboard from './features/dashboards/PipelineDashboard'
 import RoleDashboard from './features/dashboards/RoleDashboard'
 import AppShell from './features/shell/AppShell'
 import PlaceholderPage from './features/shell/PlaceholderPage'
@@ -80,6 +81,8 @@ const SCREENS: Record<string, React.ReactNode> = {
   // The diary. Its own screen rather than a panel on the board: a meeting booked from a deal card
   // was invisible the moment the card scrolled away, and EvalOS kept no record of it at all until
   // `V47__meeting.sql`.
+  '/dashboard/sales': <PipelineDashboard audience="sales" />,
+  '/dashboard/marketing': <PipelineDashboard audience="marketing" />,
   '/meetings': <MeetingsPage />,
   // **The last screen over a GHL pipeline.** Three funnel screens sat above this one until
   // 2026-09-16; they drew an aggregate over a date window and asked "how is the funnel

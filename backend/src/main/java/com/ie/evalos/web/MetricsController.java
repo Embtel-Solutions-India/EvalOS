@@ -13,6 +13,7 @@ import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
 import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.NavBadgeService;
+import com.ie.evalos.service.PipelineJourneyService;
 import com.ie.evalos.service.PmMetricsService;
 import com.ie.evalos.service.RevenueMetricsService;
 import com.ie.evalos.service.PmMetricsService.PmMetrics;
@@ -59,11 +60,13 @@ public class MetricsController {
 	private final GmOverviewService gmOverview;
 	private final NavBadgeService navBadges;
 	private final DraftReviewService drafts;
+	private final PipelineJourneyService journey;
 
 	MetricsController(PmMetricsService metrics, CoordinatorMetricsService coordinator,
 			CaseManagerMetricsService caseManager, ExpertNetworkMetricsService network,
 			RevenueMetricsService revenue, NavBadgeService navBadges, DraftReviewService drafts,
-			GmOverviewService gmOverview) {
+			GmOverviewService gmOverview, PipelineJourneyService journey) {
+		this.journey = journey;
 		this.gmOverview = gmOverview;
 		this.metrics = metrics;
 		this.coordinator = coordinator;
@@ -129,6 +132,22 @@ public class MetricsController {
 			@RequestParam(required = false) UUID brandId) {
 		return ApiResponse.ok(
 				gmOverview.forCaller(DateWindow.of(range, from, to, BusinessCalendar.clock()), brandId));
+	}
+
+	/**
+	 * The Sales and Marketing dashboards: a year of leads by month and source, the open pipeline by
+	 * stage and this month's target, for one audience or one desk of it.
+	 *
+	 * <p>Read from the local mirror, so it costs no GHL budget. The scope is the caller's own pipelines
+	 * (SALES, MARKETING) or the audience's desks (GM); {@code memberId} only narrows, and naming anyone
+	 * but yourself as a desk role is a 403.
+	 */
+	@GetMapping("/journey")
+	@PreAuthorize("hasAnyRole('GM', 'SALES', 'MARKETING')")
+	public ApiResponse<PipelineJourneyService.Journey> journey(@RequestParam(required = false) Integer year,
+			@RequestParam(required = false) String audience, @RequestParam(required = false) UUID memberId,
+			@RequestParam(required = false) String source) {
+		return ApiResponse.ok(journey.forCaller(year, audience, memberId, source));
 	}
 
 	/** A month's sales target. {@code month} is any day of it; the first is what is stored. */
