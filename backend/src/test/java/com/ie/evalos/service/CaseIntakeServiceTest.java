@@ -191,7 +191,7 @@ class CaseIntakeServiceTest {
 					assertThat(item.getBrandId()).isEqualTo(BRAND);
 				})
 				.extracting(DocumentChecklistItem::getLabel)
-				.contains("CV or résumé");
+				.contains("Detailed and updated resume (Word document)");
 	}
 
 	/**

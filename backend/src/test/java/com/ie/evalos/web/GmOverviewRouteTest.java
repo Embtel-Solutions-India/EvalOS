@@ -17,6 +17,7 @@ import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
 import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.NavBadgeService;
+import com.ie.evalos.service.PipelineJourneyService;
 import com.ie.evalos.service.PmMetricsService;
 import com.ie.evalos.service.RevenueMetricsService;
 
@@ -76,6 +77,9 @@ class GmOverviewRouteTest {
 
 	@MockitoBean
 	GmOverviewService gmOverview;
+
+	@MockitoBean
+	PipelineJourneyService journey;
 
 	@MockitoBean
 	PmMetricsService pm;
@@ -141,6 +145,18 @@ class GmOverviewRouteTest {
 
 		then(gmOverview).should(role == Role.GM ? org.mockito.Mockito.times(1) : never())
 				.setGoal(any(), any(), any());
+	}
+
+	/** The Sales and Marketing dashboards' read: those two roles and the GM, nobody else. Scoping is the service's. */
+	@ParameterizedTest
+	@EnumSource(Role.class)
+	void onlySalesMarketingAndTheGmReadTheJourney(Role role) throws Exception {
+		boolean allowed = role == Role.GM || role == Role.SALES || role == Role.MARKETING;
+
+		mockMvc.perform(get("/api/metrics/journey").header(HttpHeaders.AUTHORIZATION, bearer(role)))
+				.andExpect(allowed ? status().isOk() : status().isForbidden());
+
+		then(journey).should(allowed ? org.mockito.Mockito.times(1) : never()).forCaller(any(), any(), any(), any());
 	}
 
 	@Test

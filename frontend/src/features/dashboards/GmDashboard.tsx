@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
@@ -255,7 +256,9 @@ export default function GmDashboard() {
               {data?.desks.map((row) => (
                 <tr key={row.memberId}>
                   <td className="py-1">
-                    {row.name}
+                    <Link to={`/dashboard/${row.role === 'MARKETING' ? 'marketing' : 'sales'}?member=${row.memberId}`} className="hover:underline" style={{ color: 'var(--accent-primary)' }}>
+                      {row.name}
+                    </Link>
                     {row.role === 'MARKETING' && (
                       <span className="ml-2 text-xs" style={{ color: 'var(--text-muted)' }}>
                         marketing

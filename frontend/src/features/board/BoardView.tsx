@@ -28,6 +28,7 @@ import {
   type QuickAction,
   type ServiceType,
   cardsInColumn,
+  SERVICE_FILTER_OPTIONS,
 } from './boardRules'
 
 /**
@@ -349,11 +350,7 @@ export default function BoardView() {
             onChange={(value) => setServiceFilter(value as ServiceType | 'all')}
             options={[
               { value: 'all', label: 'All services' },
-              { value: 'CREDENTIAL_EVALUATION', label: 'Credential evaluation' },
-              { value: 'EXPERT_OPINION_LETTER', label: 'Expert opinion letter' },
-              { value: 'PERM', label: 'PERM' },
-              { value: 'RFE_RESPONSE', label: 'RFE response' },
-              { value: 'TRANSLATION', label: 'Translation' },
+              ...SERVICE_FILTER_OPTIONS,
             ]}
           />
           <label

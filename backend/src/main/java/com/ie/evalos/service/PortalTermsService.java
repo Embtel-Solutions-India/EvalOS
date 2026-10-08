@@ -30,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class PortalTermsService {
 
 	/** The policies' last update — `LEGAL_UPDATED` in `shared/src/legal/legal.ts`. Keep the two in step. */
-	public static final String VERSION = "2026-09-25";
+	public static final String VERSION = "2026-10-08";
 
 	/** Whether this caller must accept before using the portal. */
 	public record TermsStatus(boolean required, String version) {

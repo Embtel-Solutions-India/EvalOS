@@ -88,14 +88,31 @@ public class ExpertMatchService {
 	 * shortlist rather than an error, so a service type added without its entry looks like a
 	 * roster with nobody on it. Unit 33's two additions are mapped for that reason.
 	 */
-	private static final Map<ServiceType, LetterType> LETTER_FOR_SERVICE = new EnumMap<>(Map.of(
-			ServiceType.CREDENTIAL_EVALUATION, LetterType.CREDENTIAL_EVALUATION,
-			ServiceType.EXPERT_OPINION_LETTER, LetterType.EXPERT_OPINION_LETTER,
-			ServiceType.PERM, LetterType.PERM_LETTER,
-			ServiceType.RFE_RESPONSE, LetterType.RFE_RESPONSE,
-			ServiceType.TRANSLATION, LetterType.TRANSLATION_CERTIFICATION,
-			ServiceType.RECOMMENDATION_LETTER, LetterType.RECOMMENDATION_LETTER,
-			ServiceType.WAGE_LEVEL_LETTER, LetterType.WAGE_LEVEL_LETTER));
+	private static final Map<ServiceType, LetterType> LETTER_FOR_SERVICE = new EnumMap<>(ServiceType.class);
+
+	static {
+		LETTER_FOR_SERVICE.put(ServiceType.CREDENTIAL_EVALUATION, LetterType.CREDENTIAL_EVALUATION);
+		LETTER_FOR_SERVICE.put(ServiceType.EXPERT_OPINION_LETTER, LetterType.EXPERT_OPINION_LETTER);
+		LETTER_FOR_SERVICE.put(ServiceType.PERM, LetterType.PERM_LETTER);
+		LETTER_FOR_SERVICE.put(ServiceType.RFE_RESPONSE, LetterType.RFE_RESPONSE);
+		LETTER_FOR_SERVICE.put(ServiceType.TRANSLATION, LetterType.TRANSLATION_CERTIFICATION);
+		LETTER_FOR_SERVICE.put(ServiceType.RECOMMENDATION_LETTER, LetterType.RECOMMENDATION_LETTER);
+		LETTER_FOR_SERVICE.put(ServiceType.WAGE_LEVEL_LETTER, LetterType.WAGE_LEVEL_LETTER);
+		// The business's service sheet (2026-10-08): the four equivalency evaluations sign as a
+		// credential evaluation, every letter and visa service as an expert opinion letter.
+		// `LetterType` is the expert's signing appetite, so no value was added to it.
+		for (ServiceType evaluation : List.of(ServiceType.ACADEMIC_EQUIVALENCY_HIGH_SCHOOL,
+				ServiceType.ACADEMIC_EQUIVALENCY, ServiceType.EXPERIENCE_BASED_EQUIVALENCY,
+				ServiceType.ACADEMIC_EXPERIENCE_EQUIVALENCY)) {
+			LETTER_FOR_SERVICE.put(evaluation, LetterType.CREDENTIAL_EVALUATION);
+		}
+		for (ServiceType letter : List.of(ServiceType.BENEFICIARY_QUALIFICATION_LETTER,
+				ServiceType.POSITION_EVALUATION_LETTER, ServiceType.SPECIALTY_OCCUPATION_LETTER,
+				ServiceType.EB1A_SUPPORT_LETTER, ServiceType.EB2_NIW_LETTER, ServiceType.H3_VISA_EOL,
+				ServiceType.TN_VISA, ServiceType.O1A_VISA, ServiceType.L1A_VISA)) {
+			LETTER_FOR_SERVICE.put(letter, LetterType.EXPERT_OPINION_LETTER);
+		}
+	}
 
 	/** What the case needs, resolved once and handed to every factor. */
 	record Requirement(FieldTag fieldTag, LetterType letterType) {

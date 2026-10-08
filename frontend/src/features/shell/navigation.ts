@@ -137,6 +137,24 @@ export const NAV_ITEMS: readonly NavItem[] = [
 
   // The operational board (Unit 38): the deals in the pipeline you own, as cards.
   //
+  // The GM's way into the Sales and Marketing dashboards. SALES and MARKETING land on theirs through
+  // `/dashboard`; the GM's `/dashboard` is the cross-desk overview, so these two are the same
+  // component scoped to one audience, with the team drill-down only the GM is offered. They read the
+  // local mirror, not the GHL location, so they carry no `readsGhlLocation`.
+  {
+    path: '/dashboard/sales',
+    label: 'Sales performance',
+    roles: ['GM'],
+    becomes: 'Sales dashboard, drillable to a salesperson',
+    group: 'Sales',
+  },
+  {
+    path: '/dashboard/marketing',
+    label: 'Marketing performance',
+    roles: ['GM'],
+    becomes: 'Marketing dashboard, drillable to a member',
+    group: 'Sales',
+  },
   // **The first entry over the GHL location that is not GM-only**, and that is what Unit 36
   // paid for. The rule above — "one global `location-id`, EvalOS cannot prove whose brand, so
   // GM-only" — was never about seniority; it was about a location nobody could attribute.

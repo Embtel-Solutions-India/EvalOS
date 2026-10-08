@@ -543,7 +543,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D71.** **Clients and experts accept the portal's policies on first sign-in** (2026-10-01, the
   business): the Privacy Policy, Disclaimer and Document Retention Policy, once per account and
   policy version, recorded on the account and as a `TERMS_ACCEPTED` audit row; fail closed. Both
-  portals' sign-in screens carry the portal artwork on the right half. Built as Unit 72
+  portals' sign-in screens carry the portal artwork on the right half. **2026-10-08:** the screen and footer also state that AI-assisted tools organise and review documents (professors review AI output; final opinions are theirs), the checkbox reads "I acknowledge the AI assistance described above and accept…" with each policy linked, and `PortalTermsService.VERSION` is `2026-10-08`, so every account accepts again. Built as Unit 72
   (`72-portal-terms-acceptance.md`).
 - **D73.** **A portal sign-in survives a reload and a closed browser** (2026-10-02, the business). The client's and the
   expert's token is kept in `localStorage`, replacing the memory-only token. **Edited 2026-10-07 (the business): the token is kept in `localStorage`, not `sessionStorage`.** Closing the browser on a phone ended the session, and a push notification opened in a new tab arrived signed out. The token now survives a closed browser and a new tab; what bounds it is the server (absolute expiry `evalos.portal.party-link-ttl`, 7 days by default), **Sign out** (revokes it) and a 401 (clears it). **Accepted cost:** a script injected into a portal can read it, and a shared device stays signed in until Sign out. Both portals have a **Sign out** that revokes the token on the server
@@ -588,3 +588,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   editing an applied seed is a checksum mismatch that refuses the boot. A rename has nowhere to
   sit. Do it in the change that rebaselines the seed tree. `contact_snapshot` **is** the mirror's
   contact table until then, and nothing about that is wrong except its name.
+
+- **D76.** **The Sales and Marketing dashboards read the mirror, and only the GM drills down** (2026-10-08). `GET /api/metrics/journey` answers a year of leads by month and source, open deals by stage and this month's target from the local `opportunity` mirror — never GHL live, so a dashboard left open spends no rate budget. A SALES or MARKETING member reads their own pipelines only; asking for another member is a 403 (D19c). The GM reads one audience's desks or one desk of it; there is no sales-manager role, so nobody else is offered the picker. A lead is counted in the month GHL created it, a win in the month its status last changed. Date filters beyond year and source are not offered until a read can serve them.
+
+- **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. Mapping GHL's Service Requested values onto the types is a follow-up.
