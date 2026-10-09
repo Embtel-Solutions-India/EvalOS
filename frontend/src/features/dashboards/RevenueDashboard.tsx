@@ -46,6 +46,7 @@ export default function RevenueDashboard() {
   const { data, state } = useMetrics<RevenueMetrics>(
     (signal) => fetchRevenueMetrics(activeBrandId, signal),
     [activeBrandId],
+    { key: 'RevenueDashboard:0' },
   )
 
   // A second, independent read. Deliberately not folded into the one above: the money figures are
@@ -53,6 +54,7 @@ export default function RevenueDashboard() {
   const { data: ops, state: opsState } = useMetrics<PmMetrics>(
     (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
+    { key: 'RevenueDashboard:1' },
   )
 
   const total = data?.total

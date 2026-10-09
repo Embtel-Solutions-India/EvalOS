@@ -78,22 +78,27 @@ export default function GmDashboard() {
   const gm = useMetrics<GmOverview>(
     (signal) => fetchGmOverview(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
+    { key: 'GmDashboard:0' },
   );
   const revenue = useMetrics<RevenueMetrics>(
     (signal) => fetchRevenueMetrics(activeBrandId, signal),
     [activeBrandId],
+    { key: 'GmDashboard:1' },
   );
   const pm = useMetrics<PmMetrics>(
     (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
+    { key: 'GmDashboard:2' },
   );
   const roster = useMetrics<ExpertNetworkMetrics>(
     (signal) => fetchExpertNetworkMetrics(signal),
     [],
+    { key: 'GmDashboard:3' },
   );
   const board = useMetrics<OpportunityBoard>(
     (signal) => fetchOpportunityBoard(signal),
     [],
+    { key: 'GmDashboard:4' },
   );
 
   const data = gm.data;
@@ -106,6 +111,7 @@ export default function GmDashboard() {
     (signal) =>
       targetMonth ? fetchTargets(targetMonth, signal) : Promise.resolve([]),
     [targetMonth],
+    { key: 'GmDashboard:5' },
   );
   const targetOf = (memberId: string) =>
     targets.data?.find((t) => t.memberId === memberId)?.target ?? null;

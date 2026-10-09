@@ -51,8 +51,7 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
   const { data, state, reload } = useMetrics(
     (signal) => fetchJourney({ year, audience, memberId, source }, signal),
     [year, audience, memberId, source],
-    { refreshEvery: 60_000 },
-  )
+    { key: 'PipelineDashboard:0', refreshEvery: 60_000 })
   const cardState = state.kind === 'error' ? { ...state, onRetry: reload } : state
 
   const copy = COPY[audience]
@@ -144,7 +143,7 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
  * board is every desk's.
  */
 function UntouchedDeals({ audience }: { audience: Audience }) {
-  const { data, state } = useMetrics<OpportunityBoard>((signal) => fetchOpportunityBoard(signal), [audience], { refreshEvery: 60_000 })
+  const { data, state } = useMetrics<OpportunityBoard>((signal) => fetchOpportunityBoard(signal), [audience], { key: 'PipelineDashboard:1', refreshEvery: 60_000 })
   const untouched = staleDeals(data)
   const undated = data ? countUndated(data) : 0
   const copy = COPY[audience]

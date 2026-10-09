@@ -22,12 +22,14 @@ export default function ExpertNetworkDashboard() {
   const { data, state } = useMetrics<ExpertNetworkMetrics>(
     (signal) => fetchExpertNetworkMetrics(signal),
     [],
+    { key: 'ExpertNetworkDashboard:0' },
   )
 
   // Spec 82: the offer ledger by outcome, and the oldest unanswered offers.
   const { data: work, state: workState } = useMetrics<ExpertNetworkWork>(
     (signal) => fetchExpertNetworkWork(signal),
     [],
+    { key: 'ExpertNetworkDashboard:1' },
   )
   const funnel = work
     ? [
@@ -41,8 +43,8 @@ export default function ExpertNetworkDashboard() {
 
   const gaps = data?.coverage.filter((row) => row.gap) ?? []
   // Unit 63: the hiring pipeline by stage, and this month's payouts — both existing reads.
-  const { data: hiring, state: hiringState } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
-  const { data: months, state: payState } = useMetrics((signal) => fetchSummary('MONTH', signal), [])
+  const { data: hiring, state: hiringState } = useMetrics((signal) => fetchOpportunityBoard(signal), [], { key: 'ExpertNetworkDashboard:2' })
+  const { data: months, state: payState } = useMetrics((signal) => fetchSummary('MONTH', signal), [], { key: 'ExpertNetworkDashboard:3' })
   const stale = staleDeals(hiring)
   const undated = countUndated(hiring)
   const thisMonth = months?.filter((row) => row.periodStart === months[0]?.periodStart) ?? []

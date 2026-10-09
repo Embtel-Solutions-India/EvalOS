@@ -41,22 +41,25 @@ import { SERIES } from "./journeyWidgets";
  */
 export default function AdminDashboard() {
   const staff = useMetrics<StaffMember[]>((signal) => fetchStaff(signal), [], {
+    key: "AdminDashboard:0",
     refreshEvery: 60_000,
   });
   const pipelines = useMetrics<MirroredPipeline[]>(
     (signal) => fetchPipelines(signal),
     [],
-    { refreshEvery: 60_000 },
+    { key: "AdminDashboard:1", refreshEvery: 60_000 },
   );
   const sync = useMetrics<SyncHealth>((signal) => fetchSyncHealth(signal), [], {
+    key: "AdminDashboard:2",
     refreshEvery: 60_000,
   });
   const sweeps = useMetrics<SweepStatus[]>(
     (signal) => fetchSweeps(signal),
     [],
-    { refreshEvery: 60_000 },
+    { key: "AdminDashboard:3", refreshEvery: 60_000 },
   );
   const runs = useMetrics<JobRun[]>((signal) => fetchRuns(signal), [], {
+    key: "AdminDashboard:4",
     refreshEvery: 60_000,
   });
 

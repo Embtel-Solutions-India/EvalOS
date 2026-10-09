@@ -31,12 +31,14 @@ export default function CaseManagerDashboard() {
   const { data, state, reload } = useMetrics<CaseManagerMetrics>(
     (signal) => fetchCaseManagerMetrics(signal),
     [],
+    { key: 'CaseManagerDashboard:0' },
   )
 
   // A separate load, so a failed /work cannot blank the tiles below it or the reverse.
   const { data: work, state: workState } = useMetrics<CaseManagerWork>(
     (signal) => fetchCaseManagerWork(signal),
     [],
+    { key: 'CaseManagerDashboard:1' },
   )
 
   return (

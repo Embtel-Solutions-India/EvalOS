@@ -21,12 +21,14 @@ export default function PmDashboard() {
   const { data: metrics, state: base } = useMetrics<PmMetrics>(
     (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
+    { key: 'PmDashboard:0' },
   )
 
   // A separate load, so a failed overview cannot blank the six tiles below it or the reverse.
   const { data: overview, state: overviewState } = useMetrics<PmOverview>(
     (signal) => fetchPmOverview(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
+    { key: 'PmDashboard:1' },
   )
 
   const onTime = metrics?.onTime

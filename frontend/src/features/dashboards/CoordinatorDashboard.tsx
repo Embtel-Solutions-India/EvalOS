@@ -22,12 +22,14 @@ export default function CoordinatorDashboard() {
   const { data, state } = useMetrics<CoordinatorMetrics>(
     (signal) => fetchCoordinatorMetrics(activeBrandId, signal),
     [activeBrandId],
+    { key: 'CoordinatorDashboard:0' },
   )
 
   // A separate load, so a failed /work cannot blank the tiles below it or the reverse.
   const { data: work, state: workState } = useMetrics<CoordinatorWork>(
     (signal) => fetchCoordinatorWork(activeBrandId, signal),
     [activeBrandId],
+    { key: 'CoordinatorDashboard:1' },
   )
 
   return (
