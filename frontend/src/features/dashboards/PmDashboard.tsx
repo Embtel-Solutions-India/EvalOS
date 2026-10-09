@@ -99,7 +99,7 @@ export default function PmDashboard() {
           delta={
             onTime?.deltaPoints === null || onTime?.deltaPoints === undefined
               ? undefined
-              : { value: onTime.deltaPoints, better: 'up' }
+              : { value: onTime.deltaPoints, better: 'up', unit: ' pts' }
           }
           note="Delivered on or before the date the client was promised."
         />

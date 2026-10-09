@@ -1,15 +1,7 @@
 import { Link } from "react-router-dom";
-import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowRight,
-  ArrowUp,
-  Ban,
-  RotateCw,
-} from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, RotateCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { formatCount, formatMoney } from "../../lib/money";
-import { Sparkline } from "./widgets";
 
 /**
  * The dashboard card system: one shell, one state union, and the specialisations that actually
@@ -237,8 +229,6 @@ export function KpiCard({
   tone,
   action,
   className,
-  spark,
-  sparkLabel,
 }: Omit<CardProps, "children"> & {
   value: number | null;
   /**
@@ -257,14 +247,13 @@ export function KpiCard({
   unit?: string;
   denominator?: string;
   /** Change against the previous comparable period. Omitted when there is nothing to compare. */
-  delta?: { value: number; better: "up" | "down" };
+  /** `unit` is "%" for a relative change and "pts" for a change in a rate that is itself a percentage. */
+  delta?: { value: number; better: "up" | "down"; unit?: string };
   tone?: KpiTone;
   /** A control under the figure, e.g. the GM's "Set monthly target". */
   action?: ReactNode;
   /** The figure's recent shape, drawn beside it. Pass it only when a real series exists — never a decoration. */
-  spark?: number[];
   /** What the line is, on hover — e.g. "Won value per day, peak $5,000". */
-  sparkLabel?: string;
 }) {
   return (
     <Card
@@ -287,13 +276,6 @@ export function KpiCard({
           </span>
           {delta && <Delta {...delta} />}
         </div>
-        {spark && spark.length > 1 && (
-          <Sparkline
-            values={spark}
-            label={sparkLabel}
-            color={tone ? TONE_COLOR[tone] : "var(--accent-primary)"}
-          />
-        )}
       </div>
       {denominator && (
         <p
@@ -308,7 +290,7 @@ export function KpiCard({
   );
 }
 
-function Delta({ value, better }: { value: number; better: "up" | "down" }) {
+function Delta({ value, better, unit = "%" }: { value: number; better: "up" | "down"; unit?: string }) {
   // A rise is not automatically good: on-time delivery wants "up", revision rate wants "down".
   // The caller says which, so no tile has to be read against an assumption.
   const good = value === 0 ? null : value > 0 === (better === "up");
@@ -318,7 +300,7 @@ function Delta({ value, better }: { value: number; better: "up" | "down" }) {
       : good
         ? "var(--status-green)"
         : "var(--status-red)";
-  const Arrow = value > 0 ? ArrowUp : value < 0 ? ArrowDown : null;
+  const Arrow = value > 0 ? "▲" : value < 0 ? "▼" : null;
 
   return (
     <span
@@ -331,10 +313,15 @@ function Delta({ value, better }: { value: number; better: "up" | "down" }) {
             : `color-mix(in srgb, ${color} 10%, transparent)`,
       }}
     >
-      {Arrow && <Arrow className="h-3 w-3" aria-hidden />}
+      {Arrow && (
+        <span aria-hidden className="text-[0.6rem]">
+          {Arrow}
+        </span>
+      )}
       {/* The direction is in the sign as well as the arrow: an arrow alone is a shape, and
           shape plus colour with no text is two signals that both fail the same way. */}
       {Math.abs(value)}
+      {unit}
       <span className="sr-only">
         {value > 0 ? "up" : value < 0 ? "down" : "unchanged"} versus the
         previous period

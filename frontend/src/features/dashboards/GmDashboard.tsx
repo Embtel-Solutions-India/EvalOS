@@ -145,13 +145,10 @@ export default function GmDashboard() {
 
   // A 12-column grid sized by the question each card answers: the headline is 4 beside four 2s, a trend or table
   // is the full 12, a distribution is two 6s, an alert is one of six 2s.
-  const won = sparkOf(
-    data?.trend,
-    (p) => Number(p.won),
-    "Won value",
-    formatMoney,
-  );
-  const leads = sparkOf(data?.trend, (p) => p.leads, "New leads", formatCount);
+  // Arrows, not lines: the change against the previous period of the same length, from the trend slices the
+  // server already cut. Null (no arrow) when the previous period is partial or had nothing to compare to.
+  const wonChange = trendChangePct(data?.trend, (p) => Number(p.won), (p) => Number(p.previousWon));
+  const leadsChange = trendChangePct(data?.trend, (p) => p.leads, (p) => p.previousLeads);
 
   return (
     <section>
@@ -175,8 +172,7 @@ export default function GmDashboard() {
             className="col-span-12 md:col-span-4"
             title="Business won"
             money
-            spark={won.values}
-            sparkLabel={won.label}
+            delta={wonChange === null ? undefined : { value: wonChange, better: "up" }}
             state={pipelineState}
             value={data?.headline ? Math.round(data.headline.won) : null}
             /* The goal is only ever shown over a calendar month — the server returns null for it on
@@ -216,15 +212,12 @@ export default function GmDashboard() {
                   ? `worth ${formatMoney(Math.round(data.sales.newValue))}`
                   : undefined
               }
-              spark={leads.values}
-              sparkLabel={leads.label}
+              delta={leadsChange === null ? undefined : { value: leadsChange, better: "up" }}
               to="/opportunities/board"
             />
             <KpiCard
               title="Sales · won"
               money
-              spark={won.values}
-              sparkLabel={won.label}
               state={pipelineState}
               value={data?.sales ? Math.round(data.sales.wonValue) : null}
               denominator={
@@ -445,7 +438,7 @@ export default function GmDashboard() {
             delta={
               pm.data?.onTime.deltaPoints == null
                 ? undefined
-                : { value: pm.data.onTime.deltaPoints, better: "up" }
+                : { value: pm.data.onTime.deltaPoints, better: "up", unit: " pts" }
             }
             tone={
               pm.data?.onTime.ratePct == null
@@ -873,25 +866,19 @@ function readable(value: string): string {
 }
 
 /**
- * A tile's line, straight from the trend series the server cut the period into — one point per slice, the
- * same numbers the trend chart plots. The label is what hover says, so the line can be read as a value.
+ * The change in a trend figure against the previous period of the same length, as a whole percentage.
+ * Null — so no arrow — when the previous period is partial (`comparable` is false) or its total is zero:
+ * growth from nothing is not a percentage.
  */
-function sparkOf(
+function trendChangePct(
   trend: GmTrend | null | undefined,
-  pick: (point: GmTrendPoint) => number,
-  what: string,
-  format: (n: number) => string,
-) {
-  const points = trend?.points ?? [];
-  const values = points.map(pick);
-  const per =
-    trend && trend.bucketDays > 1 ? `${trend.bucketDays}-day slice` : "day";
-  return {
-    values,
-    label: values.length
-      ? `${what} per ${per}, peak ${format(Math.round(Math.max(...values)))}`
-      : undefined,
-  };
+  now: (point: GmTrendPoint) => number,
+  before: (point: GmTrendPoint) => number,
+): number | null {
+  if (!trend?.comparable || trend.points.length === 0) return null;
+  const current = trend.points.reduce((sum, point) => sum + now(point), 0);
+  const previous = trend.points.reduce((sum, point) => sum + before(point), 0);
+  return previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
 }
 
 /** One row of the alert list: what it is, what it means, and the count as a status pill. */
