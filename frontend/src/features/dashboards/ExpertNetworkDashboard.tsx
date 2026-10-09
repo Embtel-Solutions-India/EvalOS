@@ -1,4 +1,3 @@
-import { AlertTriangle } from 'lucide-react'
 import { Card, KpiCard } from '../../components/ui/card'
 import { formatPayout } from '../../lib/money'
 import { fetchOpportunityBoard } from '../opportunities/opportunityApi'
@@ -10,6 +9,7 @@ import {
   type ExpertNetworkWork,
 } from './pmMetricsApi'
 import { countUndated, daysSince, STALE_DAYS, staleDeals } from './dealAge'
+import { AvailabilityBars, HBars, PayoutBar } from './NetworkCharts'
 import { emptyWhen, useMetrics, warnWhen } from './useMetrics'
 
 /**
@@ -31,11 +31,11 @@ export default function ExpertNetworkDashboard() {
   )
   const funnel = work
     ? [
-        ['Waiting for an answer', work.funnel.open],
-        ['Accepted', work.funnel.accepted],
-        ['Declined', work.funnel.declined],
-        ['Timed out', work.funnel.timedOut],
-        ['Superseded', work.funnel.superseded],
+        { label: 'Waiting for an answer', value: work.funnel.open, color: 'var(--accent-primary)' },
+        { label: 'Accepted', value: work.funnel.accepted, color: 'var(--status-green)' },
+        { label: 'Declined', value: work.funnel.declined, color: 'var(--status-red)' },
+        { label: 'Timed out', value: work.funnel.timedOut, color: 'var(--status-amber)' },
+        { label: 'Superseded', value: work.funnel.superseded, color: 'var(--text-muted)' },
       ]
     : []
 
@@ -125,51 +125,18 @@ export default function ExpertNetworkDashboard() {
           title="Availability board"
           wide
           state={emptyWhen(state, data?.coverage.length === 0, 'No expert has claimed a primary field yet.')}
-          note="Primary fields only — a secondary tag is not cover you can staff from."
+          note="Primary fields only — a secondary tag is not cover you can staff from. Red = fewer than five available."
         >
-          <div className="scroll-slim max-h-64 overflow-y-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ color: 'var(--text-muted)' }}>
-                  <th className="pb-1 text-left text-xs font-medium uppercase">Field</th>
-                  <th className="pb-1 text-right text-xs font-medium uppercase">Available</th>
-                  <th className="pb-1 text-right text-xs font-medium uppercase">At capacity</th>
-                  <th className="pb-1 text-right text-xs font-medium uppercase">Inactive</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.coverage.map((row) => (
-                  <tr key={row.field} style={{ borderTop: '1px solid var(--border-default)' }}>
-                    <td className="py-1.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        {row.gap && (
-                          <AlertTriangle
-                            className="h-3.5 w-3.5 shrink-0"
-                            style={{ color: 'var(--status-red)' }}
-                            aria-label="Coverage gap"
-                          />
-                        )}
-                        {readable(row.field)}
-                      </span>
-                    </td>
-                    {/* Only `available` is coloured: at-capacity and inactive are context for why a
-                        field is thin, not the number the gap rule is about. */}
-                    <td
-                      className="font-num py-1.5 text-right tabular-nums"
-                      style={{ color: row.gap ? 'var(--status-red)' : 'var(--status-green)' }}
-                    >
-                      {row.available}
-                    </td>
-                    <td className="font-num py-1.5 text-right tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                      {row.atCapacity}
-                    </td>
-                    <td className="font-num py-1.5 text-right tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                      {row.inactive}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="scroll-slim max-h-80 overflow-y-auto">
+            <AvailabilityBars
+              rows={(data?.coverage ?? []).map((row) => ({
+                label: readable(row.field),
+                available: row.available,
+                atCapacity: row.atCapacity,
+                inactive: row.inactive,
+                gap: row.gap,
+              }))}
+            />
           </div>
         </Card>
 
@@ -228,19 +195,12 @@ export default function ExpertNetworkDashboard() {
           title="Offer funnel"
           state={emptyWhen(
             workState,
-            work !== null && funnel.every(([, count]) => count === 0),
+            work !== null && funnel.every((row) => row.value === 0),
             'No offer has been made yet.',
           )}
           note="Offers, not cases: a case rematched twice is three offers."
         >
-          <ul className="space-y-1 text-sm">
-            {funnel.map(([label, count]) => (
-              <li key={label} className="flex justify-between gap-2">
-                <span>{label}</span>
-                <span className="font-num tabular-nums">{count}</span>
-              </li>
-            ))}
-          </ul>
+          <HBars rows={funnel} />
         </Card>
 
         <Card
@@ -255,9 +215,18 @@ export default function ExpertNetworkDashboard() {
         >
           <ul className="scroll-slim max-h-64 space-y-1 overflow-y-auto text-sm">
             {work?.oldestOpen.map((row, index) => (
-              <li key={`${row.expertId}-${index}`} className="flex justify-between gap-2">
-                <span className="truncate">{row.expertName}</span>
-                <span className="font-num tabular-nums" style={{ color: 'var(--text-muted)' }}>
+              <li key={`${row.expertId}-${index}`} className="flex items-center gap-3">
+                <span className="w-40 shrink-0 truncate">{row.expertName}</span>
+                <span className="h-2.5 flex-1 overflow-hidden rounded-md" style={{ background: 'var(--bg-raised)' }}>
+                  <span
+                    className="block h-full rounded-md"
+                    style={{
+                      width: `${Math.max(2, (row.waitingHours / Math.max(1, work?.oldestOpen[0]?.waitingHours ?? 1)) * 100)}%`,
+                      background: 'var(--status-amber)',
+                    }}
+                  />
+                </span>
+                <span className="font-num w-12 text-right tabular-nums" style={{ color: 'var(--text-muted)' }}>
                   {row.waitingHours} h
                 </span>
               </li>
@@ -271,14 +240,9 @@ export default function ExpertNetworkDashboard() {
           to="/hiring"
           state={emptyWhen(hiringState, (hiring?.totalDeals ?? 0) === 0, 'No candidates on the hiring pipeline')}
         >
-          <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-3">
-            {hiring?.columns.map((column) => (
-              <li key={column.stageId} className="flex justify-between gap-2">
-                <span className="truncate">{column.stageName}</span>
-                <span className="font-num tabular-nums">{column.deals.length}</span>
-              </li>
-            ))}
-          </ul>
+          <HBars
+            rows={(hiring?.columns ?? []).map((column) => ({ label: column.stageName, value: column.deals.length }))}
+          />
         </Card>
 
         <Card
@@ -314,6 +278,8 @@ export default function ExpertNetworkDashboard() {
           <ul className="space-y-1 text-sm">
             {thisMonth.map((row) => (
               <li key={row.currency} className="space-y-0.5">
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{row.currency}</p>
+                <PayoutBar pending={row.pending} processing={row.processing} paid={row.paid} />
                 <div className="flex justify-between gap-2">
                   <span>Pending</span>
                   <span className="font-num tabular-nums">{formatPayout(row.pending, row.currency)}</span>
