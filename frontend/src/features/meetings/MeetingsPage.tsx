@@ -1,9 +1,15 @@
-import { useMemo } from 'react'
-import { Card, KpiCard } from '../../components/ui/card'
-import { fetchDiary, type DiaryMeeting } from '../opportunities/opportunityApi'
-import { useMetrics } from '../dashboards/useMetrics'
-import { BlockedTimeCard } from './BlockedTimeCard'
-import { MeetingRow } from './MeetingRow'
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
+import {
+  MEETING_TZ,
+  pacificDay,
+  zoneAbbreviation,
+} from "../../lib/meetingTime";
+import { Card, KpiCard } from "../../components/ui/card";
+import { fetchDiary, type DiaryMeeting } from "../opportunities/opportunityApi";
+import { useMetrics } from "../dashboards/useMetrics";
+import { BlockedTimeCard } from "./BlockedTimeCard";
+import { MeetingRow } from "./MeetingRow";
 
 /**
  * The salesperson's diary: what is booked.
@@ -30,36 +36,55 @@ import { MeetingRow } from './MeetingRow'
  */
 export default function MeetingsPage() {
   const window30 = useMemo(() => {
-    const from = new Date()
-    const to = new Date(from.getTime() + 30 * 24 * 60 * 60 * 1000)
-    return { from, to }
-  }, [])
+    const from = new Date();
+    const to = new Date(from.getTime() + 30 * 24 * 60 * 60 * 1000);
+    return { from, to };
+  }, []);
 
   // Unit 60: a cancel writes from this screen again, so the diary reloads after one.
   const { data, state, reload } = useMetrics<readonly DiaryMeeting[]>(
     (signal) => fetchDiary(window30.from, window30.to, signal),
     [window30],
-  )
+  );
 
-  const meetings = data ?? []
+  const meetings = data ?? [];
   // The counts are of meetings still happening; a cancelled one stays in the diary, struck through.
-  const live = meetings.filter((m) => m.status?.toLowerCase() !== 'cancelled')
-  const today = live.filter((m) => isSameDay(new Date(m.startsAt), new Date()))
-  const week = live.filter((m) => withinDays(m.startsAt, 7))
-  const byDay = groupByDay(meetings)
+  const live = meetings.filter((m) => m.status?.toLowerCase() !== "cancelled");
+  const today = live.filter((m) => isSameDay(new Date(m.startsAt), new Date()));
+  const week = live.filter((m) => withinDays(m.startsAt, 7));
+  const byDay = groupByDay(meetings);
 
   return (
     <section>
-      {/* Booking moved to its own sidebar entry on 2026-09-17 (`/meetings/new`), with Add
-          opportunity and Add lead. This screen answers "what is booked"; adding to it is a
-          different question and now has its own way in. */}
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Meetings</h1>
+      {/* Booking is a button here again (2026-10-09): it was a sidebar entry from 2026-09-17, and the diary is
+          where a booking is wanted. The route is still `/meetings/new`. */}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Meetings</h1>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Times are Pacific ({zoneAbbreviation()}).
+          </p>
+        </div>
+        <Link
+          to="/meetings/new"
+          className="inline-flex h-10 items-center rounded-xl px-5 text-sm font-semibold"
+          style={{ background: "var(--accent-primary)", color: "#fff" }}
+        >
+          Add meeting
+        </Link>
       </header>
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
-        <KpiCard title="Today" state={state} value={data ? today.length : null} />
-        <KpiCard title="Next 7 days" state={state} value={data ? week.length : null} />
+        <KpiCard
+          title="Today"
+          state={state}
+          value={data ? today.length : null}
+        />
+        <KpiCard
+          title="Next 7 days"
+          state={state}
+          value={data ? week.length : null}
+        />
         <KpiCard
           title="Next 30 days"
           state={state}
@@ -72,10 +97,10 @@ export default function MeetingsPage() {
         <Card
           title="Diary"
           state={
-            state.kind === 'ok' && meetings.length === 0
+            state.kind === "ok" && meetings.length === 0
               ? {
-                  kind: 'empty',
-                  note: 'Nothing booked in the next 30 days. Use “Book a meeting” to add one.',
+                  kind: "empty",
+                  note: "Nothing booked in the next 30 days. Use “Add meeting” to book one.",
                 }
               : state
           }
@@ -85,13 +110,20 @@ export default function MeetingsPage() {
               <div key={day}>
                 <h3
                   className="text-xs font-medium uppercase tracking-wide"
-                  style={{ color: 'var(--text-muted)' }}
+                  style={{ color: "var(--text-muted)" }}
                 >
                   {day}
                 </h3>
-                <ul className="mt-1 divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
+                <ul
+                  className="mt-1 divide-y"
+                  style={{ borderColor: "var(--border-subtle)" }}
+                >
                   {rows.map((m) => (
-                    <MeetingRow key={m.appointmentId} meeting={m} onChanged={reload} />
+                    <MeetingRow
+                      key={m.appointmentId}
+                      meeting={m}
+                      onChanged={reload}
+                    />
                   ))}
                 </ul>
               </div>
@@ -104,29 +136,32 @@ export default function MeetingsPage() {
         <BlockedTimeCard />
       </div>
     </section>
-  )
+  );
 }
 
 function isSameDay(a: Date, b: Date): boolean {
-  return a.toDateString() === b.toDateString()
+  return pacificDay(a) === pacificDay(b);
 }
 
 function withinDays(iso: string, days: number): boolean {
-  return Date.parse(iso) <= Date.now() + days * 24 * 60 * 60 * 1000
+  return Date.parse(iso) <= Date.now() + days * 24 * 60 * 60 * 1000;
 }
 
 /** Day heading → that day's meetings, in the order the server already sorted them. */
-function groupByDay(meetings: readonly DiaryMeeting[]): [string, DiaryMeeting[]][] {
-  const days = new Map<string, DiaryMeeting[]>()
+function groupByDay(
+  meetings: readonly DiaryMeeting[],
+): [string, DiaryMeeting[]][] {
+  const days = new Map<string, DiaryMeeting[]>();
   for (const meeting of meetings) {
-    const key = new Date(meeting.startsAt).toLocaleDateString(undefined, {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'short',
-    })
-    const rows = days.get(key)
-    if (rows) rows.push(meeting)
-    else days.set(key, [meeting])
+    const key = new Date(meeting.startsAt).toLocaleDateString("en-US", {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      timeZone: MEETING_TZ,
+    });
+    const rows = days.get(key);
+    if (rows) rows.push(meeting);
+    else days.set(key, [meeting]);
   }
-  return [...days.entries()]
+  return [...days.entries()];
 }

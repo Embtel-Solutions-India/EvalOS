@@ -95,10 +95,7 @@ export default function ExpertRoster() {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <p className="text-[11px] font-semibold tracking-[0.08em] uppercase" style={{ color: 'var(--text-muted)' }}>
-          {me.role === 'GM' ? (activeBrandId ? 'One brand' : 'All brands') : 'Your brand'} · expert network
-        </p>
-        <h1 className="mt-1 text-xl font-semibold tracking-tight">Expert database</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Expert database</h1>
         {/* The count belongs to the roster's filtered read, so it is only shown there. Left
             standing over the availability board it claimed to describe a screen it had not
             counted — the same failure as a header contradicting the instrument beside it. */}

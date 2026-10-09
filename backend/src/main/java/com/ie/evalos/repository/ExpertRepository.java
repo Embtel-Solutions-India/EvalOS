@@ -48,4 +48,10 @@ public interface ExpertRepository extends ScopedRepository<Expert> {
 	 * matters is the case's, not whoever is asking.
 	 */
 	Optional<Expert> findByIdAndBrandId(UUID id, UUID brandId);
+
+	/**
+	 * Experts by id, within the given brands. Takes the brands as well as the ids so a foreign id matches
+	 * nothing — pass the distinct brands of the rows the ids came from.
+	 */
+	java.util.List<Expert> findByBrandIdInAndIdIn(java.util.Collection<UUID> brandIds, java.util.Collection<UUID> ids);
 }

@@ -144,10 +144,7 @@ public class CaseManagerMetricsService {
 	@Transactional(readOnly = true)
 	public CaseManagerMetrics forCaller() {
 		TenantContext ctx = TenantContext.current();
-		UUID me = ctx.memberId();
-		List<Case> mine = lifecycle.list(null, null, null).stream()
-				.filter(subject -> me != null && me.equals(subject.getAssignedCm()))
-				.toList();
+		List<Case> mine = myCases();
 		Instant now = Instant.now();
 
 		Map<UUID, String> clients = clientNames(mine);
@@ -164,6 +161,14 @@ public class CaseManagerMetricsService {
 				.toList();
 
 		return build(mine, cases, clientFeedback(mine, ctx), now);
+	}
+
+	/** The caller's assigned cases — shared with {@link CaseManagerWorkService} so there is one scope read. */
+	List<Case> myCases() {
+		UUID me = TenantContext.current().memberId();
+		return lifecycle.list(null, null, null).stream()
+				.filter(subject -> me != null && me.equals(subject.getAssignedCm()))
+				.toList();
 	}
 
 	private MyCase row(Case subject, Instant now, Map<UUID, String> clients, Map<UUID, String> expertNames) {

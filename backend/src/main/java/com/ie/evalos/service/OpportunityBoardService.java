@@ -180,7 +180,9 @@ public class OpportunityBoardService {
 			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrandId != null);
 		}
 
-		return draw(mine, deals.onPipelines(mine));
+		// Only the GM's board folds same-named stages together: a salesperson drags cards, and a drop onto a
+		// column that stands for several pipelines' stages would have no single stage to move the deal to.
+		return draw(mine, deals.onPipelines(mine), caller.role().hasGmView());
 	}
 
 	/**
@@ -280,10 +282,18 @@ public class OpportunityBoardService {
 	 * check.
 	 */
 	private List<String> pipelinesFor(TenantContext caller) {
-		if (caller.role() == Role.GM) {
+		if (caller.role().hasGmView()) {
+			// The GM's (and the Admin's read-only) board is the SALES pipelines only (D19e, amended 2026-10-08): marketing funnels,
+			// Case Delivery, hiring and the Master Pipeline have their own screens. Still gated on the
+			// mirror, so a pipeline GHL stopped returning is not offered.
+			if (sellingBrandId == null) {
+				return List.of();
+			}
+			java.util.Set<String> sales = new java.util.HashSet<>(assignments.salesGhlIds(sellingBrandId));
 			return mirroredPipelines.all().stream()
 					.filter(com.ie.evalos.domain.Pipeline::isLive)
 					.map(com.ie.evalos.domain.Pipeline::getGhlId)
+					.filter(sales::contains)
 					.toList();
 		}
 		List<String> fromToken = caller.ghlPipelineIds();
@@ -318,19 +328,25 @@ public class OpportunityBoardService {
 	 * before: a card that vanishes is a card somebody goes looking for. The difference is that the
 	 * fallback is now reached when the <em>sweep</em> is behind rather than when GHL is slow.
 	 */
-	private Board draw(List<String> pipelineIds, List<Opportunity> rows) {
-		Map<String, MirroredStage> stages = new LinkedHashMap<>();
-		mirroredPipelines.all().stream()
+	private Board draw(List<String> pipelineIds, List<Opportunity> rows, boolean foldSameNames) {
+		List<PipelineStage> live = mirroredPipelines.all().stream()
 				.filter((pipeline) -> pipelineIds.contains(pipeline.getGhlId()))
 				.flatMap((pipeline) -> mirroredPipelines.stagesOf(pipeline.getId()).stream())
 				.filter(PipelineStage::isLive)
 				.sorted(Comparator.comparingInt(PipelineStage::getPosition))
-				.forEach((stage) -> stages.putIfAbsent(stage.getGhlId(),
-						new MirroredStage(stage.getName(), stage.getPosition())));
+				.toList();
+		// stage id -> the column it is drawn in. Identity unless folding, where stages sharing a name
+		// (case-insensitive) draw as one column, in the position of the first, so no name appears twice.
+		Map<String, String> columnOf = foldedColumns(live, foldSameNames);
+		Map<String, MirroredStage> stages = new LinkedHashMap<>();
+		live.forEach((stage) -> stages.putIfAbsent(columnOf.get(stage.getGhlId()),
+				new MirroredStage(stage.getName(), stage.getPosition())));
 
 		Map<String, List<Opportunity>> byStage = new LinkedHashMap<>();
 		stages.keySet().forEach((stageId) -> byStage.put(stageId, new ArrayList<>()));
-		rows.forEach((row) -> byStage.computeIfAbsent(row.getGhlStageId(), (key) -> new ArrayList<>())
+		rows.forEach((row) -> byStage
+				.computeIfAbsent(columnOf.getOrDefault(row.getGhlStageId(), row.getGhlStageId()),
+						(key) -> new ArrayList<>())
 				.add(row));
 
 		// The card's service and source, resolved once for the whole board. Custom field values are
@@ -399,6 +415,20 @@ public class OpportunityBoardService {
 				lastSynced == null
 						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,
 				sellingBrandId != null);
+	}
+
+	/** Maps every stage id to the id of the column that draws it; see {@link #draw}. Static so a test can pin it. */
+	static Map<String, String> foldedColumns(List<PipelineStage> inPositionOrder, boolean fold) {
+		Map<String, String> columnOf = new java.util.HashMap<>();
+		Map<String, String> firstByName = new java.util.HashMap<>();
+		for (PipelineStage stage : inPositionOrder) {
+			String column = fold
+					? firstByName.computeIfAbsent(stage.getName().trim().toLowerCase(java.util.Locale.ROOT),
+							(name) -> stage.getGhlId())
+					: stage.getGhlId();
+			columnOf.putIfAbsent(stage.getGhlId(), column);
+		}
+		return columnOf;
 	}
 
 	/** Just the two fields a column header needs, so the board does not carry a whole entity. */

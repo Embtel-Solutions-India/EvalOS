@@ -14,14 +14,15 @@ import StrategyNotes from './StrategyNotes'
 import ExpertRationale from './ExpertRationale'
 import ClientRemarks from './ClientRemarks'
 import SalesNote from './SalesNote'
-import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
 import CaseChat from './CaseChat'
+import CaseTabs from './CaseTabs'
+import { useCaseTab } from './useCaseTab'
+import { useCaseUnread } from './useCaseUnread'
 import {
   fetchCase,
   fetchTimeline,
   postNote,
-  saveIntakeFacts,
   saveStrategyNotes,
 } from './caseApi'
 
@@ -38,6 +39,8 @@ import {
 export default function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const me = useMe()
+  const [tab, setTab] = useCaseTab()
+  const unread = useCaseUnread(id ?? '')
 
   const way = boardPathFor(me.role)
   const [pending, setPending] = useState<QuickAction | null>(null)
@@ -104,17 +107,6 @@ export default function CaseDetailPage() {
     [id, load],
   )
 
-  const onSaveFacts = useCallback(
-    async (applicantName: string | null, rfeDate: string | null) => {
-      if (!id) return
-      // Reloaded rather than patched in place, like the notes beside it: the write appends a
-      // timeline row too, and a half-refreshed page would show the new fact above an old trail.
-      await saveIntakeFacts(id, applicantName, rfeDate)
-      await load()
-    },
-    [id, load],
-  )
-
   const onSaveNotes = useCallback(
     async (notes: string) => {
       if (!id) return
@@ -163,7 +155,7 @@ export default function CaseDetailPage() {
     return (
       <div aria-busy="true" aria-label="Loading the case" className="flex flex-col gap-4">
         <div className="h-36 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <div className="h-72 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
           <div className="h-72 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
         </div>
@@ -183,33 +175,40 @@ export default function CaseDetailPage() {
         onChanged={() => void load()}
       />
 
-      {/* Two columns from `xl` (the work, then the conversation); one column below, where two
-          would squeeze the chat and the documents side by side on a tablet. */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-4">
-          {/* The work, in the order the case moves through it: documents, draft, expert. */}
-          <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
-          <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
-          <ExpertCard detail={detail} />
-          <ClientRemarks detail={detail} role={me.role} />
-          {/* Then what the case is about. Each note panel renders nothing for a role that may not
-              read it, so the column holds only what this reader can use. */}
-          <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />
-          <SalesNote detail={detail} />
-          <StrategyNotes detail={detail} onSave={onSaveNotes} />
-          {/*
-            Below the notes and separate from them, which is the visible half of the decision to
-            give the rationale its own column: a Case Manager sees the notes and not this, an ENM
-            sees this and not the notes. Read-only — it is written where the expert is chosen
-            (the `expert` offer / `reassign-expert`), not in a ceremony of its own.
-          */}
-          <ExpertRationale detail={detail} />
-        </div>
+      <CaseTabs tab={tab} onChange={setTab} chatUnread={unread.total} />
 
-        <div className="flex min-w-0 flex-col gap-4">
-          <CaseChat caseId={detail.summary.id} />
-          <Timeline entries={timeline} onPostNote={onPostNote} />
-        </div>
+      {/* Two tabs. Work is the job in hand: documents and the draft on the left, the conversation on the
+          right (stacked below `xl`). Overview is everything that describes the case. Each panel still
+          renders nothing for a role that may not read it. */}
+      <div role="tabpanel" id="case-tabpanel" aria-labelledby={`case-tab-${tab}`} className="min-w-0">
+        {tab === 'work' && (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <div className="flex min-w-0 flex-col gap-4">
+              <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
+              <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
+            </div>
+            <div className="min-w-0">
+              <CaseChat caseId={detail.summary.id} />
+            </div>
+          </div>
+        )}
+
+        {tab === 'overview' && (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <div className="flex min-w-0 flex-col gap-4">
+              <ClientRemarks detail={detail} role={me.role} />
+              <SalesNote detail={detail} />
+              <StrategyNotes detail={detail} onSave={onSaveNotes} />
+              <ExpertCard detail={detail} />
+              {/* Read-only: written where the expert is chosen. A Case Manager sees the notes and not
+                  this, an ENM sees this and not the notes. */}
+              <ExpertRationale detail={detail} />
+            </div>
+            <div className="min-w-0">
+              <Timeline entries={timeline} onPostNote={onPostNote} />
+            </div>
+          </div>
+        )}
       </div>
 
       {pending && (

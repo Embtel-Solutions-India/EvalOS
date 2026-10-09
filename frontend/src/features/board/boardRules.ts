@@ -243,6 +243,12 @@ export const STAGE_ACCESS: Record<Role, Record<Stage, StageAccess>> = {
     READY_TO_SEND: 'full', CLIENT_REVIEW: 'full', CLIENT_APPROVAL: 'full', EXPERT_SIGNING: 'full',
     FINAL_QC: 'full', READY_TO_DELIVER: 'full', DELIVERED: 'full', CLOSED: 'status',
   },
+  // Read-only (spec 78): sees every column, drives none of them. The server refuses its writes anyway.
+  ADMIN: {
+    DOC_COLLECTION: 'status', PM_REVIEW: 'status', DRAFT_IN_PROGRESS: 'status', DRAFT_REVIEW: 'status',
+    READY_TO_SEND: 'status', CLIENT_REVIEW: 'status', CLIENT_APPROVAL: 'status', EXPERT_SIGNING: 'status',
+    FINAL_QC: 'status', READY_TO_DELIVER: 'status', DELIVERED: 'status', CLOSED: 'status',
+  },
   BRAND_MANAGER: {
     DOC_COLLECTION: 'full', PM_REVIEW: 'full', DRAFT_IN_PROGRESS: 'full', DRAFT_REVIEW: 'full',
     READY_TO_SEND: 'full', CLIENT_REVIEW: 'full', CLIENT_APPROVAL: 'full', EXPERT_SIGNING: 'full',

@@ -5,6 +5,8 @@ House rule: every question carries a recommendation.
 
 ## Blocking the request lifecycle
 
+_Q20–Q22 (PM dashboard: blocked, first-pass QC, reassignment) were answered on 2026-10-09 and left for D79–D81._
+
 _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents) were resolved on
 2026-09-17 and left for `current-decisions.md` D33–D35. Q7 (portal deployment) left for D38, and
 carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on

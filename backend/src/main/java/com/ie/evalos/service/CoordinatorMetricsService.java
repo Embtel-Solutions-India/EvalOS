@@ -69,9 +69,7 @@ public class CoordinatorMetricsService {
 
 	@Transactional(readOnly = true)
 	public CoordinatorMetrics forCaller(UUID brandId) {
-		List<Case> scoped = lifecycle.list(null, null, null).stream()
-				.filter(subject -> brandId == null || brandId.equals(subject.getBrandId()))
-				.toList();
+		List<Case> scoped = scoped(brandId);
 		Instant now = Instant.now();
 
 		return new CoordinatorMetrics(
@@ -79,6 +77,13 @@ public class CoordinatorMetricsService {
 				clientReview(scoped, now),
 				delivered(scoped, now),
 				(int) scoped.stream().filter(c -> c.getCurrentStage() == Stage.READY_TO_DELIVER).count());
+	}
+
+	/** The already-scoped case list, optionally narrowed to one brand. Shared with {@link CoordinatorWorkService}. */
+	List<Case> scoped(UUID brandId) {
+		return lifecycle.list(null, null, null).stream()
+				.filter(subject -> brandId == null || brandId.equals(subject.getBrandId()))
+				.toList();
 	}
 
 	private DocumentCollection documents(List<Case> scoped, Instant now) {

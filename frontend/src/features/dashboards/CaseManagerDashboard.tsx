@@ -5,15 +5,23 @@ import { Card, KpiCard } from '../../components/ui/card'
 import { SheetContent, SheetRoot, SheetTrigger } from '../../components/ui/dialog'
 import { riskColor, riskLabel } from '../queues/queueRules'
 import FlagToPmDialog from './FlagToPmDialog'
-import { fetchCaseManagerMetrics, type CaseManagerMetrics, type MyCase } from './pmMetricsApi'
+import { ChecklistProgress } from './ChecklistProgress'
+import { ExpertOffers } from './ExpertOffers'
+import {
+  fetchCaseManagerMetrics,
+  fetchCaseManagerWork,
+  type CaseManagerMetrics,
+  type CaseManagerWork,
+  type MyCase,
+} from './pmMetricsApi'
 import { emptyWhen, useMetrics } from './useMetrics'
 
 /**
  * One Case Manager's docket, built to the CRM spec's "Case Manager sees on dashboard".
  *
  * The spec asks for **lists**, not only counts — my active cases with the client, product,
- * deadline, PM notes, stage and expert; a priority queue; the draft status board; the client
- * feedback log; and expert signing with a prompt when it goes overdue. The server sends the docket
+ * deadline, PM notes, stage and expert; a priority queue; the draft lifecycle; the client
+ * feedback log; and expert signing shown per case with a prompt when it goes overdue. The server sends the docket
  * already deadline-ordered, so **the priority queue is this list** rather than a second one that
  * could disagree with it about the same case.
  *
@@ -23,13 +31,47 @@ export default function CaseManagerDashboard() {
   const { data, state, reload } = useMetrics<CaseManagerMetrics>(
     (signal) => fetchCaseManagerMetrics(signal),
     [],
+    { key: 'CaseManagerDashboard:0' },
+  )
+
+  // A separate load, so a failed /work cannot blank the tiles below it or the reverse.
+  const { data: work, state: workState } = useMetrics<CaseManagerWork>(
+    (signal) => fetchCaseManagerWork(signal),
+    [],
+    { key: 'CaseManagerDashboard:1' },
   )
 
   return (
     <section>
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">My cases</h1>
-      </header>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          title="Returned by PM"
+          state={workState}
+          value={work?.drafts.returned ?? null}
+          denominator="cases"
+          tone={work === null ? undefined : work.drafts.returned > 0 ? 'warn' : 'good'}
+        />
+        <KpiCard
+          title="Checklist blockers"
+          state={workState}
+          value={work?.checklist.blockerItems ?? null}
+          denominator={work ? `items missing or incorrect, on ${work.checklist.blockerCases} cases` : undefined}
+          tone={work === null ? undefined : work.checklist.blockerItems > 0 ? 'bad' : 'good'}
+        />
+        <KpiCard
+          title="Open expert offers"
+          state={workState}
+          value={work?.offers.open ?? null}
+          denominator="offers waiting for an answer"
+        />
+        <KpiCard
+          title="Rematch needed"
+          state={workState}
+          value={work?.offers.rematch ?? null}
+          denominator="cases whose expert declined"
+          tone={work === null ? undefined : work.offers.rematch > 0 ? 'bad' : 'good'}
+        />
+      </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
@@ -38,7 +80,7 @@ export default function CaseManagerDashboard() {
           value={data?.critical ?? null}
           denominator={data ? `${data.atRisk} more inside 48h · ${data.active} active` : undefined}
           tone={data === null ? undefined : data.critical > 0 ? 'bad' : data.atRisk > 0 ? 'warn' : 'good'}
-          note="Deadline inside 24 business hours, or already past. Zero overdue is the daily goal."
+          note="Red deadline band: past the date or inside 24 business hours. Zero critical is the daily goal."
         />
 
         <KpiCard
@@ -95,40 +137,6 @@ export default function CaseManagerDashboard() {
         </Card>
 
         <Card
-          title="Draft status"
-          state={state}
-          note="Where your drafts sit with the PM."
-        >
-          {data && (
-            <dl className="grid grid-cols-2 gap-3">
-              <Figure label="With the PM" value={data.draftsWithPm} />
-              <Figure
-                label="Returned to you"
-                value={data.revisionsRequested}
-                tone={data.revisionsRequested > 0 ? 'var(--status-amber)' : undefined}
-              />
-            </dl>
-          )}
-        </Card>
-
-        <Card
-          title="Expert signing"
-          state={state}
-          note="Reassignment is the PM's call — flag a case that has gone quiet."
-        >
-          {data && (
-            <dl className="grid grid-cols-2 gap-3">
-              <Figure label="Awaiting" value={data.awaitingExpertSignature} />
-              <Figure
-                label="Overdue"
-                value={data.expertOverdue}
-                tone={data.expertOverdue > 0 ? 'var(--status-red)' : undefined}
-              />
-            </dl>
-          )}
-        </Card>
-
-        <Card
           title="Client feedback"
           wide
           state={emptyWhen(state, data?.clientFeedback.length === 0, 'No client has asked for changes.')}
@@ -152,8 +160,26 @@ export default function CaseManagerDashboard() {
             ))}
           </ul>
         </Card>
-      </div>
 
+        <ChecklistProgress cases={work?.checklist.cases} state={workState} />
+        <ExpertOffers rows={work?.offers.rows} state={workState} />
+        <Card title="Draft lifecycle" state={workState} note="Your open cases by where the draft sits.">
+          {work && (
+            <dl className="grid grid-cols-3 gap-3">
+              <Figure label="Before drafting" value={work.drafts.beforeDraft} />
+              <Figure label="Drafting" value={work.drafts.drafting} />
+              <Figure
+                label="Returned by PM"
+                value={work.drafts.returned}
+                tone={work.drafts.returned > 0 ? 'var(--status-amber)' : undefined}
+              />
+              <Figure label="With the PM" value={work.drafts.withPm} />
+              <Figure label="With the client" value={work.drafts.withClient} />
+              <Figure label="Approved onward" value={work.drafts.approved} />
+            </dl>
+          )}
+        </Card>
+      </div>
     </section>
   )
 }

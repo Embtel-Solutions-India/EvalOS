@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** Unit 68: only the GM writes the staff directory. The rules are {@code TeamMemberAdminServiceTest}'s. */
+/** Unit 68: only the Administrator writes the staff directory (D78; it was the GM before). The rules are {@code TeamMemberAdminServiceTest}'s. */
 @WebMvcTest(controllers = TeamMemberController.class)
 @Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
 @TestPropertySource(properties = "evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256")
@@ -60,7 +60,7 @@ class TeamMemberAdminRouteTest {
 
 	private String bearer(Role role) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), role + "@evalos.local", "Staff", role,
-				role == Role.GM ? null : BRAND_IE, null, null, true);
+				(role == Role.GM || role == Role.ADMIN) ? null : BRAND_IE, null, null, true);
 		return "Bearer " + jwtService.issue(principal);
 	}
 
@@ -84,14 +84,14 @@ class TeamMemberAdminRouteTest {
 	}
 
 	@Test
-	void theGmCreatesAMember() throws Exception {
+	void theAdminCreatesAMember() throws Exception {
 		org.mockito.BDDMockito.given(admin.create(any(), any())).willAnswer(invocation -> {
 			var member = org.mockito.Mockito.mock(com.ie.evalos.domain.TeamMember.class);
 			org.mockito.Mockito.when(member.getRole()).thenReturn(Role.CASE_MANAGER);
 			return member;
 		});
 
-		mockMvc.perform(post("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+		mockMvc.perform(post("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(MediaType.APPLICATION_JSON).content(CREATE))
 				.andExpect(status().isOk());
 	}

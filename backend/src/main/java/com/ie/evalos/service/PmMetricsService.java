@@ -78,7 +78,7 @@ public class PmMetricsService {
 	public record CmRevisionRate(UUID cmId, String name, int cases, int revised, Integer ratePct) {
 	}
 
-	public record CmWorkload(UUID cmId, String name, int active, int capacity) {
+	public record CmWorkload(UUID cmId, String name, int active, int critical, int capacity) {
 	}
 
 	/**
@@ -99,9 +99,7 @@ public class PmMetricsService {
 
 	@Transactional(readOnly = true)
 	public PmMetrics forCaller(Instant from, Instant to, UUID brandId) {
-		List<Case> scoped = lifecycle.list(null, null, null).stream()
-				.filter(subject -> brandId == null || brandId.equals(subject.getBrandId()))
-				.toList();
+		List<Case> scoped = scoped(brandId);
 
 		Instant now = Instant.now();
 		Map<UUID, String> names = cmNames();
@@ -112,7 +110,14 @@ public class PmMetricsService {
 				(int) scoped.stream().filter(c -> c.getPoolStatus() == PoolStatus.IN_POOL).count(),
 				completionByService(scoped, from, to),
 				revisionRateByCm(scoped, names),
-				workload(scoped, names));
+				workload(scoped, names, now));
+	}
+
+	/** The already-scoped case list, optionally narrowed to one brand. Shared with {@link PmOverviewService}. */
+	List<Case> scoped(UUID brandId) {
+		return lifecycle.list(null, null, null).stream()
+				.filter(subject -> brandId == null || brandId.equals(subject.getBrandId()))
+				.toList();
 	}
 
 	/**
@@ -262,19 +267,23 @@ public class PmMetricsService {
 	 * work: a redistribution screen whose empty column is missing cannot show you where to move
 	 * a case to.
 	 */
-	private List<CmWorkload> workload(List<Case> scoped, Map<UUID, String> names) {
-		Map<UUID, Integer> active = new LinkedHashMap<>();
-		names.keySet().forEach(id -> active.put(id, 0));
+	private List<CmWorkload> workload(List<Case> scoped, Map<UUID, String> names, Instant now) {
+		Map<UUID, int[]> counts = new LinkedHashMap<>();
+		names.keySet().forEach(id -> counts.put(id, new int[2]));
 		for (Case subject : scoped) {
 			UUID cm = subject.getAssignedCm();
 			if (cm == null || subject.getCurrentStage() == Stage.CLOSED) {
 				continue;
 			}
-			active.merge(cm, 1, Integer::sum);
+			int[] row = counts.computeIfAbsent(cm, key -> new int[2]);
+			row[0]++;
+			if (deadlines.riskOf(subject, now) == DeadlineRisk.OVERDUE) {
+				row[1]++;
+			}
 		}
-		return active.entrySet().stream()
+		return counts.entrySet().stream()
 				.map(entry -> new CmWorkload(entry.getKey(), name(names, entry.getKey()),
-						entry.getValue(), casesPerCm))
+						entry.getValue()[0], entry.getValue()[1], casesPerCm))
 				.sorted(Comparator.comparing(CmWorkload::name))
 				.toList();
 	}
@@ -291,7 +300,7 @@ public class PmMetricsService {
 	 * A case can name a Case Manager who has since been deactivated, and dropping that row would
 	 * lose the case's work from the totals. Named for what it is instead.
 	 */
-	private static String name(Map<UUID, String> names, UUID id) {
+	static String name(Map<UUID, String> names, UUID id) {
 		return names.getOrDefault(id, "Former team member");
 	}
 }

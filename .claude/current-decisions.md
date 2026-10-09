@@ -297,31 +297,21 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   services that each parsed the property themselves, and a value matching no brand **fails the
   boot** naming the fix. **Blank is legal and means no brand sells yet** — and switches every
   mirror off, which the board now says out loud (`syncConfigured`).
-- **D19e.** **The GM's board is every LIVE MIRRORED pipeline, not the union of assignments**
-  (2026-09-17). Deriving it from the roster hid exactly the pipelines that belong to the business
-  rather than to a person — `00d` §6.7's unowned Case Delivery, and the location's Master Pipeline
-  — and it read `team_member.ghl_pipeline_id`, the column Unit 44b replaced, so it answered empty
-  once assignment moved to `team_member_pipeline`. The GM is `Tier.ALL`; the mirror is the list.
-  **A GM holds no assignment rows and must not** — `team_member_pipeline_matches_role` permits
-  SALES/MARKETING only.
-- **D19f.** **`WY6bW2xUCI8Tz8gw7aLJ` is the final GHL location** (confirmed 2026-09-17). The
-  abandoned sub-account's id is removed from every live config and spec so it cannot be copied back
-  in. It survives only where it cannot be edited or cannot mislead: an applied seed (a checksum
-  mismatch refuses the boot), recorded review diffs, a build log, `context/archive/`, and the dated
-  `context/audit/2026-09-13/` evidence.
-- **D19g.** **The mirror fills itself at startup, and the Refresh button can fix an empty one**
-  (2026-09-17). `StartupSync` runs `PIPELINE_MIRROR` → `REFERENCE_MIRROR` → `MIRROR_DELTA` once when
-  the app is ready, in that order and on its own thread. `fixedDelay` counts from the end of the
-  previous run, so a fresh start was otherwise an hour from its first pipelines — an hour of empty
-  boards whose only remedy was a GM running a job by hand. **Nobody should have to run a job to see
-  their own pipeline.** The board's Refresh now syncs **pipelines before deals** for the same
-  reason: in the one state somebody presses it, an empty mirror, there were no pipelines to refresh
-  deals for, so the button could not fix what it was offered for.
-- **D19h.** **A desk's pipeline claim is re-read when the token carries none.** D19b's set is read
-  at sign-in — a deliberate staleness bound for a *reassignment*, and a trap for a *first*
-  assignment: a desk that signed in before the mirror ran saw an empty board for the whole session.
-  An empty claim now means "ask again", not "you have none". It widens nothing: same member, own
-  row, and a member with no assignment still gets an empty list.
+- **D19e.** **The GM's board is the SALES pipelines only, with same-named stages summed into one
+  column** (amended 2026-10-08; was *every live mirrored pipeline*, 2026-09-17). A pipeline is a sales
+  pipeline when it is held by an active SALES member of the selling brand
+  (`team_member_pipeline`, not revoked) **or** a GM has tagged it purpose `SALES`
+  (`TeamMemberPipelineRepository.salesGhlIds`) — the same assignment signal the Sales dashboard reads
+  (D76), so the two cannot disagree. Marketing funnels, Case Delivery, expert hiring and the location's
+  Master Pipeline are mirrored but are **not** on this board; they have their own screens. Stages are
+  matched by name (trimmed, case-insensitive) across those pipelines and drawn as ONE column in the
+  position of the first, holding every pipeline's deals with the summed value — so no stage name
+  appears twice. **Only the GM's board folds:** a salesperson drags cards, and a drop onto a column that
+  stands for several pipelines' stages has no single stage to move the deal to. The GM cannot drag
+  (`canMove` is SALES/ENM), so nothing is lost. The reason the 2026-09-17 rule is gone: it existed to
+  stop deriving the GM's view from the roster hiding unowned pipelines, and "unowned" is exactly what
+  Case Delivery and the Master Pipeline are — they are not sales, so showing them was the error.
+  Still gated on the mirror, so a pipeline GHL stopped returning is not offered.
 - **D19a.** `/api/opportunities/board` is the one narrowed case: `evalos.ghl.sales-brand` names the
   brand that owns the location and assignment refuses any other brand's member with a 400, so that
   screen's brand _is_ provable and SALES/MARKETING reach it.
@@ -477,17 +467,18 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **Edited 2026-09-30 (Unit 65, spec `65-case-fee-and-payouts-module.md` — built 2026-09-30):**
   **every offer carries the amount the case pays** (a blank fee means the expert's standard fee, a
   retake keeps the declined offer's fee, no fee at all is refused; set by GM / PM / PC / ENM; a CM
-  offers at the standard fee only), **editable only while the offer is open**, **shown to the expert before they accept**, and frozen at acceptance. Delivery opens the
+  offers at the standard fee only, and reads the fee on offers in their scope — the fee read has no role gate, 2026-10-09), **editable only while the offer is open**, **shown to the expert before they accept**, and frozen at acceptance. Delivery opens the
   payout at that amount; the pending-payout amount correction is **removed** (only a *missing* amount can still be set, once). **No adjustments** —
   no bonus, deduction, advance or change after acceptance: per case it is offered amount, status,
   done or not. Every set, edit and outcome is in `audit_event`. Payouts becomes its own staff module
-  (Overview, Cases register, Experts, Pay run) on the shell's period and brand filters.
+  (Overview, Cases register, Experts, Payment batch) on the shell's period and brand filters.
 - **D61.** **The ENM runs the expert lifecycle in EvalOS, and the hiring pipeline is a GHL
   pipeline** (2026-09-29, the business; Unit 63, spec `63-enm-workspace.md`). This reverses the two
   written refusals `00d` §7 names and replaces `00d` Phase 5's `expert_application` design. A GM
   tags a mirrored pipeline `EXPERT_HIRING` (stages *New Lead, Meeting Scheduled, Meeting Done, In
-  Process, Onboarded, Dropped* live in GHL; EvalOS hard-codes none). **Every ENM of that pipeline's
-  brand works it — the tag is the grant**, derived in `TeamMemberPipelineRepository.ghlIdsFor`.
+  Process, Onboarded, Dropped* live in GHL; EvalOS hard-codes none). **An ENM works the hiring pipelines the Administrator
+  grants them, one person at a time** (edited 2026-10-09; it was every ENM of the brand, derived from the tag): the tag only makes a pipeline one that can be granted, `V89` carried each existing ENM's
+  access across, and the grant is refused unless the pipeline is `EXPERT_HIRING` and of the ENM's own brand.
   The ENM uses the Sales desk's board, stage move (mirror + outbox, D44), candidate upsert and deal
   notes; `PipelineScope` bounds every id. **A won hiring opportunity never opens a case**
   (`CaseIntakeService`, a second lock on invariant 8). *Onboarded* leads to the expert database by
@@ -592,3 +583,26 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D76.** **The Sales and Marketing dashboards read the mirror, and only the GM drills down** (2026-10-08). `GET /api/metrics/journey` answers a year of leads by month and source, open deals by stage and this month's target from the local `opportunity` mirror — never GHL live, so a dashboard left open spends no rate budget. A SALES or MARKETING member reads their own pipelines only; asking for another member is a 403 (D19c). The GM reads one audience's desks or one desk of it; there is no sales-manager role, so nobody else is offered the picker. A lead is counted in the month GHL created it, a win in the month its status last changed. Date filters beyond year and source are not offered until a read can serve them.
 
 - **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. Mapping GHL's Service Requested values onto the types is a follow-up.
+- **D78.** **A separate Administrator account owns the admin functions; the GM no longer does** (2026-10-08, spec 78).
+  `Role.ADMIN` (cross-brand, `Tier.ALL`, NULL brand, `V88`) owns staff create/edit/deactivate/password, pipeline
+  assignment and purpose, background jobs, sync health, and reads brands. The GM keeps business views, targets
+  and refunds, and reads brands, but loses the Admin nav group. The Admin also reads, read-only: the Sales and
+  Marketing performance screens and the sales board (`/api/metrics/gm`, `/journey`, `/api/opportunities/board`)
+  and the production board (`/api/cases/board`, client names withheld — `seesCaseContent()` is false for it).
+  **The boundary is default-deny in one class**, `AdminAllowlist`, wired as a request matcher before
+  `anyRequest().authenticated()`: an Admin request not on the list is 403 whatever the controller's
+  `@PreAuthorize` says. This is not optional — many staff endpoints (case list/read/documents, timeline, chat)
+  carry no `@PreAuthorize` and rely on tier scoping, so `Tier.ALL` alone would have exposed every client.
+  The Admin's `/dashboard` is its own overview (`AdminDashboard`), not the GM's, because the GM overview
+  reads revenue, which is gated to whoever may see a deal value. Only an Admin creates an Admin; the first
+  comes from the seed (`V916` local, `V961` prod from the `admin-password-hash` / `admin-email` placeholders,
+  `V954` testprod). **Prod must hold an Admin before this ships**, or nobody can add staff.
+
+- **D79.** **A "blocked" case is one whose `exception_state` is not `NONE`** (2026-10-09, spec 79, was Q20). On hold
+  awaiting client, expert declined / rematching, refund requested — the only recorded off-path states. Missing
+  documents are not inferred as blocks until the business states a rule.
+- **D80.** **First-pass QC rate is not shown until a per-case QC outcome is stored** (2026-10-09, spec 79, was Q21).
+  The PM dashboard renders it "unavailable". Storing the outcome would be an append-only row written by the existing
+  Final QC action — a separate decision, not part of UI work.
+- **D81.** **"Cases requiring reassignment" is shown only as blocked cases in `EXPERT_DECLINED_REMATCHING`** (2026-10-09,
+  spec 79, was Q22). No other reassignment state exists and none is invented.

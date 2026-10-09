@@ -1,11 +1,45 @@
-import { useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
-import { NavLink } from 'react-router-dom'
-import { useMe } from '../../lib/authContext'
-import { ROLE_LABELS } from '../../lib/session'
-import { matchesExactly, navSectionsFor } from './navigation'
-import { UnreadBadge } from '@evalos/chat'
-import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from './navBadges'
+import { useQuery } from "@tanstack/react-query";
+import {
+  BadgeDollarSign,
+  Briefcase,
+  Building2,
+  CalendarDays,
+  CalendarPlus,
+  Circle,
+  Contact,
+  FileText,
+  GitBranch,
+  Inbox,
+  Kanban,
+  LayoutDashboard,
+  ListChecks,
+  Megaphone,
+  MessageSquare,
+  PackageCheck,
+  PlusCircle,
+  Receipt,
+  RefreshCw,
+  StickyNote,
+  Timer,
+  TrendingUp,
+  UserCheck,
+  UserCog,
+  UserPlus,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+import { NavLink } from "react-router-dom";
+import { useMe } from "../../lib/authContext";
+import { ROLE_LABELS } from "../../lib/session";
+import { matchesExactly, navSectionsFor } from "./navigation";
+import { UnreadBadge } from "@evalos/chat";
+import {
+  BADGE_FOR_PATH,
+  fetchNavBadges,
+  isUrgentBadge,
+  type NavBadges,
+} from "./navBadges";
 
 /**
  * The nav, as a **flush full-height tinted rail**. Filtered by role from the one table the router
@@ -27,20 +61,27 @@ import { BADGE_FOR_PATH, fetchNavBadges, isUrgentBadge, type NavBadges } from '.
  * own stylesheet — and a fill plus a bar is two markers for one state.
  */
 export default function LeftNav() {
-  const me = useMe()
+  const me = useMe();
   // A query (Unit 70), not a mount-only read: any write, a tab refocus and a live `case.changed`
   // re-read the counts. Failure stays silent — a rail showing an error where a count should be is
   // worse than one with no counts; the screens report their own load failures.
   const badges: NavBadges | null =
-    useQuery({ queryKey: ['nav-badges'], queryFn: ({ signal }) => fetchNavBadges(signal) }).data ?? null
+    useQuery({
+      queryKey: ["nav-badges"],
+      queryFn: ({ signal }) => fetchNavBadges(signal),
+      // The Administrator is outside `/api/metrics/nav` (spec 78) and has no queues to count.
+      enabled: me.role !== "ADMIN",
+    }).data ?? null;
 
   return (
     <nav
       className="fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden"
       style={{
-        width: 'var(--sidebar-width)',
-        background: 'var(--sidebar-bg)',
-        color: 'var(--sidebar-text)',
+        width: "var(--sidebar-width)",
+        // The same fixed-attachment gradient the top bar paints, so the two merge without a seam.
+        background: "var(--frame-bg)",
+        backgroundAttachment: "fixed",
+        color: "var(--sidebar-text)",
       }}
       aria-label="Main"
     >
@@ -49,9 +90,9 @@ export default function LeftNav() {
           aria-hidden
           className="grid h-9 w-9 shrink-0 place-items-center text-sm font-bold"
           style={{
-            background: 'var(--accent-primary)',
-            color: '#fff',
-            borderRadius: 'var(--radius-md)',
+            background: "var(--accent-primary)",
+            color: "#fff",
+            borderRadius: "var(--radius-md)",
           }}
         >
           IE
@@ -60,19 +101,24 @@ export default function LeftNav() {
           {/* The brand you are actually in, not the product name. A Brand Manager holds one brand
               and could not previously see which — `/api/brands` is GM-only, so the name now comes
               down on `/api/me`. The GM is cross-brand and says so. */}
-          <span className="block truncate text-sm font-semibold">{me.brandName ?? 'EvalOS'}</span>
-          <span className="block truncate text-[11px]" style={{ color: 'var(--sidebar-muted)' }}>
-            {me.role === 'GM' ? 'All brands' : 'EvalOS'}
+          <span className="block truncate text-sm font-semibold">
+            {me.brandName ?? "EvalOS"}
+          </span>
+          <span
+            className="block truncate text-[11px]"
+            style={{ color: "var(--sidebar-muted)" }}
+          >
+            {me.role === "GM" || me.role === "ADMIN" ? "All brands" : "EvalOS"}
           </span>
         </span>
       </div>
 
-      <div className="scroll-slim flex-1 overflow-y-auto px-3 pb-3">
+      <div className="scroll-hidden flex-1 overflow-y-auto px-3 pb-3">
         {navSectionsFor(me.role).map((section) => (
           <div key={section.group} className="mb-3 last:mb-0">
             <h2
               className="px-3 pb-1.5 text-[10px] font-semibold tracking-[0.1em] uppercase"
-              style={{ color: 'var(--sidebar-muted)' }}
+              style={{ color: "var(--sidebar-muted)" }}
             >
               {section.group}
             </h2>
@@ -85,19 +131,21 @@ export default function LeftNav() {
                     end={matchesExactly(item.path)}
                     className="flex items-center gap-2.5 px-3 text-sm transition-colors"
                     style={({ isActive }) => ({
-                      height: '2.25rem',
-                      borderRadius: 'var(--radius-md)',
-                      background: isActive ? 'var(--sidebar-active-bg)' : 'transparent',
-                      color: isActive ? '#fff' : 'var(--sidebar-muted)',
+                      height: "2.25rem",
+                      borderRadius: "var(--radius-md)",
+                      background: isActive
+                        ? "var(--sidebar-active-bg)"
+                        : "transparent",
+                      color: isActive ? "#fff" : "var(--sidebar-muted)",
                       fontWeight: isActive ? 600 : 500,
                     })}
                   >
                     <span aria-hidden className="shrink-0">
-                      {NAV_ICONS[item.path] ?? NAV_ICONS.fallback}
+                      <NavIcon path={item.path} />
                     </span>
                     <span className="truncate">{item.label}</span>
                     <Badge path={item.path} badges={badges} />
-                    {item.path === '/conversations' && (
+                    {item.path === "/conversations" && (
                       <span className="ml-auto shrink-0">
                         <UnreadBadge />
                       </span>
@@ -110,27 +158,35 @@ export default function LeftNav() {
         ))}
       </div>
 
-      <div className="flex items-center gap-2.5 px-4 py-3.5" style={{ borderTop: '1px solid var(--sidebar-border)' }}>
+      <div
+        className="flex items-center gap-2.5 px-4 py-3.5"
+        style={{ borderTop: "1px solid var(--sidebar-border)" }}
+      >
         <span
           aria-hidden
           className="grid h-9 w-9 shrink-0 place-items-center text-xs font-semibold"
           style={{
-            background: 'var(--sidebar-active-bg)',
-            color: '#fff',
-            borderRadius: 'var(--radius-md)',
+            background: "var(--sidebar-active-bg)",
+            color: "#fff",
+            borderRadius: "var(--radius-md)",
           }}
         >
           {initials(me.displayName)}
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-sm font-semibold">{me.displayName}</span>
-          <span className="block truncate text-xs" style={{ color: 'var(--sidebar-muted)' }}>
+          <span className="block truncate text-sm font-semibold">
+            {me.displayName}
+          </span>
+          <span
+            className="block truncate text-xs"
+            style={{ color: "var(--sidebar-muted)" }}
+          >
             {ROLE_LABELS[me.role] ?? me.role}
           </span>
         </span>
       </div>
     </nav>
-  )
+  );
 }
 
 /**
@@ -141,18 +197,20 @@ export default function LeftNav() {
  * where a metric of zero renders `0` — there the number is the answer, here it is an interruption.
  */
 function Badge({ path, badges }: { path: string; badges: NavBadges | null }) {
-  const key = BADGE_FOR_PATH[path]
-  const count = key && badges ? badges[key] : 0
+  const key = BADGE_FOR_PATH[path];
+  const count = key && badges ? badges[key] : 0;
   if (!key || count === 0) {
-    return null
+    return null;
   }
-  const urgent = isUrgentBadge(key)
+  const urgent = isUrgentBadge(key);
   return (
     <span
       className="font-num ml-auto shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
       style={{
-        background: urgent ? 'var(--status-red)' : 'rgb(255 255 255 / 0.12)',
-        color: '#fff',
+        // Not white-on-a-white-tint: that was drawn for the old dark rail and disappears on the light one.
+        // A white pill with accent text reads on the rail and on the active blue row alike.
+        background: urgent ? "var(--status-red)" : "#fff",
+        color: urgent ? "#fff" : "var(--accent-primary)",
       }}
     >
       {count}
@@ -160,103 +218,59 @@ function Badge({ path, badges }: { path: string; badges: NavBadges | null }) {
           for anyone who has not learned the layout yet. */}
       <span className="sr-only"> waiting</span>
     </span>
-  )
+  );
 }
 
 /**
- * One glyph per nav path, keyed by the same `path` the router uses so there is no second
- * list to keep in step — an entry missing here degrades to the fallback rather than
- * breaking the item. Purely presentational: `navigation.ts` is untouched.
+ * One Lucide glyph per nav path, keyed by the same `path` the router uses so there is no second
+ * list to keep in step — an entry missing here degrades to the fallback rather than breaking the
+ * item. Purely presentational: `navigation.ts` is untouched. One icon set, as in the Sketch.
  */
-const NAV_ICONS: Record<string, ReactNode> = {
-  '/conversations': (
-    <Glyph>
-      <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z" />
-    </Glyph>
-  ),
-  '/dashboard': (
-    <Glyph>
-      <rect x="3" y="3" width="7" height="9" rx="1.5" />
-      <rect x="14" y="3" width="7" height="5" rx="1.5" />
-      <rect x="14" y="12" width="7" height="9" rx="1.5" />
-      <rect x="3" y="16" width="7" height="5" rx="1.5" />
-    </Glyph>
-  ),
-  '/board': (
-    <Glyph>
-      <rect x="3" y="4" width="5" height="16" rx="1.5" />
-      <rect x="10" y="4" width="5" height="11" rx="1.5" />
-      <rect x="17" y="4" width="4" height="7" rx="1.5" />
-    </Glyph>
-  ),
-  '/my-cases': (
-    <Glyph>
-      <path d="M4 7h16v13H4z" />
-      <path d="M9 7V4h6v3" />
-    </Glyph>
-  ),
-  // A calendar page. The diary, which is EvalOS's own mirrored record rather than a GHL read, so
-  // it deliberately does not reuse the funnel corner's shapes.
-  '/meetings': (
-    <Glyph>
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M3 10h18M8 3v4M16 3v4" />
-    </Glyph>
-  ),
-  '/checklists': (
-    <Glyph>
-      <path d="M9 5h10M9 12h10M9 19h10" />
-      <path d="m3 5 2 2 2-3M3 12l2 2 2-3M3 19l2 2 2-3" />
-    </Glyph>
-  ),
-  '/experts': (
-    <Glyph>
-      <circle cx="9" cy="8" r="3.5" />
-      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-      <path d="M17 11a2.5 2.5 0 1 0 0-5" />
-      <path d="M19 20c0-2.2-.9-4.2-2.3-5.6" />
-    </Glyph>
-  ),
-  '/payouts': (
-    <Glyph>
-      <rect x="2.5" y="6" width="19" height="12" rx="2.5" />
-      <circle cx="12" cy="12" r="2.5" />
-      <path d="M6 12h.01M18 12h.01" />
-    </Glyph>
-  ),
-  '/brands': (
-    <Glyph>
-      <path d="M4 20V9l8-5 8 5v11" />
-      <path d="M10 20v-6h4v6" />
-    </Glyph>
-  ),
-  fallback: (
-    <Glyph>
-      <circle cx="12" cy="12" r="8" />
-    </Glyph>
-  ),
-}
+const ICONS: Record<string, LucideIcon> = {
+  "/dashboard": LayoutDashboard,
+  "/conversations": MessageSquare,
+  "/dashboard/sales": TrendingUp,
+  "/dashboard/marketing": Megaphone,
+  "/opportunities/board": Kanban,
+  "/opportunities/new": PlusCircle,
+  "/marketing/leads/new": PlusCircle,
+  "/meetings": CalendarDays,
+  "/meetings/new": CalendarPlus,
+  "/hiring": UserPlus,
+  "/hiring/new": UserPlus,
+  "/board": Kanban,
+  "/inbox": Inbox,
+  "/drafts": FileText,
+  "/expert-assignment": UserCheck,
+  "/pm-notes": StickyNote,
+  "/my-drafts": FileText,
+  "/my-cases": Briefcase,
+  "/delivery": PackageCheck,
+  "/checklists": ListChecks,
+  "/contacts": Contact,
+  "/experts": Users,
+  "/payouts": Wallet,
+  "/payouts/cases": Receipt,
+  "/payouts/experts": Users,
+  "/payouts/pay": BadgeDollarSign,
+  "/admin/staff": UserCog,
+  "/admin/pipelines": GitBranch,
+  "/admin/sync": RefreshCw,
+  "/admin/jobs": Timer,
+  "/brands": Building2,
+};
 
-function Glyph({ children }: { children: ReactNode }) {
-  return (
-    <svg
-      className="h-5 w-5"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      {children}
-    </svg>
-  )
+function NavIcon({ path }: { path: string }) {
+  const Icon = ICONS[path] ?? Circle;
+  return <Icon className="h-5 w-5" strokeWidth={1.6} aria-hidden />;
 }
 
 /** First and last initial, so "Brandon Iyer" reads BI and a single name still renders. */
 function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean)
-  if (parts.length === 0) return '?'
-  const first = parts[0][0]
-  return (parts.length > 1 ? first + parts[parts.length - 1][0] : first).toUpperCase()
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0][0];
+  return (
+    parts.length > 1 ? first + parts[parts.length - 1][0] : first
+  ).toUpperCase();
 }

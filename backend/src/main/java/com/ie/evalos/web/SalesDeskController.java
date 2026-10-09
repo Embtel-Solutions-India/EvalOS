@@ -184,7 +184,7 @@ public class SalesDeskController {
 	 * the duplicate visible instead of invisible. See {@code V47__meeting.sql}.
 	 */
 	@PostMapping("/meetings")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.Meeting> bookMeeting(@PathVariable String opportunityId,
 			@RequestBody @Valid BookMeetingRequest request) {
 		return ApiResponse.ok(meetings.book(opportunityId, request.calendarId(), request.contactId(),
@@ -208,7 +208,7 @@ public class SalesDeskController {
 	}
 
 	@PutMapping("/meetings/{appointmentId}")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.Meeting> rescheduleMeeting(@PathVariable String opportunityId,
 			@PathVariable String appointmentId, @RequestBody @Valid RescheduleMeetingRequest request) {
 		return ApiResponse.ok(meetings.reschedule(opportunityId, appointmentId, request.startTime(),
@@ -217,21 +217,21 @@ public class SalesDeskController {
 
 	/** Unit 60: GHL's own cancel (status {@code cancelled}), so GHL tells the client. */
 	@PutMapping("/meetings/{appointmentId}/cancel")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.Meeting> cancelMeeting(@PathVariable String opportunityId,
 			@PathVariable String appointmentId) {
 		return ApiResponse.ok(meetings.cancel(opportunityId, appointmentId));
 	}
 
 	@GetMapping("/meetings/{appointmentId}/notes")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.NotePage> meetingNotes(@PathVariable String opportunityId,
 			@PathVariable String appointmentId, @RequestParam(defaultValue = "0") int offset) {
 		return ApiResponse.ok(meetings.notes(opportunityId, appointmentId, offset));
 	}
 
 	@PostMapping("/meetings/{appointmentId}/notes")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<Void> addMeetingNote(@PathVariable String opportunityId,
 			@PathVariable String appointmentId, @RequestBody @Valid MeetingNoteRequest request) {
 		meetings.addNote(opportunityId, appointmentId, request.body());
@@ -239,7 +239,7 @@ public class SalesDeskController {
 	}
 
 	@PutMapping("/meetings/{appointmentId}/notes/{noteId}")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<Void> editMeetingNote(@PathVariable String opportunityId,
 			@PathVariable String appointmentId, @PathVariable String noteId,
 			@RequestBody @Valid MeetingNoteRequest request) {
@@ -248,7 +248,7 @@ public class SalesDeskController {
 	}
 
 	@DeleteMapping("/meetings/{appointmentId}/notes/{noteId}")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<Void> deleteMeetingNote(@PathVariable String opportunityId,
 			@PathVariable String appointmentId, @PathVariable String noteId) {
 		meetings.deleteNote(opportunityId, appointmentId, noteId);

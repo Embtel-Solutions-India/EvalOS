@@ -131,6 +131,42 @@ class PipelineAssignmentServiceTest {
 	 * {@code 00d} §6.7 retires it, because Case Delivery is a pipeline nobody owns and
 	 * `uq_team_member_pipeline` could not express that. Nothing here asks who else is on it.
 	 */
+	/** An ENM owns a hiring pipeline of their own brand, one at a time (2026-10-09). */
+	@Test
+	void anExpertNetworkManagerIsGrantedAHiringPipeline() {
+		givenMember(Role.EXPERT_NETWORK_MANAGER, OTHER_BRAND);
+		Pipeline hiring = mirrored(OTHER_BRAND, true);
+		hiring.setPurpose(com.ie.evalos.domain.PipelinePurpose.EXPERT_HIRING);
+		when(pipelines.findById(PIPELINE)).thenReturn(Optional.of(hiring));
+
+		assertThat(service().grant(MEMBER, PIPELINE)).containsExactly(GHL_ID);
+
+		verify(assignments).grant(MEMBER, PIPELINE, GM);
+	}
+
+	@Test
+	void anExpertNetworkManagerIsRefusedAPipelineThatIsNotForHiring() {
+		givenMember(Role.EXPERT_NETWORK_MANAGER, SELLING_BRAND);
+
+		assertThatThrownBy(() -> service().grant(MEMBER, PIPELINE))
+				.isInstanceOf(InvalidRequestException.class)
+				.hasMessageContaining("hiring pipelines only");
+
+		verify(assignments, never()).grant(any(), any(), any());
+	}
+
+	@Test
+	void anExpertNetworkManagerIsRefusedAnotherBrandsHiringPipeline() {
+		when(teamMembers.findById(MEMBER)).thenReturn(Optional.of(member(Role.EXPERT_NETWORK_MANAGER, SELLING_BRAND)));
+		Pipeline hiring = mirrored(OTHER_BRAND, true);
+		hiring.setPurpose(com.ie.evalos.domain.PipelinePurpose.EXPERT_HIRING);
+		when(pipelines.findById(PIPELINE)).thenReturn(Optional.of(hiring));
+
+		assertThatThrownBy(() -> service().grant(MEMBER, PIPELINE))
+				.isInstanceOf(InvalidRequestException.class)
+				.hasMessageContaining("another brand");
+	}
+
 	@Test
 	void aSecondMemberOnTheSamePipelineIsAllowed() {
 		givenMember(Role.SALES, SELLING_BRAND);

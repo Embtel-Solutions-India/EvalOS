@@ -242,8 +242,9 @@ class OpportunityBoardServiceTest {
 	 * this assertion cannot outlive.
 	 */
 	@Test
-	void theGmSeesEveryMirroredPipelineIncludingOnesNobodyIsAssignedTo() {
+	void theGmSeesEverySalesPipelineIncludingOnesNobodyIsAssignedTo() {
 		authenticate(Role.GM, null);
+		when(assignments.salesGhlIds(SELLING_BRAND)).thenReturn(List.of(MINE, THEIRS));
 		givenMirrored(List.of(
 				mirrored("a", MINE, "s1", "100", Instant.now()),
 				mirrored("b", THEIRS, "t1", "5", Instant.now())), MINE, THEIRS);
@@ -253,10 +254,62 @@ class OpportunityBoardServiceTest {
 		assertThat(board.totalDeals()).isEqualTo(2);
 	}
 
+	/**
+	 * <strong>D19e, amended 2026-10-08: the GM's board is the SALES pipelines only.</strong> A marketing
+	 * funnel, Case Delivery or the Master Pipeline is mirrored and live, and is still not on it.
+	 */
+	@Test
+	void theGmBoardLeavesOutPipelinesThatAreNotSales() {
+		authenticate(Role.GM, null);
+		when(assignments.salesGhlIds(SELLING_BRAND)).thenReturn(List.of(MINE));
+		when(deals.onPipelines(any())).thenReturn(List.of());
+		when(deals.lastSynced(any())).thenReturn(Instant.now());
+
+		service().forCaller();
+
+		verify(deals).onPipelines(List.of(MINE));
+	}
+
+	/** Several sales pipelines name their stages alike; the GM sees one column per name, holding all of them. */
+	@Test
+	void theGmBoardSumsSameNamedStagesIntoOneColumn() {
+		authenticate(Role.GM, null);
+		Pipeline a = mirrored("pipe_a", "Sales A", 0);
+		Pipeline b = mirrored("pipe_b", "Sales B", 1);
+		when(pipelines.all()).thenReturn(List.of(a, b));
+		when(pipelines.stagesOf(a.getId())).thenReturn(List.of(stage(a, "a1", "Lead", 0), stage(a, "a2", "Warm", 1)));
+		when(pipelines.stagesOf(b.getId())).thenReturn(List.of(stage(b, "b1", " lead ", 0), stage(b, "b2", "Hot", 1)));
+		when(assignments.salesGhlIds(SELLING_BRAND)).thenReturn(List.of("pipe_a", "pipe_b"));
+		givenMirrored(List.of(
+				mirrored("x", "pipe_a", "a1", "100", Instant.now()),
+				mirrored("y", "pipe_b", "b1", "50", Instant.now())), "pipe_a", "pipe_b");
+
+		OpportunityBoardService.Board board = service().forCaller();
+
+		assertThat(board.columns()).extracting(OpportunityBoardService.BoardColumn::stageName)
+				.containsExactly("Lead", "Warm", "Hot");
+		OpportunityBoardService.BoardColumn lead = board.columns().getFirst();
+		assertThat(lead.deals()).hasSize(2);
+		assertThat(lead.total()).isEqualByComparingTo("150");
+	}
+
+	/** A salesperson drags cards, so their columns stay one per real stage even if two share a name. */
+	@Test
+	void aSalesCallersColumnsAreNeverFolded() {
+		authenticate(Role.SALES, MINE);
+		Pipeline mine = mirrored(MINE, "Mine", 0);
+		when(pipelines.all()).thenReturn(List.of(mine));
+		when(pipelines.stagesOf(mine.getId())).thenReturn(List.of(stage(mine, "s1", "Lead", 0), stage(mine, "s2", "Lead", 1)));
+		givenMirrored(List.of(), MINE);
+
+		assertThat(service().forCaller().columns()).hasSize(2);
+	}
+
 	/** A pipeline GHL stopped returning is not offered, even to the GM. */
 	@Test
 	void theGmDoesNotSeeAPipelineThatHasLeftGhl() {
 		authenticate(Role.GM, null);
+		when(assignments.salesGhlIds(SELLING_BRAND)).thenReturn(List.of(MINE, THEIRS));
 		com.ie.evalos.domain.Pipeline gone =
 				new com.ie.evalos.domain.Pipeline(SELLING_BRAND, THEIRS, "Retired", 1);
 		gone.markMissing(Instant.now());

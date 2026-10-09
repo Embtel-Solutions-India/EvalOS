@@ -41,7 +41,7 @@ live in `backend/src/main/resources/db/migration/`.
 | `portal_access` | opaque tokens for CLIENT / EXPERT, case- or party-scoped | yes |
 | `opportunity_note` | staff prose against a GHL opportunity — **`handoff`** (`V82`, D70: the note written with a win in EvalOS, read by the case page) — **its author may overwrite or hard-delete it** (`V67`, Unit 54a: trigger dropped, `updated_at` added; was append-only until 2026-09-24) | yes |
 | `opportunity_note_ghl_link` | **the GHL note an `opportunity_note` became** (Unit 54, `V66`): `note_id` PK, `brand_id`, `ghl_note_id` unique per brand — **null on a delete marker** (`V68`: the note was deleted before its push learned the id, so the drain searches the contact for its reference) — `ghl_contact_id` (`V67`), `linked_at`. **No FK and no trigger since `V67`**: it outlives a deleted note until the drain has deleted the GHL copy, then the drain deletes it. `sync_outbox.entity_type` gained `OPPORTUNITY_NOTE` with no migration (no CHECK). `ghl_note.ghl_opportunity_id` null now means "the contact's note" | yes |
-| `pipeline` | **mirror of a GHL pipeline** (Unit 44a): `ghl_id` verbatim, `name`, `position`, `purpose` (MARKETING / SALES / DELIVERY / **EXPERT_HIRING** (`V76`, Unit 63 — the ENM's hiring pipeline; every ENM of its brand works it) / UNASSIGNED), `synced_at`, `missing_since`. Upserted, never deleted | yes |
+| `pipeline` | **mirror of a GHL pipeline** (Unit 44a): `ghl_id` verbatim, `name`, `position`, `purpose` (MARKETING / SALES / DELIVERY / **EXPERT_HIRING** (`V76`, Unit 63 — the ENM's hiring pipeline; an ENM works it only when granted it in `team_member_pipeline`, per person — edited 2026-10-09) / UNASSIGNED), `synced_at`, `missing_since`. Upserted, never deleted | yes |
 | `pipeline_stage` | **mirror of a GHL stage** (Unit 44a): FK to `pipeline`, `ghl_id` verbatim (mutable — see below), natural key `(pipeline_id, position, name)` | yes |
 | `opportunity` | **mirror of a GHL opportunity** (Unit 44d, `V51`): EvalOS's `id` is also the GHL correlation key; `ghl_id` is null until GHL has seen the row; `ghl_stage_id` is text, not a FK, so one sweep being behind cannot fail another. `local_updated_at` says an edit is outstanding and `locally_edited_fields` (`V63`) says **which of the four shared fields it is about**, so a push sends only those. Upserted, never deleted | yes |
 | `sales_monthly_goal` | **the GM's sales target per month** (`V77`, 2026-09-29): `brand_id` (the selling brand), `month` (the 1st, CHECKed), `amount` ≥ 0, `set_by` → `team_member`, `set_at`. **Append-only by convention** — a change is a new row and the newest per (brand, month) counts; `SALES_MONTHLY_GOAL` is the fallback | yes |
@@ -92,7 +92,7 @@ only write path was delete-all-then-insert-all per pipeline — is why it could 
 
 | Field | Values |
 |---|---|
-| `team_member.role` | GM, BRAND_MANAGER, PROJECT_MANAGER, PROJECT_COORDINATOR, CASE_MANAGER, EXPERT_NETWORK_MANAGER, SALES, MARKETING |
+| `team_member.role` | GM, **ADMIN** (`V88`, D78; NULL brand like the GM), BRAND_MANAGER, PROJECT_MANAGER, PROJECT_COORDINATOR, CASE_MANAGER, EXPERT_NETWORK_MANAGER, SALES, MARKETING |
 | `team_member.segment` | ATTORNEY, EMPLOYER_FIRM, INDIVIDUAL (required iff SALES/MARKETING) |
 | `evalos_case.current_stage` | the 12 stages (see `architecture.md`) |
 | `evalos_case.exception_state` | NONE plus hold / refund states |

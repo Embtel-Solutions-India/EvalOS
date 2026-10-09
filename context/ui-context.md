@@ -1,7 +1,7 @@
 # EvalOS — UI Context
 
-> **A visual refresh is specced in `UI_MIGRATION_GUIDE.md`** (repo root), which adopts
-> the Protend admin template's design language — tinted canvas, floating rounded
+> **The visual language is the CoreDashboard Sketch design (adopted 2026-10-08; earlier: Protend, via the retired `UI_MIGRATION_GUIDE.md`)**, which adopts
+> the template's design language — tinted canvas, floating rounded
 > sidebar, ambient shadows, indigo accent. **This file stays the source of truth for
 > everything semantic**: RAG meanings and their thresholds, tabular figures, the focus
 > ring. The guide defers to it by name and restates no threshold, and it flags the three
@@ -60,8 +60,8 @@ are its own:
 |---|---|---|
 | Tokens | `frontend/src/styles/tokens.css` | `client-expert/shared/src/styles/globals.css` |
 | Shape | hex custom properties, Tailwind 4 | HSL triples behind shadcn names, Tailwind 3 |
-| Type | Inter + IBM Plex Mono | Inter (Arial fallback) |
-| Accent | `#2563EB` | Logo navy `#10264A` (text `#142B4A`), red `#E31B23`, page `#F5F7FA` (2026-10-06; was navy `#003152` / crimson `#c8102e`) |
+| Type | Libre Franklin (figures stay Inter) + IBM Plex Mono | Inter (Arial fallback) |
+| Accent | `#3c3df2` | Logo navy `#10264A` (text `#142B4A`), red `#E31B23`, page `#F5F7FA` (2026-10-06; was navy `#003152` / crimson `#c8102e`) |
 | Radius | see *Border Radius* below | `0.625rem` |
 | Dark mode | none | `.dark` class, full palette |
 
@@ -73,7 +73,7 @@ no home in it. That is a real gap, tracked as Unit 34 **D7**: the brand's name a
 travel in the portal payload, and the SPA reads its tokens from there.
 
 **Two rules do cross the boundary**, because they are semantic rather than stylistic:
-**RAG is status-only and never decorative**, and **tabular figures on every column of
+**RAG colours mean status wherever they appear**, and **tabular figures on every column of
 money, dates, deadlines and counts.** A portal that paints a due date amber for emphasis
 has broken the same rule the board would have.
 
@@ -81,12 +81,10 @@ EvalOS is an internal operations tool: data-dense, fast, and legible over long
 shifts. Light workspace — a calm neutral base with layered surfaces and a single
 strong accent for interactive elements.
 
-**RAG is load-bearing, not decorative.** Everything runs off red / amber / green
-status (deadlines, SLA, capacity, overdue). The three status colors below are
-reserved for status only and must never be used as brand or decorative color.
+**RAG is load-bearing.** *(Amended 2026-10-08, B2: decorative hues are now allowed on non-status surfaces — see below.)* Everything runs off red / amber / green
+status (deadlines, SLA, capacity, overdue). The three status colors below keep their meaning (red/amber/green = act on this); the Sketch palette's cyan, yellow, magenta and green are decorative hues for charts, chips and categories, and must not sit on a status surface or be the only carrier of a status. Yellow `#e2b607` and green `#21b510` are fills only — they fail contrast as text.
 
-**The first design to test that rule was the GM dashboard (Unit 51, 2026-09-15), and the
-rule won.** The business's own layout keys its five blocks by department colour — Sales,
+**History (the GM dashboard, Unit 51, 2026-09-15): the rule won then; B2 relaxes it, 2026-10-08.** The five blocks stayed section headings at the time. The business's own layout keys its five blocks by department colour — Sales,
 Marketing, Experts, Evaluation. Four departmental hues sitting beside red / amber / green
 on the same tiles is exactly the collision this rule exists to prevent: the reader has to
 learn which colours mean *"who owns this"* and which mean *"act on this"*, and gets it
@@ -104,21 +102,22 @@ mirrors it.** If the two disagree, the stylesheet is right and this is the bug.
 
 | Role                | CSS Variable          | Value     |
 | ------------------- | --------------------- | --------- |
-| Page background     | `--bg-base`           | `#F4F5F7` |
+| Page background     | `--bg-base`           | `#F6F6FB` |
 | Surface / card      | `--bg-surface`        | `#FFFFFF` |
 | Raised surface      | `--bg-raised`         | `#F1F3F5` |
 | Primary text        | `--text-primary`      | `#111827` |
 | Muted text          | `--text-muted`        | `#6B7280` |
-| Primary accent      | `--accent-primary`    | `#2563EB` |
+| Primary accent      | `--accent-primary`    | `#3C3DF2` |
 | Accent hover        | `--accent-hover`      | `#1D4ED8` |
-| **Nav rail**        | `--sidebar-bg`        | `#E3EAFB` |
+| **Nav rail**        | `--sidebar-bg`        | `#D6D9F8` |
+| **Top bar**         | `--topbar-bg`         | `#E1E3F9` |
 | Nav rail text       | `--sidebar-text`      | `#0F1B3D` |
-| Nav rail muted      | `--sidebar-muted`     | `#2F3D5C` |
+| Nav rail muted      | `--sidebar-muted`     | `#44506A` |
 | Nav rail active     | `--sidebar-active-bg` | `#1F3A6D` |
-| Nav rail divider    | `--sidebar-border`    | `#C3D0EE` |
+| Nav rail divider    | `--sidebar-border`    | `#BFC4EE` |
 
 **The nav rail is its own surface: a pale blue, set apart from the grey canvas and white cards.** Contrast was measured, not
-assumed: rail text 11.1:1, rail muted 7.1:1, active-item white on the navy pill 11.1:1 — all above AA.
+assumed: rail text 13.4:1, rail muted 5.8:1, active-item white on the accent pill 6.7:1 (re-measured 2026-10-09 when the rail and top bar were darkened a notch) — all above AA.
 A future change to `--sidebar-bg` re-opens those three numbers.
 | Border              | `--border-default`    | `#E3E6EB` |
 | **Status — red**    | `--status-red`        | `#DC2626` |
@@ -159,7 +158,7 @@ puts those in one colour; a view needing genuinely-past-due reads the column.
 
 | Role                       | Font                    | Variable      |
 | -------------------------- | ----------------------- | ------------- |
-| UI text                    | Inter                   | `--font-sans` |
+| UI text                    | Libre Franklin (Inter fallback) | `--font-sans` |
 | Numbers / IDs / times      | Inter (tabular figures) | `--font-num`  |
 | Monospace (case IDs, refs) | IBM Plex Mono           | `--font-mono` |
 
@@ -186,11 +185,12 @@ not a second formatter. Asserted in `lib/money.test.ts`.
 | Context                                        | Class          | Value |
 | ---------------------------------------------- | -------------- | ----- |
 | Inline / small UI — badges, chips, **controls** | `rounded-md`   | 6px   |
-| Cards / panels / board column headers          | `rounded-lg`   | 8px   |
+| Board column headers                           | `rounded-lg`   | 8px   |
+| **Dashboard cards** (`Card`, `KpiCard`, `ChartCard`) | `rounded-[1.25rem]` | 20px, borderless, `--shadow-soft` |
 | Kanban cards on the boards (stage-tinted)      | `rounded-xl`   | 12px  |
 | Modals / drawers / overlays                    | `rounded-xl`   | 12px  |
 
-**Nothing exceeds 12px, and controls take `md`.** `--radius-xl` was 30px under the
+**Nothing exceeds 12px except dashboard cards (20px, 2026-10-09) and the top-bar pills (fully round), and controls take `md`.** `--radius-xl` was 30px under the
 previous language, which made every 36px control a pill; a row of pills across a dense
 operations header is noise. `xl` is now for overlays only — if a 36px button reaches for
 it, the button is wrong, not the token.

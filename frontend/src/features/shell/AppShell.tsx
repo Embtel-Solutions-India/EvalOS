@@ -37,7 +37,7 @@ export default function AppShell() {
           <TopBar />
           <main
             className="min-w-0 flex-1"
-            style={{ padding: `0 var(--shell-gutter) var(--shell-gutter)` }}
+            style={{ padding: `var(--shell-gutter)` }}
           >
             <Outlet />
           </main>

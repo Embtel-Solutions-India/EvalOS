@@ -1,5 +1,6 @@
 package com.ie.evalos.notification;
 
+import java.util.List;
 import java.util.Objects;
 
 import com.ie.evalos.domain.NotificationType;
@@ -7,6 +8,7 @@ import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelinePurpose;
 import com.ie.evalos.repository.PipelineStageRepository;
+import com.ie.evalos.repository.TeamMemberPipelineRepository;
 
 import org.springframework.stereotype.Component;
 
@@ -22,11 +24,14 @@ public class HiringPipelineNotifier {
 	private final RecipientResolver recipients;
 	private final PipelineStageRepository stages;
 
+	private final TeamMemberPipelineRepository holders;
+
 	HiringPipelineNotifier(NotificationService notifications, RecipientResolver recipients,
-			PipelineStageRepository stages) {
+			PipelineStageRepository stages, TeamMemberPipelineRepository holders) {
 		this.notifications = notifications;
 		this.recipients = recipients;
 		this.stages = stages;
+		this.holders = holders;
 	}
 
 	/**
@@ -46,7 +51,13 @@ public class HiringPipelineNotifier {
 		}
 		String stage = stages.findByBrandIdAndGhlId(deal.getBrandId(), deal.getGhlStageId())
 				.map(s -> s.getName()).orElse("a new stage");
-		notifications.create(deal.getBrandId(), recipients.enms(deal.getBrandId()),
+		// The ENMs who hold THIS pipeline, not every ENM of the brand: a hiring pipeline is granted per person.
+		java.util.Set<java.util.UUID> holding = new java.util.HashSet<>(holders.membersOn(pipeline.getId()));
+		List<java.util.UUID> audience = recipients.enms(deal.getBrandId()).stream().filter(holding::contains).toList();
+		if (audience.isEmpty()) {
+			return;
+		}
+		notifications.create(deal.getBrandId(), audience,
 				NotificationType.HIRING_PIPELINE_UPDATED, null,
 				(arrived ? "New candidate " + deal.getName() + " in " : deal.getName() + " moved to ") + stage
 						+ " (from GHL).");

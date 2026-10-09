@@ -13,6 +13,11 @@ package com.ie.evalos.domain;
 public enum Role {
 
 	GM(Tier.ALL),
+
+	// Spec 78 (D78). The separate admin account: staff, pipeline assignment and purpose, jobs, sync health,
+	// brand settings — plus read-only dashboards and boards. Cross-brand like the GM (NULL brand), but
+	// `AdminAllowlist` refuses everything not listed there, so Tier.ALL widens nothing it does not name.
+	ADMIN(Tier.ALL),
 	BRAND_MANAGER(Tier.BRAND),
 	PROJECT_MANAGER(Tier.TEAM),
 	// Self, per the design, and now actually reachable: V17 added
@@ -52,7 +57,12 @@ public enum Role {
 	 * two copies of it.
 	 */
 	public boolean seesCaseContent() {
-		return tier != Tier.SUPPLY;
+		return tier != Tier.SUPPLY && this != ADMIN;
+	}
+
+	/** The roles that read the whole business — the GM and the Admin (read-only, spec 78). */
+	public boolean hasGmView() {
+		return this == GM || this == ADMIN;
 	}
 
 	/**

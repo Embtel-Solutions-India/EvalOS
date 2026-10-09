@@ -262,20 +262,6 @@ export default function BoardView() {
     <div className="flex min-h-0 flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
-          {/*
-            The owner half is drawn only when the filter is actually narrowing. It used to read
-            "everyone" whenever the filter was off, which is false for a Case Manager: the server
-            has already scoped their board to their own assignments, so "everyone" *is* them. An
-            eyebrow that overstates the scope of what you are looking at is worse than a shorter
-            one, and the cards carry a "Yours" badge regardless.
-          */}
-          <p
-            className="text-[11px] font-semibold tracking-[0.08em] uppercase"
-            style={{ color: 'var(--text-muted)' }}
-          >
-            {me.role === 'GM' ? (activeBrandId ? 'One brand' : 'All brands') : 'Your brand'}
-            {ownerFilter === 'mine' && ' · assigned to you'}
-          </p>
           {/* Titled from the nav table, so `/my-cases` is headed "My cases" rather than telling a
               Case Manager they are looking at a screen whose name is in somebody else's nav. */}
           <h1 className="text-2xl font-semibold tracking-tight">

@@ -125,7 +125,7 @@ public class PipelineJourneyService {
 		}
 
 		Role role = roleFor(caller, audience);
-		boolean gmView = caller.role() == Role.GM;
+		boolean gmView = caller.role().hasGmView();
 		List<TeamMember> desks = sellingBrandId == null ? List.of()
 				: teamMembers.findByActiveTrueAndRoleAndBrandId(role, sellingBrandId).stream()
 						.filter((member) -> !assignments.ghlIdsFor(member.getId()).isEmpty())

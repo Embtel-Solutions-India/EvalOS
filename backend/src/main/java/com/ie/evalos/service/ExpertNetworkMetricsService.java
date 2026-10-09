@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -11,6 +12,7 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.FieldTag;
 import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
@@ -53,13 +55,15 @@ public class ExpertNetworkMetricsService {
 	private final ExpertRepository experts;
 	private final ExpertCaseOfferRepository offers;
 	private final ExpertLoadService loads;
+	private final BusinessCalendar calendar;
 	private final int monthlyTarget;
 
 	ExpertNetworkMetricsService(ExpertRepository experts, ExpertCaseOfferRepository offers,
-			ExpertLoadService loads, @Value("${evalos.roster.monthly-onboarding-target}") int monthlyTarget) {
+			ExpertLoadService loads, BusinessCalendar calendar, @Value("${evalos.roster.monthly-onboarding-target}") int monthlyTarget) {
 		this.experts = experts;
 		this.offers = offers;
 		this.loads = loads;
+		this.calendar = calendar;
 		this.monthlyTarget = monthlyTarget;
 	}
 
@@ -130,6 +134,62 @@ public class ExpertNetworkMetricsService {
 			List<DecliningExpert> declining,
 			List<LowQualityExpert> lowQuality,
 			int activeCases) {
+	}
+
+	/** The offer ledger by outcome, over the caller's roster. Counts offers, not experts or cases. */
+	public record OfferFunnel(int open, int accepted, int declined, int timedOut, int superseded) {
+	}
+
+	/** An offer nobody has answered. Names the expert and its wait in business hours; never the case (spec 82). */
+	public record OpenOffer(UUID expertId, String expertName, Instant offeredAt, long waitingHours) {
+	}
+
+	public record ExpertNetworkWork(OfferFunnel funnel, int openOffers, List<OpenOffer> oldestOpen) {
+	}
+
+	/** The longest list the dashboard shows; the count above it is the real total. */
+	static final int OPEN_OFFER_LIMIT = 25;
+
+	/**
+	 * Spec 82. Same roster scope and same ledger as {@link #forCaller}, so the funnel's resolved
+	 * outcomes reconcile with the acceptance rate. Like it, a caller with no brand (the GM) gets
+	 * an empty answer rather than a cross-brand sum.
+	 */
+	@Transactional(readOnly = true)
+	public ExpertNetworkWork work() {
+		TenantContext ctx = TenantContext.current();
+		List<Expert> roster = experts.findScoped(ctx);
+		if (roster.isEmpty() || ctx.brandId() == null) {
+			return new ExpertNetworkWork(new OfferFunnel(0, 0, 0, 0, 0), 0, List.of());
+		}
+		Map<UUID, String> names = new HashMap<>();
+		roster.forEach(expert -> names.put(expert.getId(), expert.getFullName()));
+
+		Map<OfferOutcome, Integer> byOutcome = new EnumMap<>(OfferOutcome.class);
+		for (Object[] row : offers.countOutcomesPerExpert(ctx.brandId(), names.keySet())) {
+			byOutcome.merge((OfferOutcome) row[1], ((Number) row[2]).intValue(), Integer::sum);
+		}
+
+		Instant now = Instant.now();
+		List<OpenOffer> open = offers.findByBrandIdAndOutcomeOrderByOfferedAtAsc(ctx.brandId(), OfferOutcome.OFFERED)
+				.stream()
+				.filter(offer -> names.containsKey(offer.getExpertId()))
+				.map(offer -> openOffer(offer, names.get(offer.getExpertId()), now))
+				.toList();
+
+		return new ExpertNetworkWork(
+				new OfferFunnel(byOutcome.getOrDefault(OfferOutcome.OFFERED, 0),
+						byOutcome.getOrDefault(OfferOutcome.ACCEPTED, 0),
+						byOutcome.getOrDefault(OfferOutcome.DECLINED, 0),
+						byOutcome.getOrDefault(OfferOutcome.TIMED_OUT, 0),
+						byOutcome.getOrDefault(OfferOutcome.SUPERSEDED, 0)),
+				open.size(),
+				open.stream().limit(OPEN_OFFER_LIMIT).toList());
+	}
+
+	private OpenOffer openOffer(ExpertCaseOffer offer, String name, Instant now) {
+		return new OpenOffer(offer.getExpertId(), name, offer.getOfferedAt(),
+				calendar.elapsedBusinessTime(offer.getOfferedAt(), now).toHours());
 	}
 
 	@Transactional(readOnly = true)

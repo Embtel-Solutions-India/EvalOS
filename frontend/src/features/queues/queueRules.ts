@@ -1,4 +1,4 @@
-import { EXPERT_OFFER_STAGES, type BoardCard, type BoardData, type DeadlineRisk } from '../board/boardRules'
+import { EXPERT_OFFER_STAGES, type BoardCard, type BoardData, type DeadlineRisk, type Stage } from '../board/boardRules'
 
 /**
  * What the two PM queues select out of the board's data, as pure functions.
@@ -45,8 +45,15 @@ function allCards(data: BoardData): BoardCard[] {
  * one. A Friday case can be due today and still be red, or due today and amber — folding the two
  * would make the group counts disagree with the tile above them.
  */
-export function inboxQueue(data: BoardData, view: InboxView, now: Date = new Date()): BoardCard[] {
-  return byDeadline(allCards(data).filter((card) => matches(card, view, now)))
+export function inboxQueue(
+  data: BoardData,
+  view: InboxView,
+  now: Date = new Date(),
+  stage: Stage | null = null,
+): BoardCard[] {
+  return byDeadline(
+    allCards(data).filter((card) => (stage === null || card.currentStage === stage) && matches(card, view, now)),
+  )
 }
 
 function matches(card: BoardCard, view: InboxView, now: Date): boolean {

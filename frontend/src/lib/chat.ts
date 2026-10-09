@@ -16,5 +16,6 @@ export function createStaffChat(): ChatClient {
 
 /** Marketing is in no conversation (`ChatMembership`): no chat client, no Conversations entry. */
 export function chatsFor(role: Role): boolean {
-  return role !== 'MARKETING'
+  // The Administrator is in no conversation either: the chat routes are outside its allowlist (spec 78).
+  return role !== 'MARKETING' && role !== 'ADMIN'
 }

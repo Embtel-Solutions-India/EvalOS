@@ -127,4 +127,20 @@ class TeamMemberAdminServiceTest {
 		assertThatThrownBy(() -> service.update(id, details(Role.CASE_MANAGER, BRAND, null)))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("pipelines");
 	}
+
+	@Test
+	void anExpertNetworkManagerWithHiringPipelinesCannotMoveBrandUntilTheyAreRevoked() {
+		UUID id = UUID.randomUUID();
+		TeamMember enm = mock(TeamMember.class);
+		when(enm.getId()).thenReturn(id);
+		when(enm.getRole()).thenReturn(Role.EXPERT_NETWORK_MANAGER);
+		when(enm.getBrandId()).thenReturn(BRAND);
+		when(members.findById(id)).thenReturn(Optional.of(enm));
+		when(grants.ghlIdsFor(id)).thenReturn(List.of("hiring_1"));
+		UUID otherBrand = UUID.randomUUID();
+		when(brands.findById(otherBrand)).thenReturn(Optional.of(mock(Brand.class)));
+
+		assertThatThrownBy(() -> service.update(id, details(Role.EXPERT_NETWORK_MANAGER, otherBrand, null)))
+				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("pipelines");
+	}
 }

@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from "react";
 
 /**
- * The plain card shell: one surface, one border, one shadow.
+ * The plain card shell: one surface, one soft shadow, no border — the same look as the dashboard cards.
  *
  * **Not {@link Card} from `card.tsx`.** That one owns a state machine — loading skeleton, empty
  * note, error with retry — and is right for a tile whose whole job is to render one figure's
@@ -11,16 +11,15 @@ import type { ReactNode } from 'react'
 export function Surface({ children }: { children: ReactNode }) {
   return (
     <section
-      className="rounded-lg border p-5"
+      className="rounded-[1.25rem] p-5"
       style={{
-        background: 'var(--bg-surface)',
-        borderColor: 'var(--border-default)',
-        boxShadow: 'var(--shadow-card)',
+        background: "var(--bg-surface)",
+        boxShadow: "var(--shadow-soft)",
       }}
     >
       {children}
     </section>
-  )
+  );
 }
 
 /**
@@ -37,19 +36,19 @@ export function Panel({
   action,
   children,
 }: {
-  title: string
-  icon: ReactNode
+  title: string;
+  icon: ReactNode;
   /** Rendered at the far end of the heading row — an "Add note", an "Edit". */
-  action?: ReactNode
-  children: ReactNode
+  action?: ReactNode;
+  children: ReactNode;
 }) {
   return (
     <Surface>
       <div className="mb-4 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-medium">
+        <h2 className="flex items-center gap-2 text-base font-semibold">
           <span
             className="[&>svg]:h-4 [&>svg]:w-4"
-            style={{ color: 'var(--text-muted)' }}
+            style={{ color: "var(--text-muted)" }}
             aria-hidden
           >
             {icon}
@@ -60,5 +59,5 @@ export function Panel({
       </div>
       {children}
     </Surface>
-  )
+  );
 }

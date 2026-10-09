@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useMe } from '../../lib/authContext'
 import { useFilters } from '../shell/filtersContext'
 import CaseChecklist from './CaseChecklist'
 import { fetchChecklistBoard } from './checklistApi'
@@ -31,7 +30,6 @@ import {
  */
 
 export default function ChecklistBoard() {
-  const me = useMe()
   const { activeBrandId } = useFilters()
   const [openCaseId, setOpenCaseId] = useState<string | null>(null)
 
@@ -113,13 +111,7 @@ export default function ChecklistBoard() {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <p
-          className="text-[11px] font-semibold tracking-[0.08em] uppercase"
-          style={{ color: 'var(--text-muted)' }}
-        >
-          {me.role === 'GM' ? (activeBrandId ? 'One brand' : 'All brands') : 'Your brand'} · document collection
-        </p>
-        <h1 className="mt-1 text-xl font-semibold tracking-tight">Doc checklists</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Doc checklists</h1>
         {/* The thesis: not how many cases are collecting, but how many are stuck. */}
         <p className="font-num mt-1 flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums">
           <span style={{ color: 'var(--text-muted)' }}>

@@ -58,6 +58,9 @@ class SecurityFlowTest {
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 	private static final UUID TEAM = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000001");
 
+	private static final StaffPrincipal ADMIN = new StaffPrincipal(
+			UUID.randomUUID(), "admin@evalos.local", "Alex Admin", Role.ADMIN, null, null, PASSWORD_HASH, true);
+
 	private static final StaffPrincipal GM = new StaffPrincipal(
 			UUID.randomUUID(), "gm@evalos.local", "Grace Moreau", Role.GM, null, null, PASSWORD_HASH, true);
 	private static final StaffPrincipal BRAND_MANAGER = new StaffPrincipal(
@@ -225,10 +228,10 @@ class SecurityFlowTest {
 	}
 
 	@Test
-	void gmListsThroughTheScopedQueryToo() throws Exception {
+	void adminListsThroughTheScopedQueryToo() throws Exception {
 		willReturn(List.of()).given(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());
 
-		mockMvc.perform(get("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(GM)))
+		mockMvc.perform(get("/api/team-members").header(HttpHeaders.AUTHORIZATION, bearer(ADMIN)))
 				.andExpect(status().isOk());
 
 		verify(teamMembers).findAll(ArgumentMatchers.<Specification<TeamMember>>any());

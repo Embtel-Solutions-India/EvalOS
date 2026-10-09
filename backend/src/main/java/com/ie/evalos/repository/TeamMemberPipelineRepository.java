@@ -41,17 +41,36 @@ public class TeamMemberPipelineRepository {
 	 * {@code 00d} C4's failure in miniature.
 	 */
 	public List<String> ghlIdsFor(UUID memberId) {
-		// Unit 63: an ENM holds every live EXPERT_HIRING pipeline of their own brand, derived rather
-		// than granted — the GM's purpose tag is the grant, so there is no row to forget.
+		// Granted, for every role that holds one. An ENM's hiring pipelines were derived from the purpose tag
+		// until 2026-10-09 (Unit 63): every ENM of the brand held every EXPERT_HIRING pipeline. They are granted
+		// per person now, so one ENM can own one hiring pipeline; V89 granted the existing ones what they held.
 		return jdbc.queryForList("""
 				SELECT p.ghl_id FROM pipeline p
 				 WHERE p.missing_since IS NULL
-				   AND (p.id IN (SELECT tmp.pipeline_id FROM team_member_pipeline tmp
-				                  WHERE tmp.team_member_id = ? AND tmp.revoked_at IS NULL)
-				        OR (p.purpose = 'EXPERT_HIRING' AND p.brand_id IN (
-				              SELECT m.brand_id FROM team_member m
-				               WHERE m.id = ? AND m.role = 'EXPERT_NETWORK_MANAGER')))
-				 ORDER BY p.position, p.name""", String.class, memberId, memberId);
+				   AND p.id IN (SELECT tmp.pipeline_id FROM team_member_pipeline tmp
+				                 WHERE tmp.team_member_id = ? AND tmp.revoked_at IS NULL)
+				 ORDER BY p.position, p.name""", String.class, memberId);
+	}
+
+	/**
+	 * The brand's live <strong>sales</strong> pipelines as GHL's ids: held by an active SALES member, or
+	 * tagged {@code SALES} by a GM. This is what "a sales pipeline" means on the GM's board (D19e).
+	 *
+	 * <p>Marketing funnels, Case Delivery, hiring and the location's Master Pipeline are not in it.
+	 * Assignment is the primary signal because it is what the Sales dashboard already reads
+	 * (D76), so the two screens cannot disagree about which pipelines are sales; the purpose tag
+	 * covers a sales pipeline nobody holds yet.
+	 */
+	public List<String> salesGhlIds(UUID brandId) {
+		return jdbc.queryForList("""
+				SELECT p.ghl_id FROM pipeline p
+				 WHERE p.missing_since IS NULL AND p.brand_id = ?
+				   AND (p.purpose = 'SALES'
+				        OR p.id IN (SELECT tmp.pipeline_id FROM team_member_pipeline tmp
+				                      JOIN team_member m ON m.id = tmp.team_member_id
+				                     WHERE tmp.revoked_at IS NULL AND m.active AND m.role = 'SALES'
+				                       AND m.brand_id = ?))
+				 ORDER BY p.position, p.name""", String.class, brandId, brandId);
 	}
 
 	/**

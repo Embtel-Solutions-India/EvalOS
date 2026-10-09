@@ -8,13 +8,16 @@ import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.common.DateWindow;
 import com.ie.evalos.service.BusinessCalendar;
 import com.ie.evalos.service.CaseManagerMetricsService;
+import com.ie.evalos.service.CaseManagerWorkService;
 import com.ie.evalos.service.CoordinatorMetricsService;
+import com.ie.evalos.service.CoordinatorWorkService;
 import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
 import com.ie.evalos.service.GmOverviewService;
 import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PipelineJourneyService;
 import com.ie.evalos.service.PmMetricsService;
+import com.ie.evalos.service.PmOverviewService;
 import com.ie.evalos.service.RevenueMetricsService;
 import com.ie.evalos.service.PmMetricsService.PmMetrics;
 import com.ie.evalos.security.StaffPrincipal;
@@ -61,11 +64,19 @@ public class MetricsController {
 	private final NavBadgeService navBadges;
 	private final DraftReviewService drafts;
 	private final PipelineJourneyService journey;
+	private final PmOverviewService pmOverview;
+	private final CaseManagerWorkService cmWork;
+	private final CoordinatorWorkService coordinatorWork;
 
 	MetricsController(PmMetricsService metrics, CoordinatorMetricsService coordinator,
 			CaseManagerMetricsService caseManager, ExpertNetworkMetricsService network,
 			RevenueMetricsService revenue, NavBadgeService navBadges, DraftReviewService drafts,
-			GmOverviewService gmOverview, PipelineJourneyService journey) {
+			GmOverviewService gmOverview, PipelineJourneyService journey,
+			PmOverviewService pmOverview, CaseManagerWorkService cmWork,
+			CoordinatorWorkService coordinatorWork) {
+		this.pmOverview = pmOverview;
+		this.coordinatorWork = coordinatorWork;
+		this.cmWork = cmWork;
 		this.journey = journey;
 		this.gmOverview = gmOverview;
 		this.metrics = metrics;
@@ -106,6 +117,17 @@ public class MetricsController {
 		return ApiResponse.ok(metrics.forCaller(window.startInstant(), window.endInstant(), brandId));
 	}
 
+	/** Stage funnel, aging, review/QC queues and throughput. Same gate and period vocabulary as {@code /pm}. */
+	@GetMapping("/pm/overview")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
+	public ApiResponse<PmOverviewService.PmOverview> pmOverview(@RequestParam(defaultValue = "month") String range,
+			@RequestParam(required = false) String from,
+			@RequestParam(required = false) String to,
+			@RequestParam(required = false) UUID brandId) {
+		DateWindow window = DateWindow.of(range, from, to, BusinessCalendar.clock());
+		return ApiResponse.ok(pmOverview.forCaller(window.startInstant(), window.endInstant(), brandId));
+	}
+
 	/**
 	 * The GM's monthly overview: the money against the month's goal, where it came from, and the
 	 * four departments behind it.
@@ -125,7 +147,7 @@ public class MetricsController {
 	 *              control and this parameter cannot drift apart
 	 */
 	@GetMapping("/gm")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasAnyRole('GM', 'ADMIN')")
 	public ApiResponse<GmOverviewService.GmOverview> gm(@RequestParam(defaultValue = "month") String range,
 			@RequestParam(required = false) String from,
 			@RequestParam(required = false) String to,
@@ -143,7 +165,7 @@ public class MetricsController {
 	 * but yourself as a desk role is a 403.
 	 */
 	@GetMapping("/journey")
-	@PreAuthorize("hasAnyRole('GM', 'SALES', 'MARKETING')")
+	@PreAuthorize("hasAnyRole('GM', 'ADMIN', 'SALES', 'MARKETING')")
 	public ApiResponse<PipelineJourneyService.Journey> journey(@RequestParam(required = false) Integer year,
 			@RequestParam(required = false) String audience, @RequestParam(required = false) UUID memberId,
 			@RequestParam(required = false) String source) {
@@ -180,6 +202,14 @@ public class MetricsController {
 		return ApiResponse.ok(coordinator.forCaller(brandId));
 	}
 
+	/** What the Coordinator still owes and holds. Same gate and optional brand narrowing as {@code /coordinator}. */
+	@GetMapping("/coordinator/work")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR')")
+	public ApiResponse<CoordinatorWorkService.CoordinatorWork> coordinatorWork(
+			@RequestParam(required = false) UUID brandId) {
+		return ApiResponse.ok(coordinatorWork.forCaller(brandId));
+	}
+
 	/**
 	 * One Case Manager's own docket.
 	 *
@@ -193,10 +223,24 @@ public class MetricsController {
 		return ApiResponse.ok(caseManager.forCaller());
 	}
 
+	/** What blocks my cases: checklist blockers, expert offers, draft lifecycle. Same gate and scope as {@code /case-manager}. */
+	@GetMapping("/case-manager/work")
+	@PreAuthorize("hasAnyRole('GM', 'CASE_MANAGER')")
+	public ApiResponse<CaseManagerWorkService.CaseManagerWork> caseManagerWork() {
+		return ApiResponse.ok(cmWork.forCaller());
+	}
+
 	@GetMapping("/expert-network")
 	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<ExpertNetworkMetricsService.ExpertNetworkMetrics> expertNetwork() {
 		return ApiResponse.ok(network.forCaller());
+	}
+
+	/** Offer funnel and the oldest unanswered offers. Same gate as {@code /expert-network}; names experts, never cases. */
+	@GetMapping("/expert-network/work")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	public ApiResponse<ExpertNetworkMetricsService.ExpertNetworkWork> expertNetworkWork() {
+		return ApiResponse.ok(network.work());
 	}
 
 	/**

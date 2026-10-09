@@ -10,6 +10,7 @@ import { CASE_DETAIL_PATH, NAV_ITEMS, boardPathFor, homePathFor, itemFor, matche
 
 const ALL_ROLES: readonly Role[] = [
   'GM',
+  'ADMIN',
   'BRAND_MANAGER',
   'PROJECT_MANAGER',
   'PROJECT_COORDINATOR',
@@ -177,11 +178,8 @@ describe('the nav and route table', () => {
     expect(mayReach('BRAND_MANAGER', '/inbox')).toBe(false)
     expect(mayReach('BRAND_MANAGER', '/drafts')).toBe(false)
 
-    // Both CM screens are CM-only. They draw the same cases and are deliberately two entries:
-    // "what did the PM ask for" is read once before drafting, "where did my work get to" is read
-    // repeatedly after. The file's own `/cases`-beside-`/board` warning is about two entries for
-    // one *screen*; these are two screens.
-    expect(ALL_ROLES.filter((role) => mayReach(role, '/pm-notes'))).toEqual(['CASE_MANAGER'])
+    // The PM notes entry was removed from the sidebar (2026-10-09), so no role reaches it.
+    expect(ALL_ROLES.filter((role) => mayReach(role, '/pm-notes'))).toEqual([])
 
     // The CM's own drafting queue (Unit 32a). CM-only, and deliberately not the same screen as
     // `/drafts`: that one is the PM's work queue of other people's drafts, this is a status board
@@ -271,13 +269,15 @@ describe('the nav and route table', () => {
         // is SALES, capturing a lead is MARKETING.
         // Unit 63: the ENM too — their pipelines are derived server-side from their own brand's
         // EXPERT_HIRING pipelines, so they carry the same binding a desk's assignment does.
-        const bound = ['GM', 'SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER']
+        const bound = ['GM', 'ADMIN', 'SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER']
         expect(reachers.every((role) => bound.includes(role)),
           `${item.path} reached by ${reachers.join(', ')}`).toBe(true)
         continue
       }
 
-      expect(reachers, item.path).toEqual(['GM'])
+      // The cross-brand roles only — the GM, and the Administrator who owns the admin screens (spec 78).
+      expect(reachers.length, item.path).toBeGreaterThan(0)
+      expect(reachers.every((role) => role === 'GM' || role === 'ADMIN'), `${item.path} reached by ${reachers.join(', ')}`).toBe(true)
     }
   })
 
@@ -287,7 +287,8 @@ describe('the nav and route table', () => {
       const way = boardPathFor(role)
       expect(mayReach(role, way.path) || way.path === '/dashboard', `${role} → ${way.path}`).toBe(true)
     }
-    expect(boardPathFor('CASE_MANAGER').path).toBe('/my-cases')
+    // The CM reads the production board too (narrowed to their cases by the server), so it is their way out.
+    expect(boardPathFor('CASE_MANAGER').path).toBe('/board')
     // No board of their own today, so they get their dashboard rather than somebody else's board.
     expect(boardPathFor('EXPERT_NETWORK_MANAGER').path).toBe('/dashboard')
   })

@@ -1,5 +1,5 @@
 import { api, unwrap } from '../../lib/api'
-import type { DeadlineRisk } from '../board/boardRules'
+import type { DeadlineRisk, Stage } from '../board/boardRules'
 import { rangeParams, type DateRange } from '../shell/filtersContext'
 
 /** `PmMetricsService.OnTimeDelivery`. */
@@ -34,6 +34,8 @@ export type CmWorkload = {
   cmId: string
   name: string
   active: number
+  /** Open cases of this CM in the red deadline band: past the date or under 24 business hours left. */
+  critical: number
   capacity: number
 }
 
@@ -65,6 +67,40 @@ export async function fetchPmMetrics(
   return unwrap<PmMetrics>(api.get('/metrics/pm', { params, signal }))
 }
 
+/** `PmOverviewService.PmOverview` — see spec 79 §3. */
+export type StageCount = { stage: Stage; count: number; medianAgeBusinessHours: number | null }
+export type QueueRow = {
+  caseId: string
+  caseCode: string
+  serviceType: string | null
+  ownerName: string | null
+  deadline: string | null
+  risk: DeadlineRisk | null
+  /** Null when the case has no stage-entry time — unknown, not zero. */
+  waitingBusinessHours: number | null
+}
+export type ThroughputPoint = { bucket: string; delivered: number }
+export type PmOverview = {
+  stages: StageCount[]
+  active: number
+  blocked: number
+  awaitingReview: number
+  awaitingQc: number
+  readyToDeliver: number
+  queues: { draftReview: QueueRow[]; finalQc: QueueRow[] }
+  throughput: ThroughputPoint[]
+}
+
+export async function fetchPmOverview(
+  range: DateRange,
+  brandId: string | null,
+  signal?: AbortSignal,
+): Promise<PmOverview> {
+  const params: Record<string, string> = rangeParams(range)
+  if (brandId) params.brandId = brandId
+  return unwrap<PmOverview>(api.get('/metrics/pm/overview', { params, signal }))
+}
+
 // --- the other four roles ---------------------------------------------------
 //
 // One module for every dashboard's wire types, because they share the `brandId`-narrows contract
@@ -77,6 +113,45 @@ export type CoordinatorMetrics = {
   clientReview: { awaiting: number; unopened: number; stale: number }
   delivered: { today: number; thisWeek: number }
   readyToDeliver: number
+}
+
+/** `CoordinatorWorkService.CoordinatorWork` — see spec 81 §2. Item counts are checklist items, not cases. */
+export type OwedRow = {
+  caseId: string
+  caseCode: string
+  cmName: string | null
+  /** Null when the case has no stage-entry time — unknown, not zero. */
+  waitingBusinessHours: number | null
+  deadlineRisk: DeadlineRisk | null
+  total: number
+  approved: number
+  uploaded: number
+  required: number
+  missing: number
+  incorrect: number
+  /** The Coordinator has an item on this case they have not sent yet. */
+  unsent: boolean
+  /** Null if the client was never chased on this case. */
+  lastChasedAt: string | null
+}
+export type CoordinatorWork = {
+  /** The four Coordinator-owned stages, in pipeline order. */
+  stages: StageCount[]
+  /** Open cases with an exception state. */
+  blocked: number
+  /** `awaitingVerification` and `blockerItems` count items; `unsentCases` counts cases. */
+  documents: { awaitingVerification: number; blockerItems: number; unsentCases: number; owed: OwedRow[] }
+  clientReview: QueueRow[]
+  readyToDeliver: QueueRow[]
+}
+
+export async function fetchCoordinatorWork(
+  brandId: string | null,
+  signal?: AbortSignal,
+): Promise<CoordinatorWork> {
+  return unwrap<CoordinatorWork>(
+    api.get('/metrics/coordinator/work', { params: brandId ? { brandId } : {}, signal }),
+  )
 }
 
 /** One row of the Case Manager's docket — the spec's "my active cases", already deadline-ordered. */
@@ -196,8 +271,58 @@ export async function fetchCaseManagerMetrics(signal?: AbortSignal): Promise<Cas
   return unwrap<CaseManagerMetrics>(api.get('/metrics/case-manager', { signal }))
 }
 
+/** `CaseManagerWorkService.CaseManagerWork` — see spec 80 §2. */
+export type ChecklistCaseRow = {
+  caseId: string
+  caseCode: string
+  total: number
+  approved: number
+  uploaded: number
+  required: number
+  missing: number
+  incorrect: number
+}
+export type OfferOutcome = 'OFFERED' | 'ACCEPTED' | 'DECLINED' | 'TIMED_OUT' | 'SUPERSEDED'
+export type OfferRow = {
+  caseId: string
+  caseCode: string
+  /** Null when the expert's record is gone — the row stays, the name is "—". */
+  expertName: string | null
+  outcome: OfferOutcome
+  /** Null when unpriced — never 0. */
+  fee: number | null
+  /** Null when the brand has no currency set. */
+  currency: string | null
+  offeredAt: string
+  ageBusinessHours: number
+  declineReason: string | null
+}
+export type CaseManagerWork = {
+  /** `blockerItems` counts checklist items, `blockerCases` counts cases. */
+  checklist: { blockerItems: number; blockerCases: number; cases: ChecklistCaseRow[] }
+  /** `open` counts offers, `rematch` counts cases. */
+  offers: { open: number; rematch: number; rows: OfferRow[] }
+  /** Open cases, each in exactly one bucket. */
+  drafts: { beforeDraft: number; drafting: number; returned: number; withPm: number; withClient: number; approved: number }
+}
+
+export async function fetchCaseManagerWork(signal?: AbortSignal): Promise<CaseManagerWork> {
+  return unwrap<CaseManagerWork>(api.get('/metrics/case-manager/work', { signal }))
+}
+
 export async function fetchExpertNetworkMetrics(signal?: AbortSignal): Promise<ExpertNetworkMetrics> {
   return unwrap<ExpertNetworkMetrics>(api.get('/metrics/expert-network', { signal }))
+}
+
+/** `ExpertNetworkMetricsService.ExpertNetworkWork` — spec 82. Counts offers; names experts, never cases. */
+export type ExpertNetworkWork = {
+  funnel: { open: number; accepted: number; declined: number; timedOut: number; superseded: number }
+  openOffers: number
+  oldestOpen: { expertId: string; expertName: string; offeredAt: string; waitingHours: number }[]
+}
+
+export async function fetchExpertNetworkWork(signal?: AbortSignal): Promise<ExpertNetworkWork> {
+  return unwrap<ExpertNetworkWork>(api.get('/metrics/expert-network/work', { signal }))
 }
 
 export async function fetchRevenueMetrics(
@@ -263,6 +388,12 @@ export type GmEvaluation = {
   openValue: number
 }
 
+/** One slice of the period and the same slice of the previous one (`GmOverviewService.TrendPoint`). */
+export type GmTrendPoint = { start: string; leads: number; won: number; previousLeads: number; previousWon: number }
+
+/** `comparable` is false when the previous period reaches back past the won lookback — then its wins are partial. */
+export type GmTrend = { comparable: boolean; bucketDays: number; points: GmTrendPoint[] }
+
 export type GmOverview = {
   headline: GmHeadline | null
   bySource: GmSourceRow[]
@@ -271,6 +402,8 @@ export type GmOverview = {
   desks: GmDeskRow[]
   marketing: GmMarketing | null
   evaluation: GmEvaluation
+  /** Null with the pipeline half: the series is GHL's. */
+  trend: GmTrend | null
   readAt: string
   /** Null when GHL answered. The reason it did not, otherwise. */
   pipelineUnavailable: string | null

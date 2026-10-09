@@ -1,6 +1,6 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from "react-router-dom";
 
-import BookingForm from './BookingForm'
+import BookingForm from "./BookingForm";
 
 /**
  * Booking a meeting, as its own screen.
@@ -15,24 +15,31 @@ import BookingForm from './BookingForm'
  * ARE mirrored (Unit 47), so only the slots cost a round trip.
  */
 export default function NewMeetingPage() {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
 
   // A form is read down a column, not across a monitor: capped rather than left to fill, which is
   // what left the fields stranded beside acres of white.
   return (
     <section className="max-w-5xl space-y-4">
       <header>
-        <h1 className="text-xl font-semibold text-slate-900">Add meeting</h1>
-        <p className="text-sm text-slate-500">
-          Booked into GoHighLevel, which is what sends the invitation to the client.
+        <h1 className="text-xl font-semibold tracking-tight">Add meeting</h1>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Booked into GoHighLevel, which is what sends the invitation to the
+          client.
         </p>
       </header>
 
       {/* No loading state here: the form owns its own calendar and slot reads, and a skeleton
           around it would be a spinner for a request this screen does not make. */}
-      <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <BookingForm onBooked={() => navigate('/meetings')} />
+      <div
+        className="rounded-[1.25rem] p-6"
+        style={{
+          background: "var(--bg-surface)",
+          boxShadow: "var(--shadow-soft)",
+        }}
+      >
+        <BookingForm onBooked={() => navigate("/meetings")} />
       </div>
     </section>
-  )
+  );
 }

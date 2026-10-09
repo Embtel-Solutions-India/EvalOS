@@ -21,7 +21,8 @@ export default defineConfig({
       // Forward API calls to the Spring Boot server so the browser stays
       // same-origin in dev and CORS never comes up.
       '/api': {
-        target: 'http://localhost:8080',
+        // API_TARGET points a second dev server at a backend on another port; unset, it is 8080.
+        target: process.env.API_TARGET ?? 'http://localhost:8080',
         changeOrigin: true,
       },
     },

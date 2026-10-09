@@ -1,6 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { ChevronRight } from 'lucide-react'
 import { Card, type CardState } from '../../components/ui/card'
+import { Avatar, Donut } from '../../components/ui/widgets'
 import { formatCount, formatMoney } from '../../lib/money'
 import type { Audience, Journey, JourneyDesk } from './journeyApi'
 import { achievementPct, changePct, pulse, remaining, sum } from './journeyMath'
@@ -9,7 +11,7 @@ const MUTED: CSSProperties = { color: 'var(--text-muted)' }
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /** Colour here means "which channel", so the compare view is capped at five and the rest stay in the list. */
-export const SERIES = ['var(--accent-primary)', '#0d9488', '#d97706', '#7c3aed', '#64748b']
+export const SERIES = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)']
 
 const compactMoney = (value: number) => (value >= 1000 ? `$${Math.round(value / 100) / 10}k` : formatMoney(value))
 
@@ -24,91 +26,86 @@ function Change({ pct, label }: { pct: number | null; label: string }) {
   )
 }
 
-function Stat({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs" style={MUTED}>{label}</dt>
-      <dd className="font-num mt-0.5 text-lg font-semibold tabular-nums">{value}</dd>
-    </div>
-  )
-}
-
-/** Sales vs target (won value) or Marketing's leads vs target — the question the page opens with. */
-export function TargetCard({ data, state, audience, canSetTarget }: { data: Journey | null; state: CardState; audience: Audience; canSetTarget: boolean }) {
+/**
+ * The first screen's answer to "how are we performing?": four tiles, the Sketch's KPI row.
+ * Won (or leads) this month with its change, the target with the percentage achieved, then the
+ * year's leads and their combined value. Target and remaining ride on the target tile.
+ */
+export function KpiRow({ data, state, audience, canSetTarget, source }: { data: Journey | null; state: CardState; audience: Audience; canSetTarget: boolean; source: string | null }) {
   const money = audience === 'sales'
   const show = (n: number) => (money ? formatMoney(Math.round(n)) : formatCount(Math.round(n)))
   const monthName = data ? new Date(`${data.target.month}T00:00:00Z`).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }) : ''
   const progress = data?.target.progress ?? 0
   const target = data?.target.target ?? null
+  const hasTarget = target !== null && target > 0
   const pct = achievementPct(progress, target)
   const { current, previous } = data ? pulse(data) : { current: undefined, previous: undefined }
   const was = previous ? (money ? previous.wonValue : previous.leads) : undefined
+  const leads = data ? sum(data.months, (m) => m.leads) : 0
+  const value = data ? sum(data.months, (m) => m.leadValue) : 0
+  const year = data?.year ?? ''
 
   return (
-    <Card title={`${money ? 'Sales' : 'Leads'} vs target${monthName ? ` · ${monthName}` : ''}`} state={state}>
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-num text-4xl font-semibold leading-none tracking-tight tabular-nums">{show(progress)}</span>
-        <span className="text-sm" style={MUTED}>{money ? 'won this month' : 'leads this month'}</span>
-        {current && <Change pct={changePct(progress, was)} label="vs last month" />}
-      </div>
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <Card variant="tile" title={`${money ? 'Won' : 'Leads'} · ${monthName || 'this month'}`} state={state}>
+        <Figure>{show(progress)}</Figure>
+        {current && <p className="mt-1.5"><Change pct={changePct(progress, was)} label="vs last month" /></p>}
+      </Card>
 
-      {target === null ? (
-        <p className="mt-5 text-sm" style={MUTED}>
-          No target is set for {monthName}.{canSetTarget && ' Set one under By desk on the main dashboard.'}
-        </p>
-      ) : (
-        <>
-          <div
-            className="mt-5 h-2.5 w-full overflow-hidden rounded-full"
-            style={{ background: 'var(--bg-raised)' }}
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.min(pct ?? 0, 100)}
-            aria-label={`${pct ?? 0}% of the ${monthName} target`}
-          >
+      <Card variant="tile" title={`Target · ${monthName || 'this month'}`} state={state}>
+        {hasTarget ? (
+          <>
+            <Figure>{show(target)}</Figure>
             <div
-              className="h-full rounded-full"
-              style={{ width: `${Math.min(pct ?? 0, 100)}%`, background: (pct ?? 0) >= 100 ? 'var(--status-green)' : 'var(--accent-primary)' }}
-            />
-          </div>
-          <dl className="mt-4 grid grid-cols-3 gap-4">
-            <Stat label="Target" value={show(target)} />
-            <Stat label="Remaining" value={show(remaining(progress, target) ?? 0)} />
-            <Stat label="Achieved" value={`${pct}%`} />
-          </dl>
-        </>
-      )}
-    </Card>
+              className="mt-2 h-1.5 w-full overflow-hidden rounded-full"
+              style={{ background: 'var(--bg-raised)' }}
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.min(pct ?? 0, 100)}
+              aria-label={`${pct ?? 0}% of the ${monthName} target`}
+            >
+              <div className="h-full rounded-full" style={{ width: `${Math.min(pct ?? 0, 100)}%`, background: (pct ?? 0) >= 100 ? 'var(--status-green)' : 'var(--accent-primary)' }} />
+            </div>
+            <p className="font-num mt-1.5 text-xs tabular-nums" style={MUTED}>
+              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{pct}%</span> achieved · {show(remaining(progress, target) ?? 0)} left
+            </p>
+          </>
+        ) : (
+          <>
+            <Figure>Not set</Figure>
+            <p className="mt-1.5 text-xs" style={MUTED}>{canSetTarget ? 'Set one under By desk on the main dashboard.' : `No target for ${monthName}.`}</p>
+          </>
+        )}
+      </Card>
+
+      <Card variant="tile" title={`Leads in ${year}${source ? ` · ${source}` : ''}`} state={state}>
+        <Figure>{formatCount(leads)}</Figure>
+        {current && (
+          <p className="font-num mt-1.5 flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums">
+            <span className="font-medium">{formatCount(current.leads)}</span>
+            <span style={MUTED}>this month</span>
+            <Change pct={changePct(current.leads, previous?.leads)} label="" />
+          </p>
+        )}
+      </Card>
+
+      <Card variant="tile" title={`Lead value · ${year}`} state={state}>
+        <Figure>{compactMoney(Math.round(value))}</Figure>
+        {current && (
+          <p className="font-num mt-1.5 flex flex-wrap items-baseline gap-x-1.5 text-xs tabular-nums">
+            <span className="font-medium">{compactMoney(Math.round(current.leadValue))}</span>
+            <span style={MUTED}>this month</span>
+            <Change pct={changePct(current.leadValue, previous?.leadValue)} label="" />
+          </p>
+        )}
+      </Card>
+    </div>
   )
 }
 
-/** Total leads and their value for the year, with this month's pulse underneath. */
-export function LeadsCard({ data, state, source }: { data: Journey | null; state: CardState; source: string | null }) {
-  const leads = data ? sum(data.months, (m) => m.leads) : 0
-  const value = data ? sum(data.months, (m) => m.leadValue) : 0
-  const { current, previous } = data ? pulse(data) : { current: undefined, previous: undefined }
-  return (
-    <Card title={`Leads${data ? ` in ${data.year}` : ''}${source ? ` · ${source}` : ''}`} state={state}>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="font-num text-4xl font-semibold leading-none tracking-tight tabular-nums">{formatCount(leads)}</p>
-          <p className="mt-1.5 text-sm" style={MUTED}>leads opened</p>
-        </div>
-        <div>
-          <p className="font-num text-4xl font-semibold leading-none tracking-tight tabular-nums">{compactMoney(Math.round(value))}</p>
-          <p className="mt-1.5 text-sm" style={MUTED}>combined value</p>
-        </div>
-      </div>
-      {current && (
-        <p className="mt-5 flex flex-wrap items-baseline gap-x-2 text-sm">
-          <span className="font-num font-medium tabular-nums">{formatCount(current.leads)}</span>
-          <span style={MUTED}>this month</span>
-          <Change pct={changePct(current.leads, previous?.leads)} label="vs last month" />
-        </p>
-      )}
-    </Card>
-  )
+function Figure({ children }: { children: ReactNode }) {
+  return <p className="font-num text-2xl font-semibold leading-none tracking-tight tabular-nums">{children}</p>
 }
 
 /** The yearly lead journey: one line for the filtered total, or one per channel when comparing. */
@@ -130,7 +127,7 @@ export function JourneyChart({
       <CartesianGrid vertical={false} stroke="var(--border-default)" />
       <XAxis dataKey="name" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} />
       <YAxis width={44} allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: 'var(--text-muted)' }} tickFormatter={(n: number) => (metric === 'value' ? compactMoney(n) : String(n))} />
-      <Tooltip formatter={(n) => format(Number(n))} contentStyle={{ borderRadius: 8, border: '1px solid var(--border-default)', fontSize: 12 }} />
+      <Tooltip formatter={(n) => format(Number(n))} contentStyle={{ borderRadius: 12, border: '1px solid var(--border-tint)', boxShadow: 'var(--shadow-pop)', fontSize: 12 }} />
       {thisMonth !== null && <ReferenceLine x={MONTHS[thisMonth - 1]} stroke="var(--border-default)" strokeDasharray="4 4" />}
     </>
   )
@@ -140,9 +137,9 @@ export function JourneyChart({
   return (
     <Card
       title="Yearly lead journey"
+      action={controls ? <div className="flex flex-wrap items-center justify-end gap-2">{controls}</div> : undefined}
       state={state.kind === 'ok' && empty ? { kind: 'empty', note: `No leads were opened in ${data?.year} for this selection.` } : state}
     >
-      {controls && <div className="mb-3 flex flex-wrap items-center justify-end gap-2">{controls}</div>}
       <div className="h-64 w-full" role="img" aria-label={`Leads by month in ${data?.year}: ${rows.filter((r) => r.total !== null).map((r) => `${r.name} ${r.total}`).join(', ')}`}>
         <ResponsiveContainer width="100%" height="100%">
           {comparing ? (
@@ -188,24 +185,51 @@ function Bar({ share, color = 'var(--accent-primary)' }: { share: number; color?
   )
 }
 
-/** Open deals by stage, in GHL's order — bar length is the count, the figures carry the value. */
+/** Open deals by stage, in GHL's order. The ring shows share of open deals; the list keeps every stage with its count and value. */
 export function StageCard({ data, state, to }: { data: Journey | null; state: CardState; to?: string }) {
-  const stages = data?.stages ?? []
+  // Pipelines that share stage names (Lead, Warm, Hot, Cold, Lost) read as duplicates, so they add up by name, in first-seen order.
+  const byName = new Map<string, { name: string; deals: number; value: number }>()
+  for (const s of data?.stages ?? []) {
+    const row = byName.get(s.name.toLowerCase()) ?? { name: s.name, deals: 0, value: 0 }
+    row.deals += s.deals
+    row.value += s.value
+    byName.set(s.name.toLowerCase(), row)
+  }
+  const stages = [...byName.values()]
   const max = Math.max(1, ...stages.map((s) => s.deals))
   const total = stages.reduce((n, s) => n + s.deals, 0)
   const value = stages.reduce((n, s) => n + s.value, 0)
+  // Five colours, then grey: more than five categorical hues stops being readable (tokens.css).
+  const ranked = [...stages].sort((a, b) => b.deals - a.deals)
+  const slices = [
+    ...ranked.slice(0, SERIES.length).map((s, i) => ({ name: s.name, value: s.deals, color: SERIES[i] })),
+    { name: 'Other stages', value: ranked.slice(SERIES.length).reduce((n, s) => n + s.deals, 0), color: 'var(--text-muted)' },
+  ]
   return (
     <Card
       title="Pipeline by stage"
       state={state.kind === 'ok' && stages.length === 0 ? { kind: 'empty', note: 'Nothing is open on this pipeline right now.' } : state}
       to={to}
     >
-      <p className="mb-3 text-sm" style={MUTED}>
-        <span className="font-num font-medium tabular-nums" style={{ color: 'var(--text-primary)' }}>{formatCount(total)}</span> open · {formatMoney(Math.round(value))} right now
-      </p>
-      <ul className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
+        <Donut slices={slices} centre={formatCount(total)} caption="open deals" />
+        <div className="min-w-0 max-w-sm flex-1">
+          <p className="text-sm" style={MUTED}>{formatMoney(Math.round(value))} open right now</p>
+          <ul className="mt-2 space-y-1.5 text-sm">
+            {slices.filter((s) => s.value > 0).map((s) => (
+              <li key={s.name} className="flex items-center gap-2">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                <span className="font-num tabular-nums">{formatCount(s.value)}</span>
+                <span className="font-num w-9 text-right text-xs tabular-nums" style={MUTED}>{total ? Math.round((s.value / total) * 100) : 0}%</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <ul className="mt-5 grid gap-x-8 gap-y-3 border-t pt-4 sm:grid-cols-2" style={{ borderColor: 'var(--border-default)' }}>
         {stages.map((s) => (
-          <li key={s.stageId}>
+          <li key={s.name}>
             <div className="flex items-baseline justify-between gap-3 text-sm">
               <span className="truncate">{s.name}</span>
               <span className="font-num shrink-0 tabular-nums">
@@ -229,7 +253,7 @@ export function SourceCard({ data, state, selected, onSelect, colored }: { data:
       title="Where leads come from"
       state={state.kind === 'ok' && sources.length === 0 ? { kind: 'empty', note: `No leads were opened in ${data?.year}.` } : state}
     >
-      <ul className="space-y-1">
+      <ul className="max-h-80 space-y-1 overflow-y-auto pr-1">
         {sources.map((s, i) => {
           const active = selected?.toLowerCase() === s.source.toLowerCase()
           return (
@@ -242,9 +266,9 @@ export function SourceCard({ data, state, selected, onSelect, colored }: { data:
                 style={{ background: active ? 'var(--accent-soft)' : undefined }}
               >
                 <span className="flex items-baseline justify-between gap-3 text-sm">
-                  <span className="truncate">{s.source}</span>
+                  <span className="min-w-0 flex-1 truncate" title={`${s.source} · ${formatMoney(Math.round(s.value))}`}>{s.source}</span>
                   <span className="font-num shrink-0 tabular-nums">
-                    {formatCount(s.leads)} <span className="ml-1 text-xs" style={MUTED}>{total ? Math.round((s.leads / total) * 100) : 0}% · {formatMoney(Math.round(s.value))}</span>
+                    {formatCount(s.leads)} <span className="ml-1 text-xs" style={MUTED}>{total ? Math.round((s.leads / total) * 100) : 0}%</span>
                   </span>
                 </span>
                 <span className="mt-1 block"><Bar share={total ? (s.leads / total) * 100 : 0} color={colored ? (i < SERIES.length ? SERIES[i] : 'var(--text-muted)') : undefined} /></span>
@@ -258,7 +282,7 @@ export function SourceCard({ data, state, selected, onSelect, colored }: { data:
   )
 }
 
-/** The GM's team view: who is behind the numbers. A row opens the same dashboard scoped to that person. */
+/** The GM's team view as the Sketch's member list: who is behind the numbers. A row opens the same dashboard scoped to that person. */
 export function DeskCard({ desks, state, audience, onOpen }: { desks: JourneyDesk[]; state: CardState; audience: Audience; onOpen: (memberId: string) => void }) {
   const money = audience === 'sales'
   const rows = [...desks].sort((a, b) => (money ? b.wonValue - a.wonValue : b.leads - a.leads))
@@ -267,34 +291,22 @@ export function DeskCard({ desks, state, audience, onOpen }: { desks: JourneyDes
       title={money ? 'Sales team' : 'Marketing team'}
       state={state.kind === 'ok' && rows.length === 0 ? { kind: 'empty', note: 'No active member has a pipeline assigned yet.' } : state}
     >
-      <table className="w-full text-sm">
-        <thead>
-          <tr style={MUTED}>
-            <th className="pb-1.5 text-left text-xs font-medium">Member</th>
-            <th className="pb-1.5 text-right text-xs font-medium">Leads</th>
-            {money && <th className="pb-1.5 text-right text-xs font-medium">Won</th>}
-            <th className="pb-1.5 text-right text-xs font-medium">Open now</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((d) => (
-            <tr key={d.memberId} className="border-t" style={{ borderColor: 'var(--border-default)' }}>
-              <td className="py-1">
-                <button type="button" onClick={() => onOpen(d.memberId)} className="rounded-md py-1 text-left font-medium hover:underline" style={{ color: 'var(--accent-primary)' }}>
-                  {d.name}
-                </button>
-              </td>
-              <td className="font-num py-1 text-right tabular-nums">{formatCount(d.leads)}</td>
-              {money && (
-                <td className="font-num py-1 text-right tabular-nums">
-                  {formatMoney(Math.round(d.wonValue))} <span className="text-xs" style={MUTED}>({d.won})</span>
-                </td>
-              )}
-              <td className="font-num py-1 text-right tabular-nums">{formatCount(d.open)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ul className="-m-2 divide-y divide-[color:var(--border-default)]">
+        {rows.map((d) => (
+          <li key={d.memberId}>
+            <button type="button" onClick={() => onOpen(d.memberId)} className="flex w-full items-center gap-3 rounded-lg p-2 text-left hover:bg-[var(--bg-raised)]">
+              <Avatar name={d.name} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{d.name}</span>
+                <span className="font-num block text-xs tabular-nums" style={MUTED}>
+                  {formatCount(d.leads)} leads{money ? ` · ${compactMoney(Math.round(d.wonValue))} won` : ''} · {formatCount(d.open)} open
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0" style={MUTED} aria-hidden />
+            </button>
+          </li>
+        ))}
+      </ul>
     </Card>
   )
 }

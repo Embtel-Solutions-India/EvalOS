@@ -77,7 +77,7 @@ class MemberTargetRouteTest {
 		controller.clearCache();
 		given(sellingBrand.id()).willReturn(BRAND_IE);
 		given(overview.forCaller(any(), any())).willReturn(new GmOverviewService.GmOverview(null, List.of(),
-				List.of(), null, List.of(), null, null, Instant.parse("2026-10-08T00:00:00Z"), null));
+				List.of(), null, List.of(), null, null, null, Instant.parse("2026-10-08T00:00:00Z"), null));
 		given(targets.overview(eq(BRAND_IE), eq(OCT), any())).willReturn(List.of(
 				row(salesId, "Sam", "1000", "900"), row(otherSalesId, "Oz", "500", "10")));
 		given(targets.latestForMonth(BRAND_IE, OCT)).willReturn(java.util.Map.of(salesId, new BigDecimal("1000")));
@@ -243,7 +243,7 @@ class MemberTargetRouteTest {
 	@Test
 	void aFailedOverviewReadIsNotRememberedSoTheNextLoadTriesAgain() throws Exception {
 		given(overview.forCaller(any(), any())).willThrow(new IllegalStateException("GHL down"))
-				.willReturn(new GmOverviewService.GmOverview(null, List.of(), List.of(), null, List.of(), null, null,
+				.willReturn(new GmOverviewService.GmOverview(null, List.of(), List.of(), null, List.of(), null, null, null,
 						Instant.parse("2026-10-08T00:00:00Z"), null));
 
 		mockMvc.perform(get("/api/me/target").param("month", "2026-10")

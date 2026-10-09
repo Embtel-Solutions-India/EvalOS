@@ -83,8 +83,8 @@ export default function NotificationBell() {
         className="relative grid h-9 w-9 cursor-pointer list-none place-items-center"
         style={{
           background: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-md)',
-          boxShadow: 'var(--shadow-card)',
+          borderRadius: '999px',
+          boxShadow: 'var(--shadow-soft)',
           color: 'var(--text-muted)',
         }}
         aria-label={`Notifications, ${unread} unread`}

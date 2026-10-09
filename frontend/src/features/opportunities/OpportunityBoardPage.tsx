@@ -222,8 +222,8 @@ export default function OpportunityBoardPage() {
           style={{ background: 'rgb(0 0 0 / 0.4)' }}
         >
           <div
-            className="w-full max-w-md rounded-lg border p-5"
-            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+            className="w-full max-w-md rounded-[1.25rem] p-6"
+            style={{ background: 'var(--bg-surface)', boxShadow: 'var(--shadow-pop)' }}
           >
             <h2 className="mb-3 text-base font-semibold">Win this deal</h2>
             <WinNote
@@ -333,8 +333,8 @@ export default function OpportunityBoardPage() {
 
       {state.kind === 'error' ? (
         <div
-          className="rounded-lg border p-4"
-          style={{ background: 'var(--status-red-bg)', borderColor: 'var(--border-default)' }}
+          className="rounded-2xl p-4"
+          style={{ background: 'var(--status-red-bg)' }}
         >
           <p className="text-sm font-medium" style={{ color: 'var(--status-red)' }}>
             {state.note}
@@ -362,11 +362,13 @@ export default function OpportunityBoardPage() {
             no pipeline matches nothing), so "ask your GM" is the actionable half.
           */}
           {hiring ? (
-            // An ENM is never *assigned* a pipeline (the server refuses it, D61): the grant is a GM tagging a
-            // mirrored pipeline "Expert hiring" in Admin → Pipelines, and it must belong to the ENM's own brand.
+            // An ENM holds exactly the hiring pipelines granted to them (D61): an Administrator grants one on the
+            // Staff screen, and it has to be tagged Expert hiring and belong to the ENM's own brand. A new ENM
+            // starts with none, and nothing else gives them one.
             <>
-              No hiring pipeline is set up for you. A GM tags one as <strong>Expert hiring</strong> in Admin →
-              Pipelines, and it has to be in your own brand. Until then this screen stays empty by design.
+              No hiring pipeline is granted to you. An administrator grants one on the Staff screen; it has to be
+              tagged <strong>Expert hiring</strong> and be in your own brand. Until then this screen stays empty by
+              design.
             </>
           ) : (
             <>

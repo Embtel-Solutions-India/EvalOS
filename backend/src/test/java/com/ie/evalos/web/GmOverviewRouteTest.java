@@ -67,7 +67,7 @@ class GmOverviewRouteTest {
 			new GmOverviewService.Sales(142, new BigDecimal("61000"), 9, new BigDecimal("22000"), 12),
 			List.of(), new GmOverviewService.Marketing(61, new BigDecimal("12000"), 61),
 			new GmOverviewService.Evaluation(34, new BigDecimal("28000"), 3, 28, new BigDecimal("41000")),
-			Instant.parse("2026-09-15T09:00:00Z"), null);
+			null, Instant.parse("2026-09-15T09:00:00Z"), null);
 
 	@Autowired
 	MockMvc mockMvc;
@@ -83,6 +83,15 @@ class GmOverviewRouteTest {
 
 	@MockitoBean
 	PmMetricsService pm;
+
+	@MockitoBean
+	com.ie.evalos.service.PmOverviewService pmOverview;
+
+	@MockitoBean
+	com.ie.evalos.service.CaseManagerWorkService cmWork;
+
+	@MockitoBean
+	com.ie.evalos.service.CoordinatorWorkService coordinatorWork;
 
 	@MockitoBean
 	CoordinatorMetricsService coordinator;
@@ -111,6 +120,20 @@ class GmOverviewRouteTest {
 		return "Bearer " + jwtService.issue(principal);
 	}
 
+	/** D78: the Administrator reads the overview but cannot set the goal — that stays the GM's. */
+	@Test
+	void theAdministratorReadsItButCannotSetTheGoal() throws Exception {
+		given(gmOverview.forCaller(any(), any())).willReturn(OVERVIEW);
+
+		mockMvc.perform(get("/api/metrics/gm").header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN)))
+				.andExpect(status().isOk());
+		mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/metrics/gm/goal")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"month\":\"2026-10-01\",\"amount\":100}"))
+				.andExpect(status().isForbidden());
+	}
+
 	@Test
 	void theGmReadsIt() throws Exception {
 		given(gmOverview.forCaller(any(), any())).willReturn(OVERVIEW);
@@ -125,7 +148,7 @@ class GmOverviewRouteTest {
 
 	/** Every other staff role, the Brand Manager included. See this class's note. */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "GM", "ADMIN" })
 	void everyOtherRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(get("/api/metrics/gm").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());
@@ -147,11 +170,11 @@ class GmOverviewRouteTest {
 				.setGoal(any(), any(), any());
 	}
 
-	/** The Sales and Marketing dashboards' read: those two roles and the GM, nobody else. Scoping is the service's. */
+	/** The Sales and Marketing dashboards' read: those two roles, the GM and the read-only Administrator, nobody else. Scoping is the service's. */
 	@ParameterizedTest
 	@EnumSource(Role.class)
 	void onlySalesMarketingAndTheGmReadTheJourney(Role role) throws Exception {
-		boolean allowed = role == Role.GM || role == Role.SALES || role == Role.MARKETING;
+		boolean allowed = role == Role.GM || role == Role.ADMIN || role == Role.SALES || role == Role.MARKETING;
 
 		mockMvc.perform(get("/api/metrics/journey").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(allowed ? status().isOk() : status().isForbidden());

@@ -43,7 +43,7 @@ public class BrandController {
 	}
 
 	@GetMapping
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasAnyRole('GM', 'ADMIN')")
 	public ApiResponse<List<BrandOption>> list() {
 		return ApiResponse.ok(brands.selectable().stream().map(BrandOption::of).toList());
 	}

@@ -20,6 +20,12 @@ import type { CardState } from '../../components/ui/card'
  * new key, which has no data yet, so last month's figures never sit under this month's header. A
  * focus re-read or `reload()` keeps the figures on screen until better ones arrive.
  *
+ * **`key` names the request, so the cache outlives the screen.** Without it the key is this call's `useId`,
+ * which is new on every mount: leaving a dashboard and coming back found nothing cached and showed the
+ * loading cards until the server answered. With a stable `key` the last figures show at once and are
+ * re-read in the background. The `key` plus `deps` must say everything that changes the response (the
+ * brand, the range); the cache is cleared on sign-in and sign-out, so figures never cross users.
+ *
  * **`refreshEvery` (ms) re-reads on a timer while the tab is visible** — for a screen over the mirror
  * only, whose rows the sweeps rewrite with nothing to tell the browser (D68 leaves mirrored screens
  * out of live updates). Never for one that reads GHL live, such as the GM overview: a poll there
@@ -33,10 +39,10 @@ export function refreshOptions(options?: { refreshEvery?: number }) {
 export function useMetrics<T>(
   load: (signal: AbortSignal) => Promise<T>,
   deps: readonly unknown[],
-  options?: { refreshEvery?: number },
+  options?: { refreshEvery?: number; key?: string },
 ): { data: T | null; state: CardState; reload: () => void } {
   const id = useId()
-  const query = useQuery({ queryKey: ['metrics', id, ...deps], queryFn: ({ signal }) => load(signal),
+  const query = useQuery({ queryKey: ['metrics', options?.key ?? id, ...deps], queryFn: ({ signal }) => load(signal),
     ...refreshOptions(options),
   })
   const data = query.data ?? null

@@ -86,6 +86,18 @@ class PmMetricsServiceTest {
 		return metrics.forCaller(NOW.minus(30, ChronoUnit.DAYS), NOW, brandFilter);
 	}
 
+	@Test
+	void workloadCountsCriticalDeadlinesPerCaseManager() {
+		givenCaseManagers(SARAH);
+		Case late = aCase(BRAND_IE, "C-LATE", Stage.DRAFT_IN_PROGRESS);
+		ReflectionTestUtils.setField(late, "assignedCm", SARAH);
+		ReflectionTestUtils.setField(late, "deadline", NOW.minus(2, ChronoUnit.DAYS));
+		PmMetrics result = compute(List.of(late), null);
+		assertThat(result.workload()).hasSize(1);
+		assertThat(result.workload().get(0).active()).isEqualTo(1);
+		assertThat(result.workload().get(0).critical()).isEqualTo(1);
+	}
+
 	// --- on-time delivery ----------------------------------------------------
 
 	@Test

@@ -45,6 +45,6 @@ logo is linked from the marketing site's apex host, `https://internationalevalua
 by several webmail clients and a `data:` URI is blocked outright by Gmail and Outlook.com.
 **2026-09-28:** Handoff C and outbound webhooks are dropped (D53); invariant 11 is struck.
 
-**2026-09-29 (Unit 63):** the ENM (`Tier.SUPPLY`) also carries a pipeline claim — their brand's `EXPERT_HIRING` pipelines, derived in `TeamMemberPipelineRepository.ghlIdsFor` — so `PipelineScope` bounds their hiring desk like a Sales desk; `CaseIntakeService` refuses a won hiring opportunity (second lock on invariant 8).
+**2026-09-29 (Unit 63):** the ENM (`Tier.SUPPLY`) also carries a pipeline claim — the `EXPERT_HIRING` pipelines granted to them in `team_member_pipeline` (per person, edited 2026-10-09; was derived from the tag; `V89` carried existing access across), read in `TeamMemberPipelineRepository.ghlIdsFor` — so `PipelineScope` bounds their hiring desk like a Sales desk; `CaseIntakeService` refuses a won hiring opportunity (second lock on invariant 8).
 
 **Unit 68 (2026-10-02):** `JwtFilter` re-reads `team_member.active` per staff request (one PK lookup), so a deactivated member gets 401 at once; role/brand still change on next sign-in.

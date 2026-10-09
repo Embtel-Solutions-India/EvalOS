@@ -47,6 +47,24 @@ export const INTAKE_FIELD_KEYS: readonly string[] = [
 ]
 
 /**
+ * The custom fields a candidate is asked, in the order they are asked: the "Join as evaluator" website
+ * fields first, then how they came to us. Matched on name, lower-cased with spacing collapsed, because
+ * GHL gives these no key we know. Every other opportunity field is about a client's case and is left
+ * off; a field added in GHL later does not appear here until it is added to this list.
+ */
+const CANDIDATE_FIELDS = [
+  'current title (website) (join as evaluator)',
+  'primary field of expertise(website) (join as evaluator)',
+  'category applying (c)(website evaluator)',
+  'lead source',
+  'how did you hear about us? (opportunity)',
+  'how did you hear about us? (website)',
+  'message',
+]
+
+const fieldName = (field: OpportunityField) => field.name.trim().replace(/\s+/g, ' ').toLowerCase()
+
+/**
  * "Add opportunity" for a salesperson — the fields GHL's own form asks for, and nothing EvalOS
  * would have to invent.
  *
@@ -121,10 +139,17 @@ export function NewDealFields({
   columns,
   onCreated,
   lead = false,
+  candidate = false,
 }: {
   columns: readonly BoardColumn[]
   onCreated: () => void
   lead?: boolean
+  /**
+   * Spec 83: the ENM's "Add candidate" — the same GHL opportunity form on the hiring pipeline. A
+   * candidate has no deal value, and is asked the location's other opportunity fields instead of
+   * the client intake ones.
+   */
+  candidate?: boolean
 }) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -134,6 +159,10 @@ export function NewDealFields({
   const [value, setValue] = useState('')
   // Preset by the board's column "+" (`?stage=`); any stage not on the caller's pipeline just isn't offered.
   const [stageId, setStageId] = useState(() => new URLSearchParams(window.location.search).get('stage') ?? '')
+  // Only the pipeline's own stages are offered: a blank choice is replaced by its first stage, which is
+  // what GHL would have picked, so the form always names the stage the deal will land in.
+  const stages = [...columns].sort((a, b) => a.position - b.position)
+  const chosenStage = stages.some((column) => column.stageId === stageId) ? stageId : (stages[0]?.stageId ?? '')
   const [closeDate, setCloseDate] = useState('')
   const [owner, setOwner] = useState('')
   // GHL's own users, as the booking dialog lists them. A failed read leaves only "Unassigned".
@@ -148,11 +177,15 @@ export function NewDealFields({
     (signal) => fetchOpportunityFields(signal),
     [],
   )
-  const intake = (fields ?? [])
-    .filter((field) => INTAKE_FIELD_KEYS.includes(field.fieldKey))
-    .sort(
-      (a, b) => INTAKE_FIELD_KEYS.indexOf(a.fieldKey) - INTAKE_FIELD_KEYS.indexOf(b.fieldKey),
-    )
+  const intake = candidate
+    ? (fields ?? [])
+        .filter((field) => CANDIDATE_FIELDS.includes(fieldName(field)))
+        .sort((x, y) => CANDIDATE_FIELDS.indexOf(fieldName(x)) - CANDIDATE_FIELDS.indexOf(fieldName(y)))
+    : (fields ?? [])
+        .filter((field) => INTAKE_FIELD_KEYS.includes(field.fieldKey))
+        .sort(
+          (a, b) => INTAKE_FIELD_KEYS.indexOf(a.fieldKey) - INTAKE_FIELD_KEYS.indexOf(b.fieldKey),
+        )
   const [custom, setCustom] = useState<Record<string, string>>({})
 
   const [busy, setBusy] = useState(false)
@@ -178,7 +211,7 @@ export function NewDealFields({
       email: email.trim() || undefined,
       phone: phone.trim() || undefined,
       monetaryValue: value.trim() === '' ? undefined : Number(value),
-      stageId: stageId || undefined,
+      stageId: chosenStage || undefined,
       expectedCloseDate: closeDate || undefined,
       customFields: custom,
       assignedTo: owner || undefined,
@@ -201,7 +234,7 @@ export function NewDealFields({
     <form onSubmit={(e) => submit(e, false)} className="grid gap-3">
       <fieldset className="grid gap-3">
         <legend className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-          Client
+          {candidate ? 'Candidate' : 'Client'}
         </legend>
         <div className="grid grid-cols-2 gap-3">
           <Field label="First name" value={firstName} onChange={setFirstName} />
@@ -223,28 +256,23 @@ export function NewDealFields({
         </legend>
         <Field label={lead ? 'Name (defaults to the contact)' : 'Name'} value={name} onChange={setName} />
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Value" value={value} onChange={setValue} type="number" />
+          {/* A candidate has no deal value (Unit 63). */}
+          {!candidate && <Field label="Value" value={value} onChange={setValue} type="number" />}
           <Field label="Expected close" value={closeDate} onChange={setCloseDate} type="date" />
         </div>
         <label className="grid gap-1 text-sm">
           <span style={{ color: 'var(--text-muted)' }}>Stage</span>
           <select
-            value={stageId}
+            value={chosenStage}
             onChange={(e) => setStageId(e.target.value)}
             className="rounded-lg border px-2 py-1.5"
             style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)' }}
           >
-            {/* GHL puts a new deal in the first stage when none is named, which is nearly always
-                what is wanted — so the default says that rather than pre-selecting a stage the
-                salesperson did not choose. */}
-            <option value="">First stage</option>
-            {[...columns]
-              .sort((a, b) => a.position - b.position)
-              .map((column) => (
-                <option key={column.stageId} value={column.stageId}>
-                  {column.stageName}
-                </option>
-              ))}
+            {stages.map((column) => (
+              <option key={column.stageId} value={column.stageId}>
+                {column.stageName}
+              </option>
+            ))}
           </select>
         </label>
         <label className="grid gap-1 text-sm">
@@ -272,7 +300,7 @@ export function NewDealFields({
             className="text-xs font-medium uppercase tracking-wide"
             style={{ color: 'var(--text-muted)' }}
           >
-            What they need
+            {candidate ? 'Details' : 'What they need'}
           </legend>
           {intake.map((field) => (
             <CustomFieldInput
@@ -283,7 +311,9 @@ export function NewDealFields({
             />
           ))}
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            These travel with the deal into production, so nobody has to ask the client twice.
+            {candidate
+              ? "Read from GHL's opportunity fields."
+              : 'These travel with the deal into production, so nobody has to ask the client twice.'}
           </p>
         </fieldset>
       )}
@@ -322,7 +352,9 @@ export function NewDealFields({
       )}
 
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-        {lead
+        {candidate
+          ? 'Opens on the expert hiring pipeline in GHL. A person who already has an open candidate there is updated, not duplicated.'
+          : lead
           ? 'Opens on your own pipeline in GHL. A contact who already has an open lead there is updated, not duplicated.'
           : 'Opens on your own pipeline, as an open deal. Winning it is a separate step — that is what creates the case.'}
       </p>
@@ -333,7 +365,7 @@ export function NewDealFields({
         className="rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         style={{ background: 'var(--accent-primary)', color: '#fff' }}
       >
-        {busy ? 'Opening…' : lead ? 'Open lead' : 'Open deal'}
+        {busy ? 'Opening…' : candidate ? 'Add candidate' : lead ? 'Open lead' : 'Open deal'}
       </button>
     </form>
   )

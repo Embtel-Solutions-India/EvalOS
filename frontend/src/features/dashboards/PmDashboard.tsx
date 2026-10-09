@@ -2,7 +2,10 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { Card, CapacityBar, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
 import { useFilters, rangeLabel } from '../shell/filtersContext'
-import { fetchPmMetrics, type PmMetrics } from './pmMetricsApi'
+import { fetchPmMetrics, fetchPmOverview, type PmMetrics, type PmOverview } from './pmMetricsApi'
+import { QueueTable } from './QueueTable'
+import { StageFunnel } from './StageFunnel'
+import { ThroughputCard } from './ThroughputCard'
 import { useMetrics } from './useMetrics'
 
 /**
@@ -18,6 +21,14 @@ export default function PmDashboard() {
   const { data: metrics, state: base } = useMetrics<PmMetrics>(
     (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
+    { key: 'PmDashboard:0' },
+  )
+
+  // A separate load, so a failed overview cannot blank the six tiles below it or the reverse.
+  const { data: overview, state: overviewState } = useMetrics<PmOverview>(
+    (signal) => fetchPmOverview(dateRange, activeBrandId, signal),
+    [dateRange, activeBrandId],
+    { key: 'PmDashboard:1' },
   )
 
   const onTime = metrics?.onTime
@@ -28,15 +39,28 @@ export default function PmDashboard() {
 
   return (
     <section>
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Production</h1>
-        <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {/* `rangeLabel`, not the value: `dateRange` is an object now, and rendering it directly
-              throws "Objects are not valid as a React child" at runtime — which `tsc` did not
-              catch. It also gives a custom period a readable heading instead of "custom". */}
-          {rangeLabel(dateRange)}
-        </p>
-      </header>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <KpiCard title="Active cases" state={overviewState} to="/inbox" value={overview?.active ?? null} />
+        <KpiCard
+          title="Blocked cases"
+          state={overviewState}
+          value={overview?.blocked ?? null}
+          note="On hold, expert declined, or refund requested."
+        />
+        <KpiCard title="Drafts awaiting review" state={overviewState} to="/drafts" value={overview?.awaitingReview ?? null} />
+        <KpiCard
+          title="Cases awaiting QC"
+          state={overviewState}
+          to="/inbox?stage=FINAL_QC"
+          value={overview?.awaitingQc ?? null}
+        />
+        <KpiCard
+          title="Ready to deliver"
+          state={overviewState}
+          to="/inbox?stage=READY_TO_DELIVER"
+          value={overview?.readyToDeliver ?? null}
+        />
+      </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
@@ -64,7 +88,7 @@ export default function PmDashboard() {
           delta={
             onTime?.deltaPoints === null || onTime?.deltaPoints === undefined
               ? undefined
-              : { value: onTime.deltaPoints, better: 'up' }
+              : { value: onTime.deltaPoints, better: 'up', unit: ' pts' }
           }
           note="Delivered on or before the date the client was promised."
         />
@@ -154,7 +178,7 @@ export default function PmDashboard() {
         >
           <div>
             {metrics?.workload.map((row) => (
-              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} />
+              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} critical={row.critical} />
             ))}
           </div>
         </Card>
@@ -187,6 +211,28 @@ export default function PmDashboard() {
         />
       </div>
 
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <StageFunnel stages={overview?.stages} state={overviewState} />
+        <ThroughputCard points={overview?.throughput} state={overviewState} period={rangeLabel(dateRange)} />
+        <QueueTable
+          title="Draft review queue"
+          note="Cases waiting on a PM decision. Owner is the draft's author."
+          rows={overview?.queues.draftReview}
+          state={overviewState}
+          emptyNote="No drafts are waiting for review."
+        />
+        <QueueTable
+          title="Final QC queue"
+          note="Cases waiting on final quality check. Owner is the assigned PM."
+          rows={overview?.queues.finalQc}
+          state={overviewState}
+          emptyNote="Nothing is waiting for final QC."
+        />
+        <Card
+          title="First-pass QC rate"
+          state={{ kind: 'unavailable', blockedBy: 'D80 — no QC outcome is recorded per case' }}
+        />
+      </div>
     </section>
   )
 }

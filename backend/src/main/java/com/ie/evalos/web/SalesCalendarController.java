@@ -104,8 +104,9 @@ public class SalesCalendarController {
 	 * who takes the call; both desks pick the opportunity's owner (D64).
 	 */
 	@GetMapping("/users")
-	// Unit 68: and the GM, for the staff sheet's GHL user field (a location read, GM-only by invariant 1).
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM')")
+	// Spec 83: and the ENM, who picks a candidate's owner on the hiring form.
+	// Unit 68: and the GM and the Admin, for the staff sheet's GHL user field (a location read, never a desk's by invariant 1; the staff sheet is the Admin's since D78).
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER', 'GM', 'ADMIN')")
 	public ApiResponse<List<GhlUserClient.User>> ghlUsers() {
 		return ApiResponse.ok(reference.locationUsers().stream()
 				.map((row) -> new GhlUserClient.User(row.getGhlId(), row.getName(), row.getEmail()))
@@ -128,7 +129,8 @@ public class SalesCalendarController {
 	 * asks the same intake questions as the sales form (Unit 39b).
 	 */
 	@GetMapping("/opportunity-fields")
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
+	// Spec 83: and the ENM — definitions, not data, for the hiring form.
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<List<GhlCustomFieldClient.CustomField>> opportunityFields() {
 		return ApiResponse.ok(reference.opportunityFields().stream()
 				.map((row) -> new GhlCustomFieldClient.CustomField(row.getGhlId(), row.getName(),
@@ -137,7 +139,7 @@ public class SalesCalendarController {
 	}
 
 	@GetMapping("/calendars")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<GhlCalendarClient.CalendarOption>> calendars() {
 		return ApiResponse.ok(meetings.calendars());
 	}
@@ -154,7 +156,7 @@ public class SalesCalendarController {
 	 * @param timezone IANA zone; GHL renders the slots in it and the form shows which one
 	 */
 	@GetMapping("/calendars/{calendarId}/slots")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.FreeSlots> slots(@PathVariable String calendarId,
 			@RequestParam long from, @RequestParam long to, @RequestParam String timezone,
 			@RequestParam(required = false) String userId) {
@@ -168,7 +170,7 @@ public class SalesCalendarController {
 
 	/** The caller's own blocked time inside a window, read live from GHL (Unit 60). */
 	@GetMapping("/blocked-time")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<GhlCalendarClient.BlockedTime>> blockedTime(
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {
@@ -176,14 +178,14 @@ public class SalesCalendarController {
 	}
 
 	@PostMapping("/blocked-time")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<GhlCalendarClient.BlockedTime> block(
 			@RequestBody @jakarta.validation.Valid BlockTimeRequest request) {
 		return ApiResponse.ok(meetings.block(request.title(), request.startTime(), request.endTime()));
 	}
 
 	@DeleteMapping("/blocked-time/{eventId}")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<Void> unblock(@PathVariable String eventId) {
 		meetings.unblock(eventId);
 		return ApiResponse.ok(null);
@@ -205,7 +207,7 @@ public class SalesCalendarController {
 	 * @param to   exclusive ISO-8601 instant; must be after {@code from}
 	 */
 	@GetMapping("/meetings")
-	@PreAuthorize("hasRole('SALES')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
 	public ApiResponse<List<MeetingView>> diary(
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant from,
 			@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to) {

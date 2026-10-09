@@ -74,16 +74,16 @@ class TeamMemberPipelineRouteTest {
 
 	private String bearer(Role role) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), role + "@evalos.local", "Staff", role,
-				role == Role.GM ? null : BRAND_IE, null, null, true);
+				(role == Role.GM || role == Role.ADMIN) ? null : BRAND_IE, null, null, true);
 		return "Bearer " + jwtService.issue(principal);
 	}
 
 	@Test
-	void theGmPutsAMemberOnAPipeline() throws Exception {
+	void theAdminPutsAMemberOnAPipeline() throws Exception {
 		given(pipelines.grant(MEMBER, PIPELINE)).willReturn(List.of("pipe_aditya_01"));
 
 		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.ghlPipelineIds[0]").value("pipe_aditya_01"));
@@ -102,7 +102,7 @@ class TeamMemberPipelineRouteTest {
 				.willReturn(List.of("pipe_aditya_01", "pipe_case_delivery"));
 
 		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(jsonPath("$.data.ghlPipelineIds.length()").value(2));
 	}
@@ -113,7 +113,7 @@ class TeamMemberPipelineRouteTest {
 		given(pipelines.grant(any(), any())).willReturn(List.of("pipe_aditya_01"));
 
 		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(jsonPath("$.data.email").doesNotExist())
 				.andExpect(jsonPath("$.data.passwordHash").doesNotExist())
@@ -121,17 +121,17 @@ class TeamMemberPipelineRouteTest {
 	}
 
 	@Test
-	void theGmTakesAMemberOffAPipeline() throws Exception {
+	void theAdminTakesAMemberOffAPipeline() throws Exception {
 		given(pipelines.revoke(MEMBER, PIPELINE)).willReturn(List.of());
 
 		mockMvc.perform(delete("/api/team-members/{id}/pipelines/{pipelineId}", MEMBER, PIPELINE)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM)))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN)))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.data.ghlPipelineIds.length()").value(0));
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "ADMIN")
 	void everyOtherRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
 				.header(HttpHeaders.AUTHORIZATION, bearer(role))
@@ -155,7 +155,7 @@ class TeamMemberPipelineRouteTest {
 	@Test
 	void aNullPipelineIsFourHundred() throws Exception {
 		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"pipelineId\":null}"))
 				.andExpect(status().isBadRequest());
 
@@ -173,7 +173,7 @@ class TeamMemberPipelineRouteTest {
 	@Test
 	void aRawGhlPipelineIdIsRefused() throws Exception {
 		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"pipelineId\":\"pipe_aditya_01\"}"))
 				.andExpect(status().isBadRequest());
 
@@ -190,7 +190,7 @@ class TeamMemberPipelineRouteTest {
 				.given(pipelines).grant(any(), any());
 
 		mockMvc.perform(put("/api/team-members/{id}/pipelines", MEMBER)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
 				.contentType(MediaType.APPLICATION_JSON).content(BODY))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.error.message").value("Only SALES and MARKETING members work a pipeline"));

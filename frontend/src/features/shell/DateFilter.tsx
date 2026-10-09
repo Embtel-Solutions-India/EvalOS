@@ -86,7 +86,7 @@ export default function DateFilter() {
     <div className="flex items-center gap-2">
       <div
         className="flex h-9 items-center gap-0.5 p-1"
-        style={{ background: 'var(--bg-surface)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)' }}
+        style={{ background: 'var(--bg-surface)', borderRadius: '999px', boxShadow: 'var(--shadow-soft)' }}
         role="group"
         aria-label="Date range"
       >
@@ -103,7 +103,7 @@ export default function DateFilter() {
               aria-pressed={active}
               className="px-3 py-1 text-sm font-medium transition-colors"
               style={{
-                borderRadius: 'var(--radius-md)',
+                borderRadius: '999px',
                 background: active ? 'var(--accent-soft)' : 'transparent',
                 color: active ? 'var(--accent-primary)' : 'var(--text-muted)',
               }}
@@ -127,7 +127,7 @@ export default function DateFilter() {
           }}
           className="h-7 px-2 text-sm font-medium"
           style={{
-            borderRadius: 'var(--radius-md)',
+            borderRadius: '999px',
             background: menuValue ? 'var(--accent-soft)' : 'transparent',
             color: menuValue ? 'var(--accent-primary)' : 'var(--text-muted)',
             border: 'none',
@@ -155,9 +155,9 @@ export default function DateFilter() {
               type="button"
               className="h-9 px-3 text-sm font-medium"
               style={{
-                borderRadius: 'var(--radius-md)',
+                borderRadius: '999px',
                 background: 'var(--bg-surface)',
-                boxShadow: 'var(--shadow-card)',
+                boxShadow: 'var(--shadow-soft)',
                 color: dateRange.kind === 'custom' ? 'var(--accent-primary)' : 'var(--text-muted)',
               }}
             >

@@ -63,6 +63,14 @@ export function MessageList({ conversationId, readOnly, onReply }: { conversatio
   const list = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
   const newest = messages[messages.length - 1]?.id
+  // The newest message at the moment the reader scrolled away from the bottom. What arrives after it
+  // is "new" for the bar below; scrolling back down, or pressing the bar, clears it.
+  const [away, setAway] = useState<{ conversationId: string; after: string } | null>(null)
+  const behind = useMemo(() => {
+    if (!away || away.conversationId !== conversationId) return 0
+    const at = messages.findIndex((m) => m.id === away.after)
+    return at < 0 ? 0 : messages.slice(at + 1).filter((m) => !m.mine && !m.deleted).length
+  }, [away, conversationId, messages])
 
   useEffect(() => {
     pinned.current = true
@@ -81,7 +89,10 @@ export function MessageList({ conversationId, readOnly, onReply }: { conversatio
       ref={list}
       onScroll={(e) => {
         const el = e.currentTarget
+        const wasPinned = pinned.current
         pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+        if (pinned.current) setAway(null)
+        else if (wasPinned && newest) setAway({ conversationId, after: newest })
       }}
     >
       {older && (
@@ -105,6 +116,15 @@ export function MessageList({ conversationId, readOnly, onReply }: { conversatio
             seen={row.message.id === latestMine && seen.length > 0 ? seen : null}
           />
         ),
+      )}
+      {behind > 0 && (
+        <button
+          type="button"
+          className="ec-newbar"
+          onClick={() => list.current?.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' })}
+        >
+          ↓ {behind} new {behind === 1 ? 'message' : 'messages'}
+        </button>
       )}
     </div>
   )

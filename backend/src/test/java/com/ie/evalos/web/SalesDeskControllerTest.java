@@ -174,6 +174,38 @@ class SalesDeskControllerTest {
 	}
 
 	/**
+	 * Booking is the business-development desks' action: Sales and Marketing, every other role by exclusion
+	 * so a role added later is refused by default. (It was Sales only until 2026-10-09; `PipelineScope`
+	 * still limits each desk to deals in its own pipelines.)
+	 */
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.EnumSource(value = Role.class, mode = org.junit.jupiter.params.provider.EnumSource.Mode.EXCLUDE, names = { "SALES", "MARKETING" })
+	void onlyTheBusinessDevelopmentDesksBookAMeeting(Role role) throws Exception {
+		mockMvc.perform(post("/api/sales/opportunities/{id}/meetings", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"calendarId":"cal_1","contactId":"c1","title":"Discovery call",
+						 "startTime":"2026-10-01T14:00:00Z","endTime":"2026-10-01T14:30:00Z"}"""))
+				.andExpect(status().isForbidden());
+
+		then(meetings).should(never()).book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+	}
+
+	@Test
+	void aMarketingDeskBooksAMeetingToo() throws Exception {
+		given(meetings.book(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).willReturn(MEETING);
+
+		mockMvc.perform(post("/api/sales/opportunities/{id}/meetings", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.MARKETING))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"calendarId":"cal_1","contactId":"c1","title":"Discovery call",
+						 "startTime":"2026-10-01T14:00:00Z","endTime":"2026-10-01T14:30:00Z"}"""))
+				.andExpect(status().isOk());
+	}
+
+	/**
 	 * Bean validation refuses an incomplete booking before the service is reached — so a request
 	 * missing a time never becomes a GHL call, and never becomes a zero-length appointment in
 	 * somebody's calendar.

@@ -51,6 +51,16 @@ public interface DocumentChecklistItemRepository extends ScopedRepository<Docume
 			@org.springframework.data.repository.query.Param("brandIds") Collection<UUID> brandIds);
 
 	/**
+	 * {@link #caseIdsWithUnsent} narrowed to the given cases, so a caller holding a few open cases does not
+	 * read the whole brand's history to keep them. Brand-scoped in the signature as well.
+	 */
+	@org.springframework.data.jpa.repository.Query("select distinct i.caseId from DocumentChecklistItem i "
+			+ "where i.brandId in :brandIds and i.caseId in :caseIds and i.sentAt is null")
+	java.util.Set<UUID> caseIdsWithUnsentIn(
+			@org.springframework.data.repository.query.Param("brandIds") Collection<UUID> brandIds,
+			@org.springframework.data.repository.query.Param("caseIds") Collection<UUID> caseIds);
+
+	/**
 	 * Whether every item asked for on this case has been approved.
 	 *
 	 * <p>Lives here rather than in each caller because two sweeps ask the same question and a

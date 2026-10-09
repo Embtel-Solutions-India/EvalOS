@@ -79,8 +79,10 @@ public class TeamMemberAdminService {
 			throw new InvalidRequestException("You cannot change your own role");
 		}
 		// A desk's grants are to pipelines of its brand and its role; moving either under them
-		// would leave a grant meaning something nobody chose.
-		boolean deskChanges = member.getRole().isPipelineScoped()
+		// would leave a grant meaning something nobody chose. The Expert Network Manager holds grants
+		// too (D61, per person), though its tier is not PIPELINE.
+		boolean holdsGrants = member.getRole().isPipelineScoped() || member.getRole() == Role.EXPERT_NETWORK_MANAGER;
+		boolean deskChanges = holdsGrants
 				&& (clean.role() != member.getRole() || !Objects.equals(clean.brandId(), member.getBrandId()));
 		if (deskChanges && !grants.ghlIdsFor(member.getId()).isEmpty()) {
 			throw new InvalidRequestException("Take this member off their pipelines before changing their role or brand");
@@ -112,7 +114,7 @@ public class TeamMemberAdminService {
 		TeamMember member = existing(id);
 		member.setPasswordHash(passwords.encode(password));
 		members.save(member);
-		audit.recordEvent(OBJECT_TYPE, member.getId(), AuditAction.UPDATED, me(), null, "password set by the GM");
+		audit.recordEvent(OBJECT_TYPE, member.getId(), AuditAction.UPDATED, me(), null, "password set by an administrator");
 	}
 
 	private Details validated(Details d, TeamMember current) {
@@ -131,9 +133,10 @@ public class TeamMemberAdminService {
 				.ifPresent(other -> {
 					throw new InvalidRequestException("Another staff member already signs in with " + email);
 				});
-		// The GM is cross-brand and only the GM is (team_member_brand_required).
-		UUID brandId = d.role() == Role.GM ? null : d.brandId();
-		if (d.role() != Role.GM && (brandId == null || brands.findById(brandId).isEmpty())) {
+		// The GM and the Admin are cross-brand and only they are (team_member_brand_required).
+		boolean crossBrand = d.role() == Role.GM || d.role() == Role.ADMIN;
+		UUID brandId = crossBrand ? null : d.brandId();
+		if (!crossBrand && (brandId == null || brands.findById(brandId).isEmpty())) {
 			throw new InvalidRequestException("Choose this member's brand");
 		}
 		// A segment for the two desks and nobody else (team_member_segment_matches_role).

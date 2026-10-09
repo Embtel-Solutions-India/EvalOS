@@ -1,12 +1,5 @@
 import { Link } from "react-router-dom";
-import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowRight,
-  ArrowUp,
-  Ban,
-  RotateCw,
-} from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, RotateCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { formatCount, formatMoney } from "../../lib/money";
 
@@ -47,7 +40,7 @@ export type CardState =
 
 type CardProps = {
   title: string;
-  /** Optional one-line explanation of what the figure means. */
+  /** What the figure means. Not drawn on the card: it is the heading's hover hint. A card with nothing to show says so through its `empty` state. */
   note?: string;
   state: CardState;
   /**
@@ -59,50 +52,77 @@ type CardProps = {
   to?: string;
   /** Spans two columns in the dashboard grid — the role's PRIMARY KPI, per `ui-context.md`. */
   wide?: boolean;
+  /** A control in the header's right edge — the Sketch's pill filter ("Current Week ▾"). */
+  action?: ReactNode;
+  /**
+   * `panel` is the Sketch's chart/list card: a 58px header over a hairline, then the body.
+   * `tile` is its KPI box: no rule, a small muted label over the figure.
+   */
+  variant?: "panel" | "tile";
+  /** Grid placement, e.g. `col-span-12 xl:col-span-8` — the 12-column dashboards size cards by question, not equally. */
+  className?: string;
   children?: ReactNode;
 };
 
-export function Card({ title, note, state, to, wide, children }: CardProps) {
+export function Card({
+  title,
+  note,
+  state,
+  to,
+  wide,
+  action,
+  variant = "panel",
+  className: place = "",
+  children,
+}: CardProps) {
   const interactive = to !== undefined && state.kind !== "loading";
 
+  // The reference look: no rule under the heading, a plain title, generous padding. A tile is the
+  // same card with a smaller label over a large figure.
+  const tile = variant === "tile";
   const body = (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <h2 className="text-sm font-medium">{title}</h2>
-        {state.kind === "warning" && (
-          <AlertTriangle
-            className="h-4 w-4 shrink-0"
-            style={{ color: "var(--status-amber)" }}
-            aria-hidden
-          />
-        )}
-        {interactive && (
-          <ArrowRight
-            className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-            style={{ color: "var(--accent-primary)" }}
-            aria-hidden
-          />
-        )}
+      <div
+        className={`flex items-start justify-between gap-2 px-5 ${tile ? "pt-4" : "pt-5"}`}
+      >
+        <h2
+          title={note}
+          className={tile ? "text-xs font-medium" : "text-base font-semibold"}
+          style={tile ? { color: "var(--text-muted)" } : undefined}
+        >
+          {title}
+        </h2>
+        <div className="flex shrink-0 items-center gap-2">
+          {action}
+          {state.kind === "warning" && (
+            <AlertTriangle
+              className="h-4 w-4 shrink-0"
+              style={{ color: "var(--status-amber)" }}
+              aria-hidden
+            />
+          )}
+          {interactive && (
+            <ArrowRight
+              className="h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+              style={{ color: "var(--accent-primary)" }}
+              aria-hidden
+            />
+          )}
+        </div>
       </div>
 
-      <div className="mt-3">{renderState(state, children)}</div>
-
-      {note && state.kind !== "unavailable" && (
-        <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
-          {note}
-        </p>
-      )}
+      <div className={tile ? "px-5 pt-2 pb-4" : "px-5 pt-3 pb-5"}>
+        {renderState(state, children)}
+      </div>
     </>
   );
 
-  const className = `group block rounded-lg border p-5 text-left ${wide ? "md:col-span-2" : ""}`;
+  const className = `group block rounded-[1.25rem] text-left ${wide ? "md:col-span-2" : ""} ${place}`;
   const style = {
     background: "var(--bg-surface)",
-    borderColor:
-      state.kind === "warning"
-        ? "var(--status-amber)"
-        : "var(--border-default)",
-    boxShadow: "var(--shadow-card)",
+    // Borderless: the shadow lifts the card. Only a warning draws an edge, because that edge is a status.
+    border: state.kind === "warning" ? "1px solid var(--status-amber)" : "none",
+    boxShadow: "var(--shadow-soft)",
   };
 
   if (interactive) {
@@ -204,6 +224,7 @@ export function KpiCard({
   delta,
   tone,
   action,
+  className,
 }: Omit<CardProps, "children"> & {
   value: number | null;
   /**
@@ -222,22 +243,33 @@ export function KpiCard({
   unit?: string;
   denominator?: string;
   /** Change against the previous comparable period. Omitted when there is nothing to compare. */
-  delta?: { value: number; better: "up" | "down" };
+  /** `unit` is "%" for a relative change and "pts" for a change in a rate that is itself a percentage. */
+  delta?: { value: number; better: "up" | "down"; unit?: string };
   tone?: KpiTone;
   /** A control under the figure, e.g. the GM's "Set monthly target". */
   action?: ReactNode;
 }) {
   return (
-    <Card title={title} note={note} state={state} to={to} wide={wide}>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-        <span
-          className={`font-num tabular-nums ${wide ? "text-[2.25rem] leading-none" : "text-3xl leading-none"} font-semibold tracking-tight`}
-          style={{ color: tone ? TONE_COLOR[tone] : "var(--text-primary)" }}
-        >
-          {(money ? formatMoney : formatCount)(value ?? 0)}
-          {unit}
-        </span>
-        {delta && <Delta {...delta} />}
+    <Card
+      title={title}
+      note={note}
+      state={state}
+      to={to}
+      wide={wide}
+      variant="tile"
+      className={className}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span
+            className={`font-num tabular-nums ${wide ? "text-3xl leading-none" : "text-2xl leading-none"} font-semibold tracking-tight`}
+            style={{ color: tone ? TONE_COLOR[tone] : "var(--text-primary)" }}
+          >
+            {(money ? formatMoney : formatCount)(value ?? 0)}
+            {unit}
+          </span>
+          {delta && <Delta {...delta} />}
+        </div>
       </div>
       {denominator && (
         <p
@@ -252,7 +284,7 @@ export function KpiCard({
   );
 }
 
-function Delta({ value, better }: { value: number; better: "up" | "down" }) {
+export function Delta({ value, better, unit = "%" }: { value: number; better: "up" | "down"; unit?: string }) {
   // A rise is not automatically good: on-time delivery wants "up", revision rate wants "down".
   // The caller says which, so no tile has to be read against an assumption.
   const good = value === 0 ? null : value > 0 === (better === "up");
@@ -262,7 +294,7 @@ function Delta({ value, better }: { value: number; better: "up" | "down" }) {
       : good
         ? "var(--status-green)"
         : "var(--status-red)";
-  const Arrow = value > 0 ? ArrowUp : value < 0 ? ArrowDown : null;
+  const Arrow = value > 0 ? "▲" : value < 0 ? "▼" : null;
 
   return (
     <span
@@ -275,10 +307,15 @@ function Delta({ value, better }: { value: number; better: "up" | "down" }) {
             : `color-mix(in srgb, ${color} 10%, transparent)`,
       }}
     >
-      {Arrow && <Arrow className="h-3 w-3" aria-hidden />}
+      {Arrow && (
+        <span aria-hidden className="text-[0.6rem]">
+          {Arrow}
+        </span>
+      )}
       {/* The direction is in the sign as well as the arrow: an arrow alone is a shape, and
           shape plus colour with no text is two signals that both fail the same way. */}
       {Math.abs(value)}
+      {unit}
       <span className="sr-only">
         {value > 0 ? "up" : value < 0 ? "down" : "unchanged"} versus the
         previous period
@@ -294,10 +331,18 @@ export function ChartCard({
   state,
   to,
   wide,
+  className,
   children,
 }: CardProps) {
   return (
-    <Card title={title} note={note} state={state} to={to} wide={wide}>
+    <Card
+      title={title}
+      note={note}
+      state={state}
+      to={to}
+      wide={wide}
+      className={className}
+    >
       <div className="h-56 w-full">{children}</div>
     </Card>
   );
@@ -312,10 +357,13 @@ export function CapacityBar({
   label,
   used,
   capacity,
+  critical,
 }: {
   label: string;
   used: number;
   capacity: number;
+  /** Open cases in the red deadline band (past the date or under 24 business hours) — text, so colour is not the only signal. */
+  critical?: number;
 }) {
   const pct = capacity > 0 ? Math.round((used / capacity) * 100) : 0;
   const tone = pct > 90 ? "red" : pct >= 70 ? "amber" : "green";
@@ -335,13 +383,18 @@ export function CapacityBar({
           <span className="ml-2" style={{ color }}>
             {pct}%
           </span>
+          {critical ? (
+            <span className="ml-2" style={{ color: "var(--status-red)" }}>
+              {critical} critical
+            </span>
+          ) : null}
         </span>
       </div>
       <div
         className="mt-1 h-1.5 w-full overflow-hidden rounded-md"
         style={{ background: "var(--bg-raised)" }}
         role="img"
-        aria-label={`${label}: ${used} of ${capacity} cases, ${pct}% of capacity`}
+        aria-label={`${label}: ${used} of ${capacity} cases, ${pct}% of capacity, ${critical ?? 0} critical deadline`}
       >
         <div
           className="h-full rounded-md"

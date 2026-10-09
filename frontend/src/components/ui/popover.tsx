@@ -1,5 +1,5 @@
-import { Popover } from 'radix-ui'
-import type { ReactNode } from 'react'
+import { Popover } from "radix-ui";
+import type { ReactNode } from "react";
 
 /**
  * A popover of content: a raised card on the surface colour with the pop shadow.
@@ -9,16 +9,22 @@ import type { ReactNode } from 'react'
  */
 
 const surfaceStyle = {
-  background: 'var(--bg-surface)',
-  border: '1px solid var(--border-default)',
-  borderRadius: 'var(--radius-lg)',
-  boxShadow: 'var(--shadow-pop)',
-} as const
+  background: "var(--bg-surface)",
+  border: "1px solid var(--border-default)",
+  borderRadius: "var(--radius-lg)",
+  boxShadow: "var(--shadow-pop)",
+} as const;
 
-export const PopoverRoot = Popover.Root
-export const PopoverTrigger = Popover.Trigger
+export const PopoverRoot = Popover.Root;
+export const PopoverTrigger = Popover.Trigger;
 
-export function PopoverContent({ children, label }: { children: ReactNode; label: string }) {
+export function PopoverContent({
+  children,
+  label,
+}: {
+  children: ReactNode;
+  label: string;
+}) {
   return (
     <Popover.Portal>
       <Popover.Content
@@ -31,5 +37,5 @@ export function PopoverContent({ children, label }: { children: ReactNode; label
         {children}
       </Popover.Content>
     </Popover.Portal>
-  )
+  );
 }
