@@ -232,6 +232,45 @@ export async function fetchCaseManagerMetrics(signal?: AbortSignal): Promise<Cas
   return unwrap<CaseManagerMetrics>(api.get('/metrics/case-manager', { signal }))
 }
 
+/** `CaseManagerWorkService.CaseManagerWork` — see spec 80 §2. */
+export type ChecklistCaseRow = {
+  caseId: string
+  caseCode: string
+  total: number
+  approved: number
+  uploaded: number
+  required: number
+  missing: number
+  incorrect: number
+}
+export type OfferOutcome = 'OFFERED' | 'ACCEPTED' | 'DECLINED' | 'TIMED_OUT' | 'SUPERSEDED'
+export type OfferRow = {
+  caseId: string
+  caseCode: string
+  /** Null when the expert's record is gone — the row stays, the name is "—". */
+  expertName: string | null
+  outcome: OfferOutcome
+  /** Null when unpriced — never 0. */
+  fee: number | null
+  /** Null when the brand has no currency set. */
+  currency: string | null
+  offeredAt: string
+  ageBusinessHours: number
+  declineReason: string | null
+}
+export type CaseManagerWork = {
+  /** `blockerItems` counts checklist items, `blockerCases` counts cases. */
+  checklist: { blockerItems: number; blockerCases: number; cases: ChecklistCaseRow[] }
+  /** `open` counts offers, `rematch` counts cases. */
+  offers: { open: number; rematch: number; rows: OfferRow[] }
+  /** Open cases, each in exactly one bucket. */
+  drafts: { beforeDraft: number; drafting: number; returned: number; withPm: number; withClient: number; approved: number }
+}
+
+export async function fetchCaseManagerWork(signal?: AbortSignal): Promise<CaseManagerWork> {
+  return unwrap<CaseManagerWork>(api.get('/metrics/case-manager/work', { signal }))
+}
+
 export async function fetchExpertNetworkMetrics(signal?: AbortSignal): Promise<ExpertNetworkMetrics> {
   return unwrap<ExpertNetworkMetrics>(api.get('/metrics/expert-network', { signal }))
 }
