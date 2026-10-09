@@ -10,6 +10,7 @@ import com.ie.evalos.service.BusinessCalendar;
 import com.ie.evalos.service.CaseManagerMetricsService;
 import com.ie.evalos.service.CaseManagerWorkService;
 import com.ie.evalos.service.CoordinatorMetricsService;
+import com.ie.evalos.service.CoordinatorWorkService;
 import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
 import com.ie.evalos.service.GmOverviewService;
@@ -65,13 +66,16 @@ public class MetricsController {
 	private final PipelineJourneyService journey;
 	private final PmOverviewService pmOverview;
 	private final CaseManagerWorkService cmWork;
+	private final CoordinatorWorkService coordinatorWork;
 
 	MetricsController(PmMetricsService metrics, CoordinatorMetricsService coordinator,
 			CaseManagerMetricsService caseManager, ExpertNetworkMetricsService network,
 			RevenueMetricsService revenue, NavBadgeService navBadges, DraftReviewService drafts,
 			GmOverviewService gmOverview, PipelineJourneyService journey,
-			PmOverviewService pmOverview, CaseManagerWorkService cmWork) {
+			PmOverviewService pmOverview, CaseManagerWorkService cmWork,
+			CoordinatorWorkService coordinatorWork) {
 		this.pmOverview = pmOverview;
+		this.coordinatorWork = coordinatorWork;
 		this.cmWork = cmWork;
 		this.journey = journey;
 		this.gmOverview = gmOverview;
@@ -196,6 +200,14 @@ public class MetricsController {
 	public ApiResponse<CoordinatorMetricsService.CoordinatorMetrics> coordinator(
 			@RequestParam(required = false) UUID brandId) {
 		return ApiResponse.ok(coordinator.forCaller(brandId));
+	}
+
+	/** What the Coordinator still owes and holds. Same gate and optional brand narrowing as {@code /coordinator}. */
+	@GetMapping("/coordinator/work")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_COORDINATOR')")
+	public ApiResponse<CoordinatorWorkService.CoordinatorWork> coordinatorWork(
+			@RequestParam(required = false) UUID brandId) {
+		return ApiResponse.ok(coordinatorWork.forCaller(brandId));
 	}
 
 	/**

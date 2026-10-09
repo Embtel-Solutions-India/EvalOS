@@ -10,7 +10,9 @@ import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
 import com.ie.evalos.service.CaseManagerMetricsService;
+import com.ie.evalos.service.CaseManagerWorkService;
 import com.ie.evalos.service.CoordinatorMetricsService;
+import com.ie.evalos.service.CoordinatorWorkService;
 import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
 import com.ie.evalos.service.GmOverviewService;
@@ -18,8 +20,6 @@ import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PipelineJourneyService;
 import com.ie.evalos.service.PmMetricsService;
 import com.ie.evalos.service.PmOverviewService;
-import com.ie.evalos.service.PmOverviewService.PmOverview;
-import com.ie.evalos.service.PmOverviewService.Queues;
 import com.ie.evalos.service.RevenueMetricsService;
 
 import org.junit.jupiter.params.ParameterizedTest;
@@ -39,15 +39,15 @@ import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** `/pm/overview` is open to exactly the roles `/pm` is — the PM's scope, nobody else's. */
+/** `/coordinator/work` is open to exactly the roles `/coordinator` is — the Coordinator's desk, nobody else's. */
 @WebMvcTest(controllers = MetricsController.class)
 @Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
 @TestPropertySource(properties = "evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256")
-class PmOverviewRouteTest {
+class CoordinatorWorkRouteTest {
 
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
-	private static final PmOverview EMPTY = new PmOverview(List.of(), 0, 0, 0, 0, 0,
-			new Queues(List.of(), List.of()), List.of());
+	private static final CoordinatorWorkService.CoordinatorWork EMPTY = new CoordinatorWorkService.CoordinatorWork(
+			List.of(), 0, new CoordinatorWorkService.Documents(0, 0, 0, List.of()), List.of(), List.of());
 
 	@Autowired
 	MockMvc mockMvc;
@@ -56,13 +56,13 @@ class PmOverviewRouteTest {
 	JwtService jwtService;
 
 	@MockitoBean
-	PmOverviewService overview;
+	CoordinatorWorkService work;
 
 	@MockitoBean
-	com.ie.evalos.service.CaseManagerWorkService cmWork;
+	CaseManagerWorkService cmWork;
 
 	@MockitoBean
-	com.ie.evalos.service.CoordinatorWorkService coordinatorWork;
+	PmOverviewService pmOverview;
 
 	@MockitoBean
 	GmOverviewService gmOverview;
@@ -101,18 +101,19 @@ class PmOverviewRouteTest {
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Role.class, names = { "GM", "BRAND_MANAGER", "PROJECT_MANAGER" })
-	void pmOverviewIsOpenToTheSameRolesAsPm(Role role) throws Exception {
-		given(overview.forCaller(any(), any(), any())).willReturn(EMPTY);
-		mockMvc.perform(get("/api/metrics/pm/overview").header(HttpHeaders.AUTHORIZATION, bearer(role)))
+	@EnumSource(value = Role.class, names = { "GM", "BRAND_MANAGER", "PROJECT_COORDINATOR" })
+	void workIsOpenToTheSameRolesAsTheCoordinatorDesk(Role role) throws Exception {
+		given(work.forCaller(any())).willReturn(EMPTY);
+		mockMvc.perform(get("/api/metrics/coordinator/work").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isOk());
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "GM", "BRAND_MANAGER", "PROJECT_MANAGER" })
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE,
+			names = { "GM", "BRAND_MANAGER", "PROJECT_COORDINATOR" })
 	void everyOtherRoleIsRefused(Role role) throws Exception {
-		mockMvc.perform(get("/api/metrics/pm/overview").header(HttpHeaders.AUTHORIZATION, bearer(role)))
+		mockMvc.perform(get("/api/metrics/coordinator/work").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());
-		then(overview).should(never()).forCaller(any(), any(), any());
+		then(work).should(never()).forCaller(any());
 	}
 }

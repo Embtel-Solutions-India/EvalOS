@@ -62,6 +62,9 @@ class CaseManagerWorkRouteTest {
 	PmOverviewService pmOverview;
 
 	@MockitoBean
+	com.ie.evalos.service.CoordinatorWorkService coordinatorWork;
+
+	@MockitoBean
 	GmOverviewService gmOverview;
 
 	@MockitoBean
