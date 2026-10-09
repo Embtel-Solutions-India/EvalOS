@@ -79,7 +79,7 @@ class CaseManagerWorkServiceTest {
 		given(cm.myCases()).willReturn(mine);
 		given(items.findByBrandIdInAndCaseIdIn(anyCollection(), anyCollection())).willReturn(itemRows);
 		given(offers.findByBrandIdInAndCaseIdIn(anyCollection(), anyCollection())).willReturn(offerRows);
-		given(experts.findAllById(any())).willReturn(List.<Expert>of());
+		given(experts.findByBrandIdInAndIdIn(any(), any())).willReturn(List.<Expert>of());
 		given(brands.findAllById(any())).willReturn(List.<Brand>of());
 		return service.forCaller();
 	}

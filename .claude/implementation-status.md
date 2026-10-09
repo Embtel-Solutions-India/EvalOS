@@ -677,3 +677,15 @@ references, so `--noEmit` typechecks nothing and exits 0.)
 **Shell frame, 2026-10-09 (the user sent a reference image).** The sidebar and the top bar are now one lavender surface: both paint `--frame-bg` (a single gradient) with `background-attachment: fixed`, so they sample the same viewport-fixed colours and meet with no seam; the sidebar's old right-edge fade and the separate `--topbar-bg` are gone. The content canvas keeps its own background and gets a rounded top-left corner (`--frame-radius`, 1.75rem), drawn by `TopBar` as a masked square of the same gradient hung under the bar's left edge, so it stays put while the page scrolls. Evidence: `tsc` clean, vitest 232/232, `vite build` ok. **Not verified in a browser** (the colours and the corner are visual).
 
 **Brand scope eyebrows removed, 2026-10-09 (the user asked, "for now").** The small "Your brand · expert network" style line above the page title is gone from the three screens that had it: the Production board and My cases (`BoardView`, which also showed "· assigned to you"), Doc checklists (`ChecklistBoard`) and the Expert database (`ExpertRoster`). To bring them back, restore the `<p>` above each `<h1>` from git history (`3e225e3`~ and earlier). `tsc` clean, vitest 232/232.
+
+**PR 53 review fixes, 2026-10-10 (code-review at medium; nine findings, all addressed, uncommitted).**
+(1) `TeamMemberAdminService.update` now guards an **Expert Network Manager's** role or brand change while they hold hiring grants (the guard keyed on `isPipelineScoped`, which an ENM is not), with a test.
+(2) `GET /api/team-members/assignable` allows the **GM** again (spec 78 had swapped GM for ADMIN there; the GM still assigns PM, CM and Coordinator from the board).
+(3) A new ENM, or a pipeline tagged Expert hiring after `V89`, still gets no grant by design (D61, per person); the ENM board's empty state now says an administrator grants one on the Staff screen, instead of the stale "a GM tags one".
+(4) `PmOverviewService`: the **Delivered** funnel row counts a case delivered in the window and since `CLOSED`, matching the throughput chart, with a test.
+(5) `GmOverviewService` reads the previous period's leads from GHL only when the trend is `comparable`.
+(6) `CaseManagerWorkService.expertNames` uses a brand-scoped `ExpertRepository.findByBrandIdInAndIdIn` instead of `findAllById`.
+(7) `CoordinatorWorkService` asks for unsent cases among its own case ids (`caseIdsWithUnsentIn`) instead of the whole brand's.
+(8) `MetricsTimingFilter` runs at highest precedence, so it measures the security chain and 401/403 answers, as its doc says.
+(9) `AdminAllowlist` doc now says the four admin areas are open by prefix, and new `AdminAreasPreAuthorizeTest` fails the build if a handler under them lacks `@PreAuthorize`.
+Evidence: full backend suite 1621 tests, 0 failures, 4 skipped (a clean build was needed once: an incremental compile left stale classes); `tsc` clean; vitest 232/232.

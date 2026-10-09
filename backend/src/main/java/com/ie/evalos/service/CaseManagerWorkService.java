@@ -171,7 +171,9 @@ public class CaseManagerWorkService {
 		List<UUID> ids = rows.stream().map(ExpertCaseOffer::getExpertId).filter(Objects::nonNull).distinct().toList();
 		Map<UUID, String> names = new HashMap<>();
 		if (!ids.isEmpty()) {
-			for (Expert expert : experts.findAllById(ids)) {
+			// Brand-scoped, from the brands of the offers the ids came from.
+			Set<UUID> brandIds = rows.stream().map(ExpertCaseOffer::getBrandId).collect(Collectors.toSet());
+			for (Expert expert : experts.findByBrandIdInAndIdIn(brandIds, ids)) {
 				names.put(expert.getId(), expert.getFullName());
 			}
 		}

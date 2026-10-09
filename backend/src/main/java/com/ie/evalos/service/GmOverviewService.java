@@ -312,10 +312,14 @@ public class GmOverviewService {
 				for (GhlPipelineClient.Opportunity opportunity : created) {
 					bump(trendLeads, opportunity.createdAt(), from, bucketDays, window);
 				}
-				for (String pipelineId : held) {
-					for (GhlPipelineClient.Opportunity opportunity : ghl.opportunitiesIn(pipelineId, previousFrom,
-							from.minusDays(1))) {
-						bump(trendPreviousLeads, opportunity.createdAt(), previousFrom, bucketDays, window);
+				// The previous period is only read when it will be shown: `trend` drops it when it is not
+				// comparable, and each pipeline costs a GHL round trip against the shared rate budget.
+				if (comparable) {
+					for (String pipelineId : held) {
+						for (GhlPipelineClient.Opportunity opportunity : ghl.opportunitiesIn(pipelineId, previousFrom,
+								from.minusDays(1))) {
+							bump(trendPreviousLeads, opportunity.createdAt(), previousFrom, bucketDays, window);
+						}
 					}
 				}
 			}

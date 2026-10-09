@@ -117,7 +117,7 @@ public class TeamMemberController {
 	}
 
 	@GetMapping("/assignable")
-	@PreAuthorize("hasAnyRole('ADMIN', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
+	@PreAuthorize("hasAnyRole('GM', 'ADMIN', 'BRAND_MANAGER', 'PROJECT_MANAGER')")
 	public ApiResponse<List<AssignableMember>> assignable(@RequestParam Role role) {
 		return ApiResponse.ok(teamMembers.assignable(role).stream()
 				.map(member -> new AssignableMember(member.getId(), member.getDisplayName()))

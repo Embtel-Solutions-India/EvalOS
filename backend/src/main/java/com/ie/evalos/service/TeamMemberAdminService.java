@@ -79,8 +79,10 @@ public class TeamMemberAdminService {
 			throw new InvalidRequestException("You cannot change your own role");
 		}
 		// A desk's grants are to pipelines of its brand and its role; moving either under them
-		// would leave a grant meaning something nobody chose.
-		boolean deskChanges = member.getRole().isPipelineScoped()
+		// would leave a grant meaning something nobody chose. The Expert Network Manager holds grants
+		// too (D61, per person), though its tier is not PIPELINE.
+		boolean holdsGrants = member.getRole().isPipelineScoped() || member.getRole() == Role.EXPERT_NETWORK_MANAGER;
+		boolean deskChanges = holdsGrants
 				&& (clean.role() != member.getRole() || !Objects.equals(clean.brandId(), member.getBrandId()));
 		if (deskChanges && !grants.ghlIdsFor(member.getId()).isEmpty()) {
 			throw new InvalidRequestException("Take this member off their pipelines before changing their role or brand");

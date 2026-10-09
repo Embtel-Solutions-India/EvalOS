@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.DeadlineRisk;
@@ -97,7 +98,11 @@ public class PmOverviewService {
 			}
 			List<Case> inStage = byStage.getOrDefault(stage, List.of());
 			if (stage == Stage.DELIVERED) {
-				stages.add(new StageCount(stage, (int) inStage.stream().filter(c -> inWindow(c, from, to)).count(), null));
+				// Delivered in the window includes a case since CLOSED: it was delivered, and the throughput
+				// chart beside this counts it, so the two must agree.
+				int delivered = (int) Stream.concat(inStage.stream(), byStage.getOrDefault(Stage.CLOSED, List.of()).stream())
+						.filter(c -> inWindow(c, from, to)).count();
+				stages.add(new StageCount(stage, delivered, null));
 			} else {
 				stages.add(new StageCount(stage, inStage.size(), medianAge(inStage, now)));
 			}

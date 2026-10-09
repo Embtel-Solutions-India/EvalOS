@@ -9,6 +9,8 @@ import jakarta.servlet.http.HttpServletResponse;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
@@ -24,6 +26,8 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * inside it, which is what the browser waits for bar the network.
  */
 @Component
+// Ahead of Spring Security's filter chain (order -100), so its time and a 401 or 403 it answers are measured too.
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class MetricsTimingFilter extends OncePerRequestFilter {
 
 	private static final Logger log = LoggerFactory.getLogger(MetricsTimingFilter.class);

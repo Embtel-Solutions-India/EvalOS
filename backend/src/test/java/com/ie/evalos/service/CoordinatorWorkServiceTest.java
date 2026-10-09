@@ -74,7 +74,7 @@ class CoordinatorWorkServiceTest {
 			List<AuditEvent> chases) {
 		given(coordinator.scoped(any())).willReturn(scoped);
 		given(items.findByBrandIdInAndCaseIdIn(anyCollection(), anyCollection())).willReturn(itemRows);
-		given(items.caseIdsWithUnsent(anyCollection())).willReturn(unsent);
+		given(items.caseIdsWithUnsentIn(anyCollection(), anyCollection())).willReturn(unsent);
 		given(audit.findCaseActionScoped(any(String.class), any(AuditAction.class), anyCollection(), anyCollection()))
 				.willReturn(chases);
 		given(members.assignable(any(Role.class))).willReturn(List.<TeamMember>of());
@@ -127,7 +127,7 @@ class CoordinatorWorkServiceTest {
 	void anUnsentChecklistIsOwedEvenWhenEveryItemIsApprovedAndIsCountedOnceAsACase() {
 		Case unsentCase = caseAt(Stage.DOC_COLLECTION);
 		CoordinatorWork work = run(List.of(unsentCase), List.of(item(unsentCase, ChecklistItemStatus.APPROVED)),
-				Set.of(unsentCase.getId(), UUID.randomUUID()), List.of());
+				Set.of(unsentCase.getId()), List.of());
 		assertThat(work.documents().unsentCases()).isEqualTo(1);
 		assertThat(work.documents().owed()).hasSize(1);
 		assertThat(work.documents().owed().get(0).unsent()).isTrue();

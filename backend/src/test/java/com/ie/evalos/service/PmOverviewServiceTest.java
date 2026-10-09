@@ -113,4 +113,12 @@ class PmOverviewServiceTest {
 		assertThat(stage(result, Stage.DELIVERED).count()).isEqualTo(1);
 		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::delivered).sum()).isEqualTo(1);
 	}
+
+	@Test
+	void aCaseDeliveredInTheWindowAndSinceClosedStillCountsAsDelivered() {
+		PmOverview result = run(List.of(set(caseAt(Stage.DELIVERED), "deliveryDate", pt(7, 3, 0)),
+				set(caseAt(Stage.CLOSED), "deliveryDate", pt(7, 4, 0))));
+		assertThat(stage(result, Stage.DELIVERED).count()).isEqualTo(2);
+		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::delivered).sum()).isEqualTo(2);
+	}
 }

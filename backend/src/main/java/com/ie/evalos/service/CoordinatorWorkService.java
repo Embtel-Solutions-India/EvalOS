@@ -123,9 +123,7 @@ public class CoordinatorWorkService {
 		Set<UUID> caseIds = open.stream().map(Case::getId).collect(Collectors.toSet());
 		Map<UUID, List<DocumentChecklistItem>> grouped = items.findByBrandIdInAndCaseIdIn(brandIds, caseIds).stream()
 				.collect(Collectors.groupingBy(DocumentChecklistItem::getCaseId));
-		// The unsent set is brand-wide; only this caller's open cases count.
-		Set<UUID> unsent = items.caseIdsWithUnsent(brandIds).stream().filter(caseIds::contains)
-				.collect(Collectors.toSet());
+		Set<UUID> unsent = items.caseIdsWithUnsentIn(brandIds, caseIds);
 
 		int awaiting = 0;
 		int blockers = 0;

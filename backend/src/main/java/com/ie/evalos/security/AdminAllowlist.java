@@ -19,13 +19,18 @@ import com.ie.evalos.domain.Role;
  * inverted: an Admin request is refused unless it is on this list, whatever the controller says, so a
  * new endpoint is closed to the Admin until someone opens it deliberately.
  *
+ * <p><strong>The one exception is the four admin areas, which are open by prefix</strong> ({@link #ADMIN_AREAS}).
+ * A new endpoint under one of them is reachable by the Admin whatever its own annotation says, so every
+ * handler there must carry its own {@code @PreAuthorize}; {@code AdminAreasPreAuthorizeTest} fails the build
+ * if one does not.
+ *
  * <p>Wired as a request matcher in {@link SecurityConfig}, which denies what {@link #refuses} matches.
  * Pure on its inputs so the list is pinned by {@code AdminAllowlistTest} without a Spring context.
  */
 final class AdminAllowlist {
 
 	/** The admin functions themselves: staff and their pipelines, GHL pipelines and purpose, jobs, sync. */
-	private static final Set<String> ADMIN_AREAS = Set.of("/api/team-members", "/api/ghl", "/api/jobs", "/api/sync");
+	static final Set<String> ADMIN_AREAS = Set.of("/api/team-members", "/api/ghl", "/api/jobs", "/api/sync");
 
 	/** The Admin's own notifications; scoped to the recipient by the controller. */
 	private static final String NOTIFICATIONS = "/api/notifications";
