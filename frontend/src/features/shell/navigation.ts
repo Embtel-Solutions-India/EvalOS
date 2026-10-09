@@ -271,6 +271,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
       "BRAND_MANAGER",
       "PROJECT_MANAGER",
       "PROJECT_COORDINATOR",
+      "CASE_MANAGER",
       "ADMIN",
     ],
     becomes: "Kanban production board",
@@ -350,8 +351,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: "Pipeline",
   },
 
-  // Case Manager. Their docket is the same board narrowed by their own assignment, which
-  // the server does — so this is the board, not a second screen.
+  // Case Manager. Their cases as cards or a list. The stage board is the Production board
+  // entry above, which the server also narrows to their own assignments.
   {
     path: "/my-cases",
     label: "My cases",

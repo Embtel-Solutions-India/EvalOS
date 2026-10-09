@@ -287,7 +287,8 @@ describe('the nav and route table', () => {
       const way = boardPathFor(role)
       expect(mayReach(role, way.path) || way.path === '/dashboard', `${role} → ${way.path}`).toBe(true)
     }
-    expect(boardPathFor('CASE_MANAGER').path).toBe('/my-cases')
+    // The CM reads the production board too (narrowed to their cases by the server), so it is their way out.
+    expect(boardPathFor('CASE_MANAGER').path).toBe('/board')
     // No board of their own today, so they get their dashboard rather than somebody else's board.
     expect(boardPathFor('EXPERT_NETWORK_MANAGER').path).toBe('/dashboard')
   })

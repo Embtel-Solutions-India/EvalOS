@@ -8,8 +8,13 @@ import type { BoardCard } from '../board/boardRules'
 import { fetchCase, fetchDraftVersions, type CaseDetail, type DraftVersion } from '../case/caseApi'
 import UploadDraftDialog from '../case/UploadDraftDialog'
 import { mayUploadDraft } from '../case/draftRules'
+import CaseCard from '../board/CaseCard'
+import { STAGE_ORDER } from '../case/caseProgress'
+import { stageColor } from '../board/stageColors'
 import { useFilters } from '../shell/filtersContext'
 import { myDrafts } from './queueRules'
+import ViewToggle from './ViewToggle'
+import { useViewMode } from './useViewMode'
 
 /**
  * The Case Manager's own drafting queue: what the PM asked for, and what became of each draft.
@@ -30,6 +35,7 @@ export default function MyDraftsPage() {
   // No `dueBefore`: this is "what do I owe", not "what is due when", and a date window would
   // silently hide a returned draft with no deadline set.
   const [open, setOpen] = useState<string | null>(null)
+  const [mode, setMode] = useViewMode('my-drafts', 'list')
 
 
   const rows = data ? myDrafts(data) : []
@@ -38,9 +44,12 @@ export default function MyDraftsPage() {
     <section>
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">My drafts</h1>
-        <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {data ? `${rows.length} in progress` : ''}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
+            {data ? `${rows.length} in progress` : ''}
+          </p>
+          <ViewToggle mode={mode} onChange={setMode} />
+        </div>
       </header>
 
       {error && (
@@ -67,7 +76,27 @@ export default function MyDraftsPage() {
         </p>
       )}
 
-      {data && rows.length > 0 && (
+      {data && rows.length > 0 && mode === 'cards' && (
+        // Cards are the at-a-glance view; notes, draft history and upload live in the list view and on the case.
+        <ul className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {rows.map((card) => (
+            <li
+              key={card.id}
+              className="flex flex-col gap-1"
+              style={{ '--stage': stageColor(STAGE_ORDER.indexOf(card.currentStage)) } as React.CSSProperties}
+            >
+              <CaseCard card={card} mine />
+              {returnedFrom(card) && (
+                <p className="px-1 text-xs font-semibold" style={{ color: 'var(--status-red)' }}>
+                  Returned — revise
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {data && rows.length > 0 && mode === 'list' && (
         <ul className="mt-4 flex flex-col gap-2">
           {rows.map((card) => (
             <Row
