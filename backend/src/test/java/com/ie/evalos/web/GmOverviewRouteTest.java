@@ -88,6 +88,9 @@ class GmOverviewRouteTest {
 	com.ie.evalos.service.PmOverviewService pmOverview;
 
 	@MockitoBean
+	com.ie.evalos.service.CaseManagerWorkService cmWork;
+
+	@MockitoBean
 	CoordinatorMetricsService coordinator;
 
 	@MockitoBean

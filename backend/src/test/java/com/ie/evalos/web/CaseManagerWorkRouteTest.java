@@ -10,6 +10,7 @@ import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
 import com.ie.evalos.service.CaseManagerMetricsService;
+import com.ie.evalos.service.CaseManagerWorkService;
 import com.ie.evalos.service.CoordinatorMetricsService;
 import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
@@ -18,8 +19,6 @@ import com.ie.evalos.service.NavBadgeService;
 import com.ie.evalos.service.PipelineJourneyService;
 import com.ie.evalos.service.PmMetricsService;
 import com.ie.evalos.service.PmOverviewService;
-import com.ie.evalos.service.PmOverviewService.PmOverview;
-import com.ie.evalos.service.PmOverviewService.Queues;
 import com.ie.evalos.service.RevenueMetricsService;
 
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,22 +31,23 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** `/pm/overview` is open to exactly the roles `/pm` is — the PM's scope, nobody else's. */
+/** `/case-manager/work` is open to exactly the roles `/case-manager` is — the CM's own docket, nobody else's. */
 @WebMvcTest(controllers = MetricsController.class)
 @Import({ SecurityConfig.class, JwtService.class, ApiErrors.class })
 @TestPropertySource(properties = "evalos.security.jwt.secret=test-signing-key-that-is-long-enough-for-hs256")
-class PmOverviewRouteTest {
+class CaseManagerWorkRouteTest {
 
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
-	private static final PmOverview EMPTY = new PmOverview(List.of(), 0, 0, 0, 0, 0,
-			new Queues(List.of(), List.of()), List.of());
+	private static final CaseManagerWorkService.CaseManagerWork EMPTY = new CaseManagerWorkService.CaseManagerWork(
+			new CaseManagerWorkService.Checklist(0, 0, List.of()),
+			new CaseManagerWorkService.Offers(0, 0, List.of()),
+			new CaseManagerWorkService.Drafts(0, 0, 0, 0, 0, 0));
 
 	@Autowired
 	MockMvc mockMvc;
@@ -56,10 +56,10 @@ class PmOverviewRouteTest {
 	JwtService jwtService;
 
 	@MockitoBean
-	PmOverviewService overview;
+	CaseManagerWorkService work;
 
 	@MockitoBean
-	com.ie.evalos.service.CaseManagerWorkService cmWork;
+	PmOverviewService pmOverview;
 
 	@MockitoBean
 	GmOverviewService gmOverview;
@@ -98,18 +98,18 @@ class PmOverviewRouteTest {
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Role.class, names = { "GM", "BRAND_MANAGER", "PROJECT_MANAGER" })
-	void pmOverviewIsOpenToTheSameRolesAsPm(Role role) throws Exception {
-		given(overview.forCaller(any(), any(), any())).willReturn(EMPTY);
-		mockMvc.perform(get("/api/metrics/pm/overview").header(HttpHeaders.AUTHORIZATION, bearer(role)))
+	@EnumSource(value = Role.class, names = { "GM", "CASE_MANAGER" })
+	void workIsOpenToTheSameRolesAsTheCmDocket(Role role) throws Exception {
+		given(work.forCaller()).willReturn(EMPTY);
+		mockMvc.perform(get("/api/metrics/case-manager/work").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isOk());
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "GM", "BRAND_MANAGER", "PROJECT_MANAGER" })
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "GM", "CASE_MANAGER" })
 	void everyOtherRoleIsRefused(Role role) throws Exception {
-		mockMvc.perform(get("/api/metrics/pm/overview").header(HttpHeaders.AUTHORIZATION, bearer(role)))
+		mockMvc.perform(get("/api/metrics/case-manager/work").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());
-		then(overview).should(never()).forCaller(any(), any(), any());
+		then(work).should(never()).forCaller();
 	}
 }

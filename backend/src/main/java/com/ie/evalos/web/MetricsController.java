@@ -8,6 +8,7 @@ import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.common.DateWindow;
 import com.ie.evalos.service.BusinessCalendar;
 import com.ie.evalos.service.CaseManagerMetricsService;
+import com.ie.evalos.service.CaseManagerWorkService;
 import com.ie.evalos.service.CoordinatorMetricsService;
 import com.ie.evalos.service.DraftReviewService;
 import com.ie.evalos.service.ExpertNetworkMetricsService;
@@ -63,13 +64,15 @@ public class MetricsController {
 	private final DraftReviewService drafts;
 	private final PipelineJourneyService journey;
 	private final PmOverviewService pmOverview;
+	private final CaseManagerWorkService cmWork;
 
 	MetricsController(PmMetricsService metrics, CoordinatorMetricsService coordinator,
 			CaseManagerMetricsService caseManager, ExpertNetworkMetricsService network,
 			RevenueMetricsService revenue, NavBadgeService navBadges, DraftReviewService drafts,
 			GmOverviewService gmOverview, PipelineJourneyService journey,
-			PmOverviewService pmOverview) {
+			PmOverviewService pmOverview, CaseManagerWorkService cmWork) {
 		this.pmOverview = pmOverview;
+		this.cmWork = cmWork;
 		this.journey = journey;
 		this.gmOverview = gmOverview;
 		this.metrics = metrics;
@@ -206,6 +209,13 @@ public class MetricsController {
 	@PreAuthorize("hasAnyRole('GM', 'CASE_MANAGER')")
 	public ApiResponse<CaseManagerMetricsService.CaseManagerMetrics> caseManager() {
 		return ApiResponse.ok(caseManager.forCaller());
+	}
+
+	/** What blocks my cases: checklist blockers, expert offers, draft lifecycle. Same gate and scope as {@code /case-manager}. */
+	@GetMapping("/case-manager/work")
+	@PreAuthorize("hasAnyRole('GM', 'CASE_MANAGER')")
+	public ApiResponse<CaseManagerWorkService.CaseManagerWork> caseManagerWork() {
+		return ApiResponse.ok(cmWork.forCaller());
 	}
 
 	@GetMapping("/expert-network")
