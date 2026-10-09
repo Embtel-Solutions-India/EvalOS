@@ -793,3 +793,5 @@ BUILT. A GM who is not a conversation member may write in any open conversation 
 (8) `MetricsTimingFilter` runs at highest precedence, so it measures the security chain and 401/403 answers, as its doc says.
 (9) `AdminAllowlist` doc now says the four admin areas are open by prefix, and new `AdminAreasPreAuthorizeTest` fails the build if a handler under them lacks `@PreAuthorize`.
 Evidence: full backend suite 1621 tests, 0 failures, 4 skipped (a clean build was needed once: an incremental compile left stale classes); `tsc` clean; vitest 232/232.
+
+**Review of specs 80-82, 2026-10-10 (uncommitted).** The checklist bar's "Still required" segment no longer shares the track colour (`cmWorkRules.ts`); the ENM offer cards say "Offers are read per brand; this account has none." for a caller with no brand instead of "no offers". `tsc` clean, vitest 232/232; not checked in a browser.

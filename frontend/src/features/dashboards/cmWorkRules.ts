@@ -7,7 +7,7 @@ export type Segment = { key: string; label: string; color: string; count: number
 const SEGMENTS = [
   { key: 'approved', label: 'Approved', color: 'var(--status-green)' },
   { key: 'uploaded', label: 'Awaiting approval', color: 'var(--accent-primary)' },
-  { key: 'required', label: 'Still required', color: 'var(--bg-raised)' },
+  { key: 'required', label: 'Still required', color: 'var(--text-muted)' },
   { key: 'missing', label: 'Missing', color: 'var(--status-red)' },
   { key: 'incorrect', label: 'Incorrect', color: 'var(--status-amber)' },
 ] as const

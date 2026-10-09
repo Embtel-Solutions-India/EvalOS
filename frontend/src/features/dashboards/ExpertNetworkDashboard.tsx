@@ -1,4 +1,5 @@
 import { Card, KpiCard } from '../../components/ui/card'
+import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
 import { fetchOpportunityBoard } from '../opportunities/opportunityApi'
 import { fetchSummary } from '../payouts/payoutApi'
@@ -24,6 +25,10 @@ export default function ExpertNetworkDashboard() {
     [],
     { key: 'ExpertNetworkDashboard:0' },
   )
+
+  // The offer ledger is per brand: a caller with none (the GM) gets an empty answer, which is not "no offers".
+  const noBrand = useMe().brandId === null
+  const noBrandNote = 'Offers are read per brand; this account has none.'
 
   // Spec 82: the offer ledger by outcome, and the oldest unanswered offers.
   const { data: work, state: workState } = useMetrics<ExpertNetworkWork>(
@@ -205,8 +210,8 @@ export default function ExpertNetworkDashboard() {
           title="Offer funnel"
           state={emptyWhen(
             workState,
-            work !== null && funnel.every((row) => row.value === 0),
-            'No offer has been made yet.',
+            noBrand || (work !== null && funnel.every((row) => row.value === 0)),
+            noBrand ? noBrandNote : 'No offer has been made yet.',
           )}
           note="Offers, not cases: a case rematched twice is three offers."
         >
@@ -216,7 +221,7 @@ export default function ExpertNetworkDashboard() {
         <Card
           title="Oldest unanswered offers"
           wide
-          state={emptyWhen(workState, work?.oldestOpen.length === 0, 'No offer is waiting for an answer.')}
+          state={emptyWhen(workState, noBrand || work?.oldestOpen.length === 0, noBrand ? noBrandNote : 'No offer is waiting for an answer.')}
           note={
             work && work.openOffers > work.oldestOpen.length
               ? `Showing ${work.oldestOpen.length} of ${work.openOffers}, longest wait first.`
