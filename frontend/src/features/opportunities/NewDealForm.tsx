@@ -148,6 +148,10 @@ export function NewDealFields({
   const [value, setValue] = useState('')
   // Preset by the board's column "+" (`?stage=`); any stage not on the caller's pipeline just isn't offered.
   const [stageId, setStageId] = useState(() => new URLSearchParams(window.location.search).get('stage') ?? '')
+  // Only the pipeline's own stages are offered: a blank choice is replaced by its first stage, which is
+  // what GHL would have picked, so the form always names the stage the deal will land in.
+  const stages = [...columns].sort((a, b) => a.position - b.position)
+  const chosenStage = stages.some((column) => column.stageId === stageId) ? stageId : (stages[0]?.stageId ?? '')
   const [closeDate, setCloseDate] = useState('')
   const [owner, setOwner] = useState('')
   // GHL's own users, as the booking dialog lists them. A failed read leaves only "Unassigned".
@@ -198,7 +202,7 @@ export function NewDealFields({
       email: email.trim() || undefined,
       phone: phone.trim() || undefined,
       monetaryValue: value.trim() === '' ? undefined : Number(value),
-      stageId: stageId || undefined,
+      stageId: chosenStage || undefined,
       expectedCloseDate: closeDate || undefined,
       customFields: custom,
       assignedTo: owner || undefined,
@@ -250,22 +254,16 @@ export function NewDealFields({
         <label className="grid gap-1 text-sm">
           <span style={{ color: 'var(--text-muted)' }}>Stage</span>
           <select
-            value={stageId}
+            value={chosenStage}
             onChange={(e) => setStageId(e.target.value)}
             className="rounded-lg border px-2 py-1.5"
             style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)' }}
           >
-            {/* GHL puts a new deal in the first stage when none is named, which is nearly always
-                what is wanted — so the default says that rather than pre-selecting a stage the
-                salesperson did not choose. */}
-            <option value="">First stage</option>
-            {[...columns]
-              .sort((a, b) => a.position - b.position)
-              .map((column) => (
-                <option key={column.stageId} value={column.stageId}>
-                  {column.stageName}
-                </option>
-              ))}
+            {stages.map((column) => (
+              <option key={column.stageId} value={column.stageId}>
+                {column.stageName}
+              </option>
+            ))}
           </select>
         </label>
         <label className="grid gap-1 text-sm">
