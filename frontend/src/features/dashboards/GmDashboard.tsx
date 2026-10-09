@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Bar,
@@ -31,7 +30,6 @@ import {
   fetchPmMetrics,
   fetchRevenueMetrics,
   fetchTargets,
-  setGmGoal,
   type ExpertNetworkMetrics,
   type GmOverview,
   type GmTrend,
@@ -41,6 +39,7 @@ import {
   type TargetAmount,
 } from "./pmMetricsApi";
 import { DeskTarget } from "./DeskTarget";
+import RevenueGoalCard from "./RevenueGoalCard";
 import { SERIES } from "./journeyWidgets";
 import { TrendCard } from "./TrendCard";
 import { emptyWhen, useMetrics } from "./useMetrics";
@@ -168,40 +167,15 @@ export default function GmDashboard() {
           "what is the bench". */}
       <div className="mt-4 grid grid-cols-12 gap-5">
         <div className="col-span-12 grid grid-cols-12 content-start gap-5">
-          <KpiCard
+          <RevenueGoalCard
             className="col-span-12 md:col-span-4"
-            title="Business won"
-            money
-            progress={data?.headline?.goal ? data.headline.pctToGoal : undefined}
-            delta={wonChange === null ? undefined : { value: wonChange, better: "up" }}
             state={pipelineState}
-            value={data?.headline ? Math.round(data.headline.won) : null}
-            /* The goal is only ever shown over a calendar month — the server returns null for it on
-             any other window rather than dividing by a denominator that does not apply. */
-            denominator={
-              data?.headline?.goal
-                ? `${formatMoney(Math.round(data.headline.goal))} goal · ${data.headline.pctToGoal}% there`
-                : "No monthly target set"
-            }
-            action={
-              data?.headline?.goalMonth ? (
-                <GoalButton
-                  month={data.headline.goalMonth}
-                  current={data.headline.goal}
-                  onSaved={gm.reload}
-                />
-              ) : undefined
-            }
-            tone={
-              data?.headline?.pctToGoal == null
-                ? undefined
-                : data.headline.pctToGoal >= 100
-                  ? "good"
-                  : data.headline.pctToGoal >= 70
-                    ? "warn"
-                    : "bad"
-            }
-            note=""
+            won={data?.headline ? data.headline.won : null}
+            goal={data?.headline?.goal ?? null}
+            pctToGoal={data?.headline?.pctToGoal ?? null}
+            goalMonth={data?.headline?.goalMonth ?? null}
+            change={wonChange}
+            onSaved={gm.reload}
           />
           <div className="col-span-12 grid grid-cols-2 gap-5 md:col-span-8">
             <KpiCard
@@ -669,108 +643,6 @@ export default function GmDashboard() {
         </aside>
       </div>
     </section>
-  );
-}
-
-/** "Set monthly target": an inline amount field for the month the headline is showing. */
-function GoalButton({
-  month,
-  current,
-  onSaved,
-}: {
-  month: string;
-  current: number | null;
-  onSaved(): void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [refusal, setRefusal] = useState<string | null>(null);
-  const label = new Date(`${month}T12:00:00Z`).toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
-
-  async function save() {
-    setSaving(true);
-    setRefusal(null);
-    try {
-      await setGmGoal(month, Number(amount));
-      setEditing(false);
-      onSaved();
-    } catch (error: unknown) {
-      setRefusal(
-        error instanceof Error ? error.message : "The target was not saved",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => {
-          setAmount(current ? String(Math.round(current)) : "");
-          setEditing(true);
-        }}
-        className="mt-3 rounded-md border px-3 py-1.5 text-sm font-medium"
-        style={{ borderColor: "var(--border-default)" }}
-      >
-        {current ? "Change monthly target" : "Set monthly target"}
-      </button>
-    );
-  }
-
-  return (
-    <form
-      className="mt-3 flex flex-wrap items-center gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void save();
-      }}
-    >
-      <label className="text-sm" style={{ color: "var(--text-muted)" }}>
-        Target for {label}{" "}
-        <input
-          type="number"
-          min={0}
-          step={1}
-          required
-          autoFocus
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          className="font-num ml-1 w-32 rounded-md border px-2 py-1 text-sm tabular-nums"
-          style={{
-            borderColor: "var(--border-default)",
-            background: "var(--bg-surface)",
-            color: "var(--text-primary)",
-          }}
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={saving || amount === ""}
-        className="rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:opacity-60"
-        style={{ background: "var(--accent-primary)" }}
-      >
-        Save
-      </button>
-      <button
-        type="button"
-        onClick={() => setEditing(false)}
-        className="rounded-md border px-3 py-1.5 text-sm font-medium"
-        style={{ borderColor: "var(--border-default)" }}
-      >
-        Cancel
-      </button>
-      {refusal && (
-        <p className="w-full text-sm" style={{ color: "var(--status-red)" }}>
-          {refusal}
-        </p>
-      )}
-    </form>
   );
 }
 

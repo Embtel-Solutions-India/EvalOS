@@ -225,7 +225,6 @@ export function KpiCard({
   money,
   unit,
   denominator,
-  progress,
   delta,
   tone,
   action,
@@ -247,8 +246,6 @@ export function KpiCard({
   money?: boolean;
   unit?: string;
   denominator?: string;
-  /** Whole percentage towards a goal: draws a bar under the figure, filled in the tone colour and capped at full. */
-  progress?: number | null;
   /** Change against the previous comparable period. Omitted when there is nothing to compare. */
   /** `unit` is "%" for a relative change and "pts" for a change in a rate that is itself a percentage. */
   delta?: { value: number; better: "up" | "down"; unit?: string };
@@ -280,25 +277,6 @@ export function KpiCard({
           {delta && <Delta {...delta} />}
         </div>
       </div>
-      {progress != null && (
-        <div
-          role="progressbar"
-          aria-label="Progress to goal"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.min(100, Math.max(0, progress))}
-          className="mt-3 h-2.5 w-full overflow-hidden rounded-full"
-          style={{ background: "var(--bg-raised)" }}
-        >
-          <div
-            className="h-full rounded-full"
-            style={{
-              width: `${Math.min(100, Math.max(0, progress))}%`,
-              background: tone ? TONE_COLOR[tone] : "var(--accent-primary)",
-            }}
-          />
-        </div>
-      )}
       {denominator && (
         <p
           className="font-num mt-1.5 text-sm tabular-nums"
@@ -312,7 +290,7 @@ export function KpiCard({
   );
 }
 
-function Delta({ value, better, unit = "%" }: { value: number; better: "up" | "down"; unit?: string }) {
+export function Delta({ value, better, unit = "%" }: { value: number; better: "up" | "down"; unit?: string }) {
   // A rise is not automatically good: on-time delivery wants "up", revision rate wants "down".
   // The caller says which, so no tile has to be read against an assumption.
   const good = value === 0 ? null : value > 0 === (better === "up");
