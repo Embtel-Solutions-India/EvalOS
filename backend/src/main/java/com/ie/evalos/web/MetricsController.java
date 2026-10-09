@@ -236,6 +236,13 @@ public class MetricsController {
 		return ApiResponse.ok(network.forCaller());
 	}
 
+	/** Offer funnel and the oldest unanswered offers. Same gate as {@code /expert-network}; names experts, never cases. */
+	@GetMapping("/expert-network/work")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'PROJECT_MANAGER', 'EXPERT_NETWORK_MANAGER')")
+	public ApiResponse<ExpertNetworkMetricsService.ExpertNetworkWork> expertNetworkWork() {
+		return ApiResponse.ok(network.work());
+	}
+
 	/**
 	 * Money in versus delivered, for the two oversight roles and the PM.
 	 *

@@ -314,6 +314,17 @@ export async function fetchExpertNetworkMetrics(signal?: AbortSignal): Promise<E
   return unwrap<ExpertNetworkMetrics>(api.get('/metrics/expert-network', { signal }))
 }
 
+/** `ExpertNetworkMetricsService.ExpertNetworkWork` — spec 82. Counts offers; names experts, never cases. */
+export type ExpertNetworkWork = {
+  funnel: { open: number; accepted: number; declined: number; timedOut: number; superseded: number }
+  openOffers: number
+  oldestOpen: { expertId: string; expertName: string; offeredAt: string; waitingHours: number }[]
+}
+
+export async function fetchExpertNetworkWork(signal?: AbortSignal): Promise<ExpertNetworkWork> {
+  return unwrap<ExpertNetworkWork>(api.get('/metrics/expert-network/work', { signal }))
+}
+
 export async function fetchRevenueMetrics(
   brandId: string | null,
   signal?: AbortSignal,

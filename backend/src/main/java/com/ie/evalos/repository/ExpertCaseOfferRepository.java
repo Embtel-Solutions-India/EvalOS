@@ -68,6 +68,9 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 	 */
 	List<ExpertCaseOffer> findByBrandIdInAndCaseIdIn(Collection<UUID> brandIds, Collection<UUID> caseIds);
 
+	/** Every offer in the brand still waiting on an answer, oldest first (spec 82's open-offer queue). */
+	List<ExpertCaseOffer> findByBrandIdAndOutcomeOrderByOfferedAtAsc(UUID brandId, OfferOutcome outcome);
+
 	/** Every offer one expert has had, newest first (Unit 63's case history). */
 	List<ExpertCaseOffer> findByBrandIdAndExpertIdOrderByOfferedAtDesc(UUID brandId, UUID expertId);
 

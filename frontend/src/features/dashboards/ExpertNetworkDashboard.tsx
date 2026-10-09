@@ -3,7 +3,12 @@ import { Card, KpiCard } from '../../components/ui/card'
 import { formatPayout } from '../../lib/money'
 import { fetchOpportunityBoard } from '../opportunities/opportunityApi'
 import { fetchSummary } from '../payouts/payoutApi'
-import { fetchExpertNetworkMetrics, type ExpertNetworkMetrics } from './pmMetricsApi'
+import {
+  fetchExpertNetworkMetrics,
+  fetchExpertNetworkWork,
+  type ExpertNetworkMetrics,
+  type ExpertNetworkWork,
+} from './pmMetricsApi'
 import { emptyWhen, useMetrics, warnWhen } from './useMetrics'
 
 /**
@@ -17,6 +22,21 @@ export default function ExpertNetworkDashboard() {
     (signal) => fetchExpertNetworkMetrics(signal),
     [],
   )
+
+  // Spec 82: the offer ledger by outcome, and the oldest unanswered offers.
+  const { data: work, state: workState } = useMetrics<ExpertNetworkWork>(
+    (signal) => fetchExpertNetworkWork(signal),
+    [],
+  )
+  const funnel = work
+    ? [
+        ['Waiting for an answer', work.funnel.open],
+        ['Accepted', work.funnel.accepted],
+        ['Declined', work.funnel.declined],
+        ['Timed out', work.funnel.timedOut],
+        ['Superseded', work.funnel.superseded],
+      ]
+    : []
 
   const gaps = data?.coverage.filter((row) => row.gap) ?? []
   // Unit 63: the hiring pipeline by stage, and this month's payouts — both existing reads.
@@ -195,6 +215,47 @@ export default function ExpertNetworkDashboard() {
                 <span className="truncate">{row.name}</span>
                 <span className="font-num tabular-nums" style={{ color: 'var(--text-muted)' }}>
                   {row.declines} declines
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card
+          title="Offer funnel"
+          state={emptyWhen(
+            workState,
+            work !== null && funnel.every(([, count]) => count === 0),
+            'No offer has been made yet.',
+          )}
+          note="Offers, not cases: a case rematched twice is three offers."
+        >
+          <ul className="space-y-1 text-sm">
+            {funnel.map(([label, count]) => (
+              <li key={label} className="flex justify-between gap-2">
+                <span>{label}</span>
+                <span className="font-num tabular-nums">{count}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card
+          title="Oldest unanswered offers"
+          wide
+          state={emptyWhen(workState, work?.oldestOpen.length === 0, 'No offer is waiting for an answer.')}
+          note={
+            work && work.openOffers > work.oldestOpen.length
+              ? `Showing ${work.oldestOpen.length} of ${work.openOffers}, longest wait first.`
+              : 'Longest wait first. Calendar hours — offers have no timeout to measure against.'
+          }
+        >
+          <ul className="scroll-slim max-h-64 space-y-1 overflow-y-auto text-sm">
+            {work?.oldestOpen.map((row, index) => (
+              <li key={`${row.expertId}-${index}`} className="flex justify-between gap-2">
+                <span className="truncate">{row.expertName}</span>
+                <span className="font-num tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                  {row.waitingHours} h
                 </span>
               </li>
             ))}

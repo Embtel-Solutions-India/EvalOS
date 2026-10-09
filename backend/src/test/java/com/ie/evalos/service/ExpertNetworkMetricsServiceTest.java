@@ -6,7 +6,9 @@ import java.util.UUID;
 
 import com.ie.evalos.domain.Availability;
 import com.ie.evalos.domain.Expert;
+import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.FieldTag;
+import com.ie.evalos.domain.OfferOutcome;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -154,6 +157,47 @@ class ExpertNetworkMetricsServiceTest {
 		assertThat(metrics.forCaller().turnaround().medianHours()).isNull();
 
 		then(offers).should(never()).resolvedTurnaroundSeconds(any(), anyCollection());
+	}
+
+	@Test
+	void theFunnelSumsOutcomesAndTheQueueListsOnlyOpenOffersOfTheRosterOldestFirst() {
+		Expert ada = expert("Ada", Availability.AVAILABLE);
+		Expert bo = expert("Bo", Availability.AVAILABLE);
+		ReflectionTestUtils.setField(ada, "id", UUID.randomUUID());
+		ReflectionTestUtils.setField(bo, "id", UUID.randomUUID());
+		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of(ada, bo));
+		given(offers.countOutcomesPerExpert(any(), anyCollection())).willReturn(List.of(
+				new Object[] { ada.getId(), OfferOutcome.ACCEPTED, 3L },
+				new Object[] { bo.getId(), OfferOutcome.ACCEPTED, 1L },
+				new Object[] { bo.getId(), OfferOutcome.DECLINED, 2L },
+				new Object[] { bo.getId(), OfferOutcome.OFFERED, 1L }));
+		ExpertCaseOffer waiting = new ExpertCaseOffer(BRAND_IE, UUID.randomUUID(), bo.getId());
+		ExpertCaseOffer stranger = new ExpertCaseOffer(BRAND_IE, UUID.randomUUID(), UUID.randomUUID());
+		given(offers.findByBrandIdAndOutcomeOrderByOfferedAtAsc(BRAND_IE, OfferOutcome.OFFERED))
+				.willReturn(List.of(waiting, stranger));
+
+		ExpertNetworkMetricsService.ExpertNetworkWork work = metrics.work();
+
+		assertThat(work.funnel().accepted()).isEqualTo(4);
+		assertThat(work.funnel().declined()).isEqualTo(2);
+		assertThat(work.funnel().open()).isEqualTo(1);
+		assertThat(work.funnel().timedOut()).isZero();
+		assertThat(work.openOffers()).isEqualTo(1);
+		assertThat(work.oldestOpen()).singleElement().satisfies(row -> {
+			assertThat(row.expertName()).isEqualTo("Bo");
+			assertThat(row.waitingHours()).isZero();
+		});
+	}
+
+	@Test
+	void anEmptyRosterGivesAnEmptyFunnelWithoutReadingTheLedger() {
+		given(experts.findScoped(any(TenantContext.class))).willReturn(List.of());
+
+		ExpertNetworkMetricsService.ExpertNetworkWork work = metrics.work();
+
+		assertThat(work.openOffers()).isZero();
+		assertThat(work.oldestOpen()).isEmpty();
+		then(offers).should(never()).findByBrandIdAndOutcomeOrderByOfferedAtAsc(any(), any());
 	}
 
 	private static Expert expert(String name, Availability availability) {
