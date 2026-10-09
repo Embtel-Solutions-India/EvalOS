@@ -47,37 +47,19 @@ export const INTAKE_FIELD_KEYS: readonly string[] = [
 ]
 
 /**
- * Fields EvalOS owns the truth of, matched on name because GHL gives them no stable key we know:
- * the production-state shadow copies the intake comment above describes. A candidate form must not
- * offer them either.
+ * The custom fields a candidate is asked, in the order they are asked: the "Join as evaluator" website
+ * fields first, then how they came to us. Matched on name, lower-cased with spacing collapsed, because
+ * GHL gives these no key we know. Every other opportunity field is about a client's case and is left
+ * off; a field added in GHL later does not appear here until it is added to this list.
  */
-const PRODUCTION_FIELD_NAMES = ['assigned expert', 'draft link', 'sla status', 'docs received date', 'actual won date']
-
-/** GHL fills these itself; nobody types them on a new opportunity. */
-const SYSTEM_FIELD_NAMES = ['opportunity id', 'created on (date)']
-
-/**
- * The order GHL's own "Add new opportunity" form lists the custom fields in (the hiring pipeline's, read
- * 2026-10-09). A field not named here — one added in GHL later — still shows, after these.
- */
-const GHL_FORM_ORDER = [
-  'lead source',
-  'service requested',
-  'requirement',
-  'service turn around time',
-  'translation turn around time',
-  'how many pages',
-  'document original language',
-  'message',
-  'marketing owner',
-  'visa category (if applicable)',
-  'tell us about your case',
-  'lead type(opportunity)',
-  'how did you hear about us? (opportunity)',
-  'how did you hear about us? (website)',
+const CANDIDATE_FIELDS = [
   'current title (website) (join as evaluator)',
   'primary field of expertise(website) (join as evaluator)',
   'category applying (c)(website evaluator)',
+  'lead source',
+  'how did you hear about us? (opportunity)',
+  'how did you hear about us? (website)',
+  'message',
 ]
 
 const fieldName = (field: OpportunityField) => field.name.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -195,18 +177,10 @@ export function NewDealFields({
     (signal) => fetchOpportunityFields(signal),
     [],
   )
-  const rank = (field: OpportunityField) => {
-    const at = GHL_FORM_ORDER.indexOf(fieldName(field))
-    return at === -1 ? GHL_FORM_ORDER.length : at
-  }
-  // Candidate: the whole of GHL's form, in GHL's order, minus what GHL fills in and what EvalOS owns.
   const intake = candidate
     ? (fields ?? [])
-        .filter(
-          (field) =>
-            !PRODUCTION_FIELD_NAMES.includes(fieldName(field)) && !SYSTEM_FIELD_NAMES.includes(fieldName(field)),
-        )
-        .sort((a, b) => rank(a) - rank(b))
+        .filter((field) => CANDIDATE_FIELDS.includes(fieldName(field)))
+        .sort((x, y) => CANDIDATE_FIELDS.indexOf(fieldName(x)) - CANDIDATE_FIELDS.indexOf(fieldName(y)))
     : (fields ?? [])
         .filter((field) => INTAKE_FIELD_KEYS.includes(field.fieldKey))
         .sort(
@@ -338,7 +312,7 @@ export function NewDealFields({
           ))}
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             {candidate
-              ? "The same fields GHL's Add opportunity form asks for, read from GHL."
+              ? "Read from GHL's opportunity fields."
               : 'These travel with the deal into production, so nobody has to ask the client twice.'}
           </p>
         </fieldset>

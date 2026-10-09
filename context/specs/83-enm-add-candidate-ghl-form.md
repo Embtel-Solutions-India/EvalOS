@@ -10,12 +10,10 @@ opportunity form. The ENM's is the same upsert on their hiring pipeline, so it c
 ## What
 - `NewDealFields` gains `candidate`: stage picker (the hiring pipeline's stages, read from the board), owner
   (GHL users), expected close, no deal value, and the location's opportunity custom fields.
-- Candidate fields = **every** opportunity custom field GHL's Add opportunity form shows on the hiring pipeline
-  (Expert Network (Professors): New Lead, Meeting Scheduled, Meeting Done, In Process, Onboarded, Dropped), in
-  GHL's order, **except** what GHL fills itself (Opportunity Id, Created on) and what EvalOS owns (Assigned
-  Expert, Draft Link, SLA Status, Docs Received Date, Actual Won Date), matched by name. That includes the
-  evaluator fields (Current Title, Primary Field of Expertise, Category Applying, How did you hear about us).
-  Read live from the mirror; fields added in GHL later show after the known ones.
+- Candidate fields = an allowlist, matched by name: Current Title, Primary Field of Expertise and Category
+  Applying (the "Join as evaluator" website fields), then Lead Source, both "How did you hear about us?" fields
+  and Message. Every other opportunity field is about a client's case and is left off. Read live from the
+  mirror; a field added in GHL later must be added to `CANDIDATE_FIELDS` to show.
 - Backend: no new route. `POST /api/marketing/leads` already allows the ENM and already carries stage, owner,
   expected close and custom fields. `GET /api/sales/opportunity-fields` and `GET /api/sales/users` now also allow
   `EXPERT_NETWORK_MANAGER` (definitions and colleague names, not client data).
