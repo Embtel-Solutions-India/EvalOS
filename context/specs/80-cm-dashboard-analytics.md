@@ -1,6 +1,6 @@
 # Spec 80 — CM dashboard analytics (slice 2 of the production-dashboard redesign)
 
-**Status:** designed 2026-10-09, **not built, awaiting review**. Slice 1 (PM) is spec 79; this slice reuses
+**Status:** built 2026-10-09 (browser check not done — see `implementation-status.md`). Slice 1 (PM) is spec 79; this slice reuses
 its components. PC, GM and Expert each get their own spec.
 
 ## Why
@@ -31,13 +31,13 @@ D-record: an edit to the Unit 65 paragraph of `current-decisions.md`, not a new 
 
 | Metric | Kind | Definition |
 | ------ | ---- | ---------- |
-| Returned drafts | now, cases | existing `revisionsRequested` (reused) |
+| Returned drafts | now, cases | `drafts.returned` from the new payload: `DRAFT_IN_PROGRESS` with `pmApprovalStatus == RETURNED`, labelled "Returned by PM" (not `revisionsRequested`, so the tile and the lifecycle card cannot disagree) |
 | Checklist blockers | now, items + cases | items of my cases in `MISSING` or `INCORRECT`; the tile also states how many cases they sit on |
 | Open offers | now, offers | my cases' offers with outcome `OFFERED` |
 | Rematch needed | now, cases | my cases in exception state `EXPERT_DECLINED_REMATCHING` (D81) |
 | Checklist progress | now, items per case | per case: total, `APPROVED`, `UPLOADED` (waiting for approval), `REQUIRED`, `MISSING`, `INCORRECT` |
 | Offer row | now | case, expert, outcome, fee, offered-at age (business hours), decline reason |
-| Draft lifecycle | now, cases | my open cases bucketed: drafting (`DRAFT_IN_PROGRESS`, never returned), returned (`pmApprovalStatus == RETURNED`), with PM (`DRAFT_REVIEW`), with client (`READY_TO_SEND`/`CLIENT_REVIEW`), approved (`CLIENT_APPROVAL` onward) |
+| Draft lifecycle | now, cases | my open cases (not `DELIVERED`/`CLOSED`), each in exactly one bucket: before drafting (`DOC_COLLECTION`, `PM_REVIEW`), drafting (`DRAFT_IN_PROGRESS`, not returned), returned (`DRAFT_IN_PROGRESS` and `pmApprovalStatus == RETURNED`), with PM (`DRAFT_REVIEW`), with client (`READY_TO_SEND`, `CLIENT_REVIEW`), approved onward (`CLIENT_APPROVAL`, `EXPERT_SIGNING`, `FINAL_QC`, `READY_TO_DELIVER`); the six sum to the open-case count |
 
 "My cases" is exactly `CaseManagerMetricsService`'s set (cases assigned to the caller, open). Offers use the
 **latest** offer per case plus the open one; superseded offers are history, not shown.
@@ -51,8 +51,8 @@ loads checklist items and offers by case id — **no per-case queries**.
 ```
 CaseManagerWork {
   checklist: { blockerItems, blockerCases, cases: [{ caseId, caseCode, total, approved, uploaded, required, missing, incorrect }] }
-  offers:    { open, rematch, rows: [{ caseId, caseCode, expertName, outcome, fee | null, offeredAt, ageBusinessHours, declineReason | null }] }
-  drafts:    { drafting, returned, withPm, withClient, approved }
+  offers:    { open, rematch, rows: [{ caseId, caseCode, expertName | null, outcome, fee | null, currency | null, offeredAt, ageBusinessHours, declineReason | null }] }
+  drafts:    { beforeDraft, drafting, returned, withPm, withClient, approved }
 }
 ```
 
