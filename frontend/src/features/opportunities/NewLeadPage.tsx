@@ -36,8 +36,8 @@ function NewBdeLeadPage() {
   return (
     <section className="max-w-3xl space-y-4">
       <header>
-        <h1 className="text-xl font-semibold text-slate-900">Add lead</h1>
-        <p className="text-sm text-slate-500">Opens the opportunity in GoHighLevel, on your own pipeline.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Add lead</h1>
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Opens the opportunity in GoHighLevel, on your own pipeline.</p>
       </header>
       <Card title="" state={state}>
         <div className="p-4">
@@ -55,8 +55,8 @@ function NewCandidatePage() {
   return (
     <section className="max-w-3xl space-y-4">
       <header>
-        <h1 className="text-xl font-semibold text-slate-900">{candidate ? 'Add candidate' : 'Add lead'}</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-2xl font-semibold tracking-tight">{candidate ? 'Add candidate' : 'Add lead'}</h1>
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
           {candidate
             ? 'Captures the candidate and opens them on the expert hiring pipeline in GoHighLevel.'
             : 'Captures the contact and opens a lead on your own pipeline in GoHighLevel.'}
@@ -65,12 +65,14 @@ function NewCandidatePage() {
 
       {/* No `state`: this screen loads nothing. The lead form owns its own submitting and error
           state, so a skeleton here would be a loading indicator for a request that never happens. */}
-      <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <Card title="" state={{ kind: 'ok' }}>
+        <div className="p-4">
         <NewLeadForm
           candidate={candidate}
           onOpened={() => navigate(candidate ? '/hiring' : '/opportunities/board')}
         />
-      </div>
+        </div>
+      </Card>
     </section>
   )
 }

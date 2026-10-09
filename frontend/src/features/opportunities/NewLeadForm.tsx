@@ -55,27 +55,34 @@ export default function NewLeadForm({ onOpened, candidate = false }: { onOpened:
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded border border-slate-200 bg-white p-4">
-      <h2 className="text-sm font-semibold text-slate-900">New lead</h2>
-
-      <div className="grid grid-cols-2 gap-2">
+    <form onSubmit={submit} className="grid gap-3">
+      <fieldset className="grid gap-3">
+        <legend className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
+          {candidate ? 'Candidate' : 'Contact'}
+        </legend>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="First name" value={firstName} onChange={setFirstName} />
         <Field label="Last name" value={lastName} onChange={setLastName} />
         <Field label="Email" value={email} onChange={setEmail} type="email" />
         <Field label="Phone" value={phone} onChange={setPhone} />
         {/* A candidate has no deal value (Unit 63). */}
         {!candidate && <Field label="Valuation" value={value} onChange={setValue} type="number" />}
-      </div>
+        </div>
+      </fieldset>
 
       {!reachable && (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
           An email or a phone number is needed — GHL matches an existing contact on those, so a
           lead with neither would be created again every time it is saved.
         </p>
       )}
-      {error && <p className="text-xs text-rose-600">{error}</p>}
+      {error && (
+        <p className="text-sm" style={{ color: 'var(--status-red)' }} role="alert">
+          {error}
+        </p>
+      )}
       {result && (
-        <p className="text-xs text-emerald-700">
+        <p className="text-sm" style={{ color: 'var(--status-green)' }}>
           {/*
             "Opened" and "already open" are different outcomes and the marketer should be told
             which. GHL's upsert reports it; guessing would mean two people quietly working one
@@ -88,9 +95,10 @@ export default function NewLeadForm({ onOpened, candidate = false }: { onOpened:
       <button
         type="submit"
         disabled={busy || !reachable}
-        className="rounded bg-slate-900 px-3 py-1.5 text-sm text-white disabled:opacity-40"
+        className="justify-self-start rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+        style={{ background: 'var(--accent-primary)', color: '#fff' }}
       >
-        {busy ? 'Opening…' : 'Open lead'}
+        {busy ? 'Opening…' : candidate ? 'Add candidate' : 'Open lead'}
       </button>
     </form>
   )
@@ -108,13 +116,14 @@ function Field({
   type?: string
 }) {
   return (
-    <label className="block text-xs text-slate-600">
-      {label}
+    <label className="grid gap-1 text-sm">
+      <span style={{ color: 'var(--text-muted)' }}>{label}</span>
       <input
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-0.5 w-full rounded border border-slate-300 px-2 py-1 text-sm text-slate-900"
+        className="rounded-lg border px-2 py-1.5"
+        style={{ borderColor: 'var(--border-default)', background: 'var(--bg-surface)' }}
       />
     </label>
   )
