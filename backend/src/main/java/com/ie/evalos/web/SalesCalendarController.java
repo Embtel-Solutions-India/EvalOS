@@ -104,8 +104,9 @@ public class SalesCalendarController {
 	 * who takes the call; both desks pick the opportunity's owner (D64).
 	 */
 	@GetMapping("/users")
+	// Spec 83: and the ENM, who picks a candidate's owner on the hiring form.
 	// Unit 68: and the GM and the Admin, for the staff sheet's GHL user field (a location read, never a desk's by invariant 1; the staff sheet is the Admin's since D78).
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'ADMIN')")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER', 'GM', 'ADMIN')")
 	public ApiResponse<List<GhlUserClient.User>> ghlUsers() {
 		return ApiResponse.ok(reference.locationUsers().stream()
 				.map((row) -> new GhlUserClient.User(row.getGhlId(), row.getName(), row.getEmail()))
@@ -128,7 +129,8 @@ public class SalesCalendarController {
 	 * asks the same intake questions as the sales form (Unit 39b).
 	 */
 	@GetMapping("/opportunity-fields")
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING')")
+	// Spec 83: and the ENM — definitions, not data, for the hiring form.
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<List<GhlCustomFieldClient.CustomField>> opportunityFields() {
 		return ApiResponse.ok(reference.opportunityFields().stream()
 				.map((row) -> new GhlCustomFieldClient.CustomField(row.getGhlId(), row.getName(),

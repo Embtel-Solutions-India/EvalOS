@@ -47,6 +47,13 @@ export const INTAKE_FIELD_KEYS: readonly string[] = [
 ]
 
 /**
+ * Fields EvalOS owns the truth of, matched on name because GHL gives them no stable key we know:
+ * the production-state shadow copies the intake comment above describes. A candidate form must not
+ * offer them either.
+ */
+const PRODUCTION_FIELD_NAMES = ['assigned expert', 'draft link', 'sla status', 'docs received date', 'actual won date']
+
+/**
  * "Add opportunity" for a salesperson — the fields GHL's own form asks for, and nothing EvalOS
  * would have to invent.
  *
@@ -121,10 +128,17 @@ export function NewDealFields({
   columns,
   onCreated,
   lead = false,
+  candidate = false,
 }: {
   columns: readonly BoardColumn[]
   onCreated: () => void
   lead?: boolean
+  /**
+   * Spec 83: the ENM's "Add candidate" — the same GHL opportunity form on the hiring pipeline. A
+   * candidate has no deal value, and is asked the location's other opportunity fields instead of
+   * the client intake ones.
+   */
+  candidate?: boolean
 }) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -148,11 +162,17 @@ export function NewDealFields({
     (signal) => fetchOpportunityFields(signal),
     [],
   )
-  const intake = (fields ?? [])
-    .filter((field) => INTAKE_FIELD_KEYS.includes(field.fieldKey))
-    .sort(
-      (a, b) => INTAKE_FIELD_KEYS.indexOf(a.fieldKey) - INTAKE_FIELD_KEYS.indexOf(b.fieldKey),
-    )
+  const intake = candidate
+    ? (fields ?? []).filter(
+        (field) =>
+          !INTAKE_FIELD_KEYS.includes(field.fieldKey) &&
+          !PRODUCTION_FIELD_NAMES.includes(field.name.trim().toLowerCase()),
+      )
+    : (fields ?? [])
+        .filter((field) => INTAKE_FIELD_KEYS.includes(field.fieldKey))
+        .sort(
+          (a, b) => INTAKE_FIELD_KEYS.indexOf(a.fieldKey) - INTAKE_FIELD_KEYS.indexOf(b.fieldKey),
+        )
   const [custom, setCustom] = useState<Record<string, string>>({})
 
   const [busy, setBusy] = useState(false)
@@ -201,7 +221,7 @@ export function NewDealFields({
     <form onSubmit={(e) => submit(e, false)} className="grid gap-3">
       <fieldset className="grid gap-3">
         <legend className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>
-          Client
+          {candidate ? 'Candidate' : 'Client'}
         </legend>
         <div className="grid grid-cols-2 gap-3">
           <Field label="First name" value={firstName} onChange={setFirstName} />
@@ -223,7 +243,8 @@ export function NewDealFields({
         </legend>
         <Field label={lead ? 'Name (defaults to the contact)' : 'Name'} value={name} onChange={setName} />
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Value" value={value} onChange={setValue} type="number" />
+          {/* A candidate has no deal value (Unit 63). */}
+          {!candidate && <Field label="Value" value={value} onChange={setValue} type="number" />}
           <Field label="Expected close" value={closeDate} onChange={setCloseDate} type="date" />
         </div>
         <label className="grid gap-1 text-sm">
@@ -272,7 +293,7 @@ export function NewDealFields({
             className="text-xs font-medium uppercase tracking-wide"
             style={{ color: 'var(--text-muted)' }}
           >
-            What they need
+            {candidate ? 'More about them' : 'What they need'}
           </legend>
           {intake.map((field) => (
             <CustomFieldInput
@@ -283,7 +304,9 @@ export function NewDealFields({
             />
           ))}
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            These travel with the deal into production, so nobody has to ask the client twice.
+            {candidate
+              ? "The location's own opportunity fields, read from GHL."
+              : 'These travel with the deal into production, so nobody has to ask the client twice.'}
           </p>
         </fieldset>
       )}
@@ -322,7 +345,9 @@ export function NewDealFields({
       )}
 
       <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-        {lead
+        {candidate
+          ? 'Opens on the expert hiring pipeline in GHL. A person who already has an open candidate there is updated, not duplicated.'
+          : lead
           ? 'Opens on your own pipeline in GHL. A contact who already has an open lead there is updated, not duplicated.'
           : 'Opens on your own pipeline, as an open deal. Winning it is a separate step — that is what creates the case.'}
       </p>
@@ -333,7 +358,7 @@ export function NewDealFields({
         className="rounded-lg px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         style={{ background: 'var(--accent-primary)', color: '#fff' }}
       >
-        {busy ? 'Opening…' : lead ? 'Open lead' : 'Open deal'}
+        {busy ? 'Opening…' : candidate ? 'Add candidate' : lead ? 'Open lead' : 'Open deal'}
       </button>
     </form>
   )

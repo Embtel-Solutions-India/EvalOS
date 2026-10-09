@@ -5,7 +5,6 @@ import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 
 import { NewDealFields } from './NewDealForm'
-import NewLeadForm from './NewLeadForm'
 import { fetchOpportunityBoard, type OpportunityBoard } from './opportunityApi'
 
 /**
@@ -19,8 +18,7 @@ import { fetchOpportunityBoard, type OpportunityBoard } from './opportunityApi'
  * it; see `open-decisions.md` Q1.
  */
 export default function NewLeadPage() {
-  // Unit 63: the ENM's "Add candidate" is this same upsert, on their hiring pipeline — and keeps
-  // the short form: the intake questions are about a client's case, not a candidate.
+  // Unit 63: the ENM's "Add candidate" is this same upsert, on their hiring pipeline.
   return useMe().role === 'EXPERT_NETWORK_MANAGER' ? <NewCandidatePage /> : <NewBdeLeadPage />
 }
 
@@ -48,29 +46,26 @@ function NewBdeLeadPage() {
   )
 }
 
+/**
+ * Spec 83: the ENM's "Add candidate" is GHL's full opportunity form on their hiring pipeline: stage,
+ * owner, expected close and the location's own fields. The board is read for the stages, as the
+ * BDE's page does.
+ */
 function NewCandidatePage() {
   const navigate = useNavigate()
-  const candidate = true
+  const { data, state } = useMetrics<OpportunityBoard>((signal) => fetchOpportunityBoard(signal), [])
 
   return (
     <section className="max-w-3xl space-y-4">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">{candidate ? 'Add candidate' : 'Add lead'}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Add candidate</h1>
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          {candidate
-            ? 'Captures the candidate and opens them on the expert hiring pipeline in GoHighLevel.'
-            : 'Captures the contact and opens a lead on your own pipeline in GoHighLevel.'}
+          Captures the candidate and opens them on the expert hiring pipeline in GoHighLevel.
         </p>
       </header>
-
-      {/* No `state`: this screen loads nothing. The lead form owns its own submitting and error
-          state, so a skeleton here would be a loading indicator for a request that never happens. */}
-      <Card title="" state={{ kind: 'ok' }}>
+      <Card title="" state={state}>
         <div className="p-4">
-        <NewLeadForm
-          candidate={candidate}
-          onOpened={() => navigate(candidate ? '/hiring' : '/opportunities/board')}
-        />
+          <NewDealFields lead candidate columns={data?.columns ?? []} onCreated={() => navigate('/hiring')} />
         </div>
       </Card>
     </section>
