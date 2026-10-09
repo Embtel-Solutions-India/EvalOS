@@ -330,24 +330,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     group: "Pipeline",
   },
 
-  // What the PM asked for, on every case that is the CM's (Unit 32b).
-  //
-  // **A second CM entry over the same cases, which this file otherwise warns against** — see the
-  // `/cases`-beside-`/board` note above. It earns the exception because it is a different question
-  // rather than a different view: *what did the PM ask for* is read once, before drafting starts,
-  // while `/my-drafts` is *where did my work get to*, read repeatedly after. The notes were
-  // reachable only by opening a case, then expanding a row, which is what made them invisible.
-  //
-  // The two screens draw the same cases and share no component: this one lists notes with nothing
-  // to expand, because a "PM notes" screen that hides the notes repeats the problem it fixes.
-  {
-    path: "/pm-notes",
-    label: "PM notes",
-    roles: ["CASE_MANAGER"],
-    becomes: "The PM's strategy notes for your cases",
-    group: "Pipeline",
-  },
-
   // The Case Manager's own drafting queue (Unit 32a): what the PM told them, and what became of
   // each draft they submitted.
   //
