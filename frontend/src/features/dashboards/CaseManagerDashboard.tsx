@@ -20,8 +20,8 @@ import { emptyWhen, useMetrics } from './useMetrics'
  * One Case Manager's docket, built to the CRM spec's "Case Manager sees on dashboard".
  *
  * The spec asks for **lists**, not only counts — my active cases with the client, product,
- * deadline, PM notes, stage and expert; a priority queue; the draft status board; the client
- * feedback log; and expert signing with a prompt when it goes overdue. The server sends the docket
+ * deadline, PM notes, stage and expert; a priority queue; the draft lifecycle; the client
+ * feedback log; and expert signing shown per case with a prompt when it goes overdue. The server sends the docket
  * already deadline-ordered, so **the priority queue is this list** rather than a second one that
  * could disagree with it about the same case.
  *
@@ -139,40 +139,6 @@ export default function CaseManagerDashboard() {
               ))}
             </ul>
           </div>
-        </Card>
-
-        <Card
-          title="Draft status"
-          state={state}
-          note="Where your drafts sit with the PM."
-        >
-          {data && (
-            <dl className="grid grid-cols-2 gap-3">
-              <Figure label="With the PM" value={data.draftsWithPm} />
-              <Figure
-                label="Returned to you"
-                value={data.revisionsRequested}
-                tone={data.revisionsRequested > 0 ? 'var(--status-amber)' : undefined}
-              />
-            </dl>
-          )}
-        </Card>
-
-        <Card
-          title="Expert signing"
-          state={state}
-          note="Reassignment is the PM's call — flag a case that has gone quiet."
-        >
-          {data && (
-            <dl className="grid grid-cols-2 gap-3">
-              <Figure label="Awaiting" value={data.awaitingExpertSignature} />
-              <Figure
-                label="Overdue"
-                value={data.expertOverdue}
-                tone={data.expertOverdue > 0 ? 'var(--status-red)' : undefined}
-              />
-            </dl>
-          )}
         </Card>
 
         <Card
