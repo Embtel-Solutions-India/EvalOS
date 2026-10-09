@@ -130,11 +130,11 @@ function Greeting({ name }: { name: string }) {
     <p
       aria-label={text}
       className="hidden shrink-0 items-center text-3xl leading-none font-normal lg:flex"
-      // White letters, a hairline black outline and a soft drop shadow. `paint-order` draws the stroke
+      // White letters, a hairline blue (accent) outline and a soft drop shadow. `paint-order` draws the stroke
       // first so the fill is not eaten by it: a 1px stroke leaves about 0.5px outside the glyph.
       style={{
         color: "#ffffff",
-        WebkitTextStroke: "1px #000000",
+        WebkitTextStroke: "1px var(--accent-primary)",
         paintOrder: "stroke fill",
         textShadow: "0 2px 6px rgb(0 0 0 / 0.35)",
       }}
