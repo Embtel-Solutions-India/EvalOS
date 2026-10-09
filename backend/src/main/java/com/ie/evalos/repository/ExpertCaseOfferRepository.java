@@ -61,6 +61,13 @@ public interface ExpertCaseOfferRepository extends ScopedRepository<ExpertCaseOf
 	 */
 	List<ExpertCaseOffer> findByCaseIdOrderByOfferedAtDesc(UUID caseId);
 
+	/**
+	 * Every offer on a set of cases, in one query rather than one per case. Takes the brands as well as
+	 * the case ids so a foreign case id matches nothing; pass the distinct brands of the cases a scoped
+	 * read returned (the CM dashboard's batch read).
+	 */
+	List<ExpertCaseOffer> findByBrandIdInAndCaseIdIn(Collection<UUID> brandIds, Collection<UUID> caseIds);
+
 	/** Every offer one expert has had, newest first (Unit 63's case history). */
 	List<ExpertCaseOffer> findByBrandIdAndExpertIdOrderByOfferedAtDesc(UUID brandId, UUID expertId);
 
