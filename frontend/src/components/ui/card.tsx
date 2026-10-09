@@ -40,7 +40,7 @@ export type CardState =
 
 type CardProps = {
   title: string;
-  /** Optional one-line explanation of what the figure means. */
+  /** What the figure means. Not drawn on the card: it is the heading's hover hint. A card with nothing to show says so through its `empty` state. */
   note?: string;
   state: CardState;
   /**
@@ -86,6 +86,7 @@ export function Card({
         className={`flex items-start justify-between gap-2 px-5 ${tile ? "pt-4" : "pt-5"}`}
       >
         <h2
+          title={note}
           className={tile ? "text-xs font-medium" : "text-base font-semibold"}
           style={tile ? { color: "var(--text-muted)" } : undefined}
         >
@@ -112,11 +113,6 @@ export function Card({
 
       <div className={tile ? "px-5 pt-2 pb-4" : "px-5 pt-3 pb-5"}>
         {renderState(state, children)}
-        {note && state.kind !== "unavailable" && (
-          <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
-            {note}
-          </p>
-        )}
       </div>
     </>
   );
@@ -252,8 +248,6 @@ export function KpiCard({
   tone?: KpiTone;
   /** A control under the figure, e.g. the GM's "Set monthly target". */
   action?: ReactNode;
-  /** The figure's recent shape, drawn beside it. Pass it only when a real series exists — never a decoration. */
-  /** What the line is, on hover — e.g. "Won value per day, peak $5,000". */
 }) {
   return (
     <Card

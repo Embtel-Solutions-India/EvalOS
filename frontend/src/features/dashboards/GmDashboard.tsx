@@ -157,18 +157,6 @@ export default function GmDashboard() {
 
   return (
     <section>
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-xl font-semibold tracking-tight">
-          The number — {period}
-        </h1>
-        <p
-          className="font-num text-xs tabular-nums"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {activeBrandId ? "one brand" : "all brands"}
-        </p>
-      </header>
-
       {/* Figures and charts answer "how are we doing"; the two lists at the foot answer "what needs me" and
           "what is the bench". */}
       <div className="mt-4 grid grid-cols-12 gap-5">
@@ -344,7 +332,6 @@ export default function GmDashboard() {
             </div>
           </Card>
 
-          <Label>Distribution</Label>
           <ChartCard
             className="col-span-12 md:col-span-6"
             title="Business by source"
@@ -382,7 +369,6 @@ export default function GmDashboard() {
             />
           </ChartCard>
 
-          <Label>Production</Label>
           <KpiCard
             className="col-span-12 md:col-span-4"
             title="Open cases"
@@ -649,18 +635,6 @@ export default function GmDashboard() {
         </aside>
       </div>
     </section>
-  );
-}
-
-/** A quiet level label that spans the grid: the hierarchy is the order, not a louder heading. */
-function Label({ children }: { children: string }) {
-  return (
-    <h2
-      className="col-span-12 mt-2 text-xs font-semibold uppercase tracking-wider"
-      style={{ color: "var(--text-muted)" }}
-    >
-      {children}
-    </h2>
   );
 }
 

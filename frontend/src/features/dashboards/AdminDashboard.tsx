@@ -90,11 +90,6 @@ export default function AdminDashboard() {
 
   return (
     <section>
-      <h1 className="text-xl font-semibold tracking-tight">Administration</h1>
-      <p className="mt-0.5 text-sm" style={{ color: "var(--text-muted)" }}>
-        Staff, pipelines and the GHL connection. Business dashboards are
-        read-only from here.
-      </p>
 
       <div className="mt-4 grid grid-cols-12 gap-5">
         <KpiCard

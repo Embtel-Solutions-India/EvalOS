@@ -39,20 +39,7 @@ export default function PmDashboard() {
 
   return (
     <section>
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Production</h1>
-        <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {/* `rangeLabel`, not the value: `dateRange` is an object now, and rendering it directly
-              throws "Objects are not valid as a React child" at runtime — which `tsc` did not
-              catch. It also gives a custom period a readable heading instead of "custom". */}
-          {rangeLabel(dateRange)}
-        </p>
-      </header>
-
-      <p className="mt-4 text-xs" style={{ color: 'var(--text-muted)' }}>
-        Right now — these cases ignore the period above.
-      </p>
-      <div className="mt-2 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <KpiCard title="Active cases" state={overviewState} to="/inbox" value={overview?.active ?? null} />
         <KpiCard
           title="Blocked cases"

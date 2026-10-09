@@ -43,14 +43,7 @@ export default function CaseManagerDashboard() {
 
   return (
     <section>
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">My cases</h1>
-      </header>
-
-      <p className="mt-4 text-xs" style={{ color: 'var(--text-muted)' }}>
-        Right now — what is holding your open cases up.
-      </p>
-      <div className="mt-2 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="Returned by PM"
           state={workState}

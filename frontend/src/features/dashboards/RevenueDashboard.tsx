@@ -65,13 +65,6 @@ export default function RevenueDashboard() {
 
   return (
     <section>
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Money in vs delivered</h1>
-        <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {activeBrandId ? 'one brand' : 'all brands'}
-        </p>
-      </header>
-
       {/* If the three ever stop adding up the screen says so rather than showing them anyway.
           Three numbers that quietly disagree are worse than an error. */}
       {total && !total.reconciles && (

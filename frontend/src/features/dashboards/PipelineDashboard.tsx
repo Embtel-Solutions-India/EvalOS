@@ -70,18 +70,9 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
               className="mb-1 inline-flex items-center gap-1 text-sm font-medium"
               style={{ color: 'var(--accent-primary)' }}
             >
-              <ArrowLeft className="h-4 w-4" aria-hidden /> All {copy.team}
+              <ArrowLeft className="h-4 w-4" aria-hidden /> All {copy.team} / {person ?? '…'}
             </button>
           )}
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {copy.title}
-            {isGm && memberId && (
-              <span style={{ color: 'var(--text-muted)' }}> / {person ?? '…'}</span>
-            )}
-          </h1>
-          <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-            {isGm ? (memberId ? `${person ?? 'This desk'}'s own pipeline.` : copy.teamNote) : copy.ownNote}
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Dashboard filters">

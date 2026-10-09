@@ -51,11 +51,7 @@ export default function ExpertNetworkDashboard() {
 
   return (
     <section>
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Expert network</h1>
-      </header>
-
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="Available experts"
           wide
