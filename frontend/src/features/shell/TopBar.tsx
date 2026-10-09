@@ -130,7 +130,9 @@ function Greeting({ name }: { name: string }) {
     <p
       aria-label={text}
       className="hidden shrink-0 items-center text-3xl leading-none font-normal lg:flex"
-      style={{ color: "#000000" }}
+      // White letters with a black outline. `paint-order` draws the stroke first so the fill is not eaten
+      // by it: a 2px stroke leaves a clean 1px outline outside the glyph.
+      style={{ color: "#ffffff", WebkitTextStroke: "2px #000000", paintOrder: "stroke fill" }}
     >
       <span aria-hidden>{text.slice(0, typed)}</span>
       {/* The caret rides the typing and goes when the line is written. */}
