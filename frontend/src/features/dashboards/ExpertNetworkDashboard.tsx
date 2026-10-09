@@ -15,7 +15,7 @@ import { emptyWhen, useMetrics, warnWhen } from './useMetrics'
 /**
  * The Expert Network Manager's screen: is there capacity, and where is the bench thin.
  *
- * **Nothing here names a client or a case.** That is the supply-side axis `architecture.md` draws,
+ * **Nothing here names a client or a case** (hiring candidates are named, and are not clients). That is the supply-side axis `architecture.md` draws,
  * and it is enforced on the server — this screen simply has no field to render one from.
  */
 export default function ExpertNetworkDashboard() {
@@ -250,7 +250,7 @@ export default function ExpertNetworkDashboard() {
           note={
             work && work.openOffers > work.oldestOpen.length
               ? `Showing ${work.oldestOpen.length} of ${work.openOffers}, longest wait first.`
-              : 'Longest wait first. Calendar hours — offers have no timeout to measure against.'
+              : 'Longest wait first, in business hours. Offers have no timeout to measure against.'
           }
         >
           <ul className="scroll-slim max-h-64 space-y-1 overflow-y-auto text-sm">

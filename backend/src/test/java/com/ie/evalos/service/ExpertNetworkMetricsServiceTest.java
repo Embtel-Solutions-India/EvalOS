@@ -46,7 +46,7 @@ class ExpertNetworkMetricsServiceTest {
 	private final ExpertLoadService loads = mock(ExpertLoadService.class);
 
 	private final ExpertNetworkMetricsService metrics =
-			new ExpertNetworkMetricsService(experts, offers, loads, 5);
+			new ExpertNetworkMetricsService(experts, offers, loads, new BusinessCalendar(), 5);
 
 	@BeforeEach
 	void anEnm() {

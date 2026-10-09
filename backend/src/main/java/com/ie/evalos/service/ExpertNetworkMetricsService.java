@@ -1,6 +1,5 @@
 package com.ie.evalos.service;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -56,13 +55,15 @@ public class ExpertNetworkMetricsService {
 	private final ExpertRepository experts;
 	private final ExpertCaseOfferRepository offers;
 	private final ExpertLoadService loads;
+	private final BusinessCalendar calendar;
 	private final int monthlyTarget;
 
 	ExpertNetworkMetricsService(ExpertRepository experts, ExpertCaseOfferRepository offers,
-			ExpertLoadService loads, @Value("${evalos.roster.monthly-onboarding-target}") int monthlyTarget) {
+			ExpertLoadService loads, BusinessCalendar calendar, @Value("${evalos.roster.monthly-onboarding-target}") int monthlyTarget) {
 		this.experts = experts;
 		this.offers = offers;
 		this.loads = loads;
+		this.calendar = calendar;
 		this.monthlyTarget = monthlyTarget;
 	}
 
@@ -139,7 +140,7 @@ public class ExpertNetworkMetricsService {
 	public record OfferFunnel(int open, int accepted, int declined, int timedOut, int superseded) {
 	}
 
-	/** An offer nobody has answered. Names the expert and how long it has waited; never the case (spec 82). */
+	/** An offer nobody has answered. Names the expert and its wait in business hours; never the case (spec 82). */
 	public record OpenOffer(UUID expertId, String expertName, Instant offeredAt, long waitingHours) {
 	}
 
@@ -186,9 +187,9 @@ public class ExpertNetworkMetricsService {
 				open.stream().limit(OPEN_OFFER_LIMIT).toList());
 	}
 
-	private static OpenOffer openOffer(ExpertCaseOffer offer, String name, Instant now) {
+	private OpenOffer openOffer(ExpertCaseOffer offer, String name, Instant now) {
 		return new OpenOffer(offer.getExpertId(), name, offer.getOfferedAt(),
-				Duration.between(offer.getOfferedAt(), now).toHours());
+				calendar.elapsedBusinessTime(offer.getOfferedAt(), now).toHours());
 	}
 
 	@Transactional(readOnly = true)

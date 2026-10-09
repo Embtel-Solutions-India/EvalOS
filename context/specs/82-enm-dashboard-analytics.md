@@ -25,7 +25,7 @@ actually resolved.
 | ------ | ---- | ---------- |
 | Offer funnel | offers | the caller's roster's offers by `OfferOutcome` (OFFERED shown as "waiting for an answer") |
 | Open offers | offers | offers still `OFFERED` for a rostered expert |
-| Oldest unanswered | offers | open offers, longest wait first, capped at 25; wait in calendar hours |
+| Oldest unanswered | offers | open offers, longest wait first, capped at 25; wait in business hours |
 
 ## 2. Backend
 

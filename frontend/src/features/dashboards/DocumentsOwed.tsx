@@ -44,9 +44,7 @@ export function DocumentsOwed({ rows, state, className }: { rows?: OwedRow[]; st
                     ))}
                   </div>
                   <p className="mt-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {row.total === 0
-                      ? 'Nothing asked for yet'
-                      : `${row.approved} of ${row.total} approved${row.missing + row.incorrect > 0 ? ` · ${row.missing + row.incorrect} missing or incorrect` : ''}`}
+                    {`${row.approved} of ${row.total} approved${row.missing + row.incorrect > 0 ? ` · ${row.missing + row.incorrect} missing or incorrect` : ''}`}
                   </p>
                 </td>
                 <td className="font-num py-1.5 text-right tabular-nums">{ageText(row.waitingBusinessHours)}</td>
