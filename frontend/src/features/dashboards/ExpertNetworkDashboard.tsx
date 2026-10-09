@@ -124,6 +124,7 @@ export default function ExpertNetworkDashboard() {
         <Card
           title="Availability board"
           wide
+          className="xl:row-span-2"
           state={emptyWhen(state, data?.coverage.length === 0, 'No expert has claimed a primary field yet.')}
           note="Primary fields only — a secondary tag is not cover you can staff from. Red = fewer than five available."
         >
@@ -138,6 +139,17 @@ export default function ExpertNetworkDashboard() {
               }))}
             />
           </div>
+        </Card>
+
+        <Card
+          title="Hiring pipeline"
+          wide
+          to="/hiring"
+          state={emptyWhen(hiringState, (hiring?.totalDeals ?? 0) === 0, 'No candidates on the hiring pipeline')}
+        >
+          <HBars
+            rows={(hiring?.columns ?? []).map((column) => ({ label: column.stageName, value: column.deals.length }))}
+          />
         </Card>
 
         <Card
@@ -232,17 +244,6 @@ export default function ExpertNetworkDashboard() {
               </li>
             ))}
           </ul>
-        </Card>
-
-        <Card
-          title="Hiring pipeline"
-          wide
-          to="/hiring"
-          state={emptyWhen(hiringState, (hiring?.totalDeals ?? 0) === 0, 'No candidates on the hiring pipeline')}
-        >
-          <HBars
-            rows={(hiring?.columns ?? []).map((column) => ({ label: column.stageName, value: column.deals.length }))}
-          />
         </Card>
 
         <Card
