@@ -5,12 +5,24 @@ import type { StageCount } from './pmMetricsApi'
 import { ageText, barPercent, stageHref } from './pmOverviewRules'
 
 /** One bar per pipeline stage: how many cases are there, and how long the typical one has waited. */
-export function StageFunnel({ stages, state, className }: { stages?: StageCount[]; state: CardState; className?: string }) {
+export function StageFunnel({
+  stages,
+  state,
+  className,
+  title = 'Pipeline by stage',
+  note = 'Cases per stage right now (Delivered: in the period). Age is the median business hours in the stage.',
+}: {
+  stages?: StageCount[]
+  state: CardState
+  className?: string
+  title?: string
+  note?: string
+}) {
   const max = Math.max(0, ...(stages ?? []).map((row) => row.count))
   return (
     <Card
-      title="Pipeline by stage"
-      note="Cases per stage right now (Delivered: in the period). Age is the median business hours in the stage."
+      title={title}
+      note={note}
       state={state}
       className={className}
     >

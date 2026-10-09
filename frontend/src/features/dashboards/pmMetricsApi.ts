@@ -115,6 +115,45 @@ export type CoordinatorMetrics = {
   readyToDeliver: number
 }
 
+/** `CoordinatorWorkService.CoordinatorWork` — see spec 81 §2. Item counts are checklist items, not cases. */
+export type OwedRow = {
+  caseId: string
+  caseCode: string
+  cmName: string | null
+  /** Null when the case has no stage-entry time — unknown, not zero. */
+  waitingBusinessHours: number | null
+  deadlineRisk: DeadlineRisk | null
+  total: number
+  approved: number
+  uploaded: number
+  required: number
+  missing: number
+  incorrect: number
+  /** The Coordinator has an item on this case they have not sent yet. */
+  unsent: boolean
+  /** Null if the client was never chased on this case. */
+  lastChasedAt: string | null
+}
+export type CoordinatorWork = {
+  /** The four Coordinator-owned stages, in pipeline order. */
+  stages: StageCount[]
+  /** Open cases with an exception state. */
+  blocked: number
+  /** `awaitingVerification` and `blockerItems` count items; `unsentCases` counts cases. */
+  documents: { awaitingVerification: number; blockerItems: number; unsentCases: number; owed: OwedRow[] }
+  clientReview: QueueRow[]
+  readyToDeliver: QueueRow[]
+}
+
+export async function fetchCoordinatorWork(
+  brandId: string | null,
+  signal?: AbortSignal,
+): Promise<CoordinatorWork> {
+  return unwrap<CoordinatorWork>(
+    api.get('/metrics/coordinator/work', { params: brandId ? { brandId } : {}, signal }),
+  )
+}
+
 /** One row of the Case Manager's docket — the spec's "my active cases", already deadline-ordered. */
 export type MyCase = {
   id: string

@@ -1,6 +1,14 @@
 import { Card, KpiCard } from '../../components/ui/card'
 import { useFilters } from '../shell/filtersContext'
-import { fetchCoordinatorMetrics, type CoordinatorMetrics } from './pmMetricsApi'
+import { DocumentsOwed } from './DocumentsOwed'
+import {
+  fetchCoordinatorMetrics,
+  fetchCoordinatorWork,
+  type CoordinatorMetrics,
+  type CoordinatorWork,
+} from './pmMetricsApi'
+import { QueueTable } from './QueueTable'
+import { StageFunnel } from './StageFunnel'
 import { emptyWhen, useMetrics, warnWhen } from './useMetrics'
 
 /**
@@ -16,15 +24,53 @@ export default function CoordinatorDashboard() {
     [activeBrandId],
   )
 
+  // A separate load, so a failed /work cannot blank the tiles below it or the reverse.
+  const { data: work, state: workState } = useMetrics<CoordinatorWork>(
+    (signal) => fetchCoordinatorWork(activeBrandId, signal),
+    [activeBrandId],
+  )
+
   return (
     <section>
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Client operations</h1>
       </header>
 
+      <p className="mt-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+        Right now — what is holding your open cases up.
+      </p>
+      <div className="mt-2 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          title="Documents awaiting verification"
+          state={workState}
+          value={work?.documents.awaitingVerification ?? null}
+          denominator="checklist items uploaded, not yet approved"
+        />
+        <KpiCard
+          title="Missing or incorrect documents"
+          state={workState}
+          value={work?.documents.blockerItems ?? null}
+          denominator="checklist items"
+          tone={work === null ? undefined : work.documents.blockerItems > 0 ? 'bad' : 'good'}
+        />
+        <KpiCard
+          title="Unsent checklists"
+          state={workState}
+          value={work?.documents.unsentCases ?? null}
+          denominator="cases with an item not yet sent"
+          tone={work === null ? undefined : work.documents.unsentCases > 0 ? 'warn' : 'good'}
+        />
+        <KpiCard
+          title="Blocked cases"
+          state={workState}
+          value={work?.blocked ?? null}
+          denominator="on hold, expert declined, or refund requested"
+        />
+      </div>
+
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
-          title="Documents outstanding"
+          title="Cases collecting documents"
           wide
           state={warnWhen(state, (data?.documents.aging ?? 0) > 0)}
           to="/checklists"
@@ -40,7 +86,8 @@ export default function CoordinatorDashboard() {
 
         <KpiCard
           title="Median wait"
-          state={state}
+          // The server answers 0 for an empty set; an unmeasured figure must not read as a 0h wait.
+          state={emptyWhen(state, data?.documents.outstanding === 0, 'No client is collecting documents.')}
           value={data?.documents.medianWaitHours ?? null}
           unit="h"
           denominator="business hours, open cases"
@@ -91,6 +138,30 @@ export default function CoordinatorDashboard() {
           // `google_review_requested` has no writer anywhere — Handoff C would set it and is
           // unbuilt. Zero here would read as "we asked nobody", which is a different claim.
           state={{ kind: 'unavailable', blockedBy: 'Unit 18' }}
+        />
+
+        <DocumentsOwed rows={work?.documents.owed} state={workState} />
+        <StageFunnel
+          stages={work?.stages}
+          state={workState}
+          title="Your stages"
+          note="Open cases in the four stages you hold. Age is the median business hours in the stage."
+        />
+        <QueueTable
+          title="With the client"
+          note="Cases out for client review, longest first. Owner is the case manager."
+          rows={work?.clientReview}
+          state={workState}
+          emptyNote="No case is with a client."
+          className="xl:col-span-2"
+        />
+        <QueueTable
+          title="Ready to deliver"
+          note="QC passed and waiting to go out, longest first. Open the delivery queue to hand over."
+          rows={work?.readyToDeliver}
+          state={workState}
+          emptyNote="Nothing is waiting to be delivered."
+          className="xl:col-span-2"
         />
       </div>
 
