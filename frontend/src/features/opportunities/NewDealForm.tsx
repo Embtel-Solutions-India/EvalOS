@@ -53,6 +53,35 @@ export const INTAKE_FIELD_KEYS: readonly string[] = [
  */
 const PRODUCTION_FIELD_NAMES = ['assigned expert', 'draft link', 'sla status', 'docs received date', 'actual won date']
 
+/** GHL fills these itself; nobody types them on a new opportunity. */
+const SYSTEM_FIELD_NAMES = ['opportunity id', 'created on (date)']
+
+/**
+ * The order GHL's own "Add new opportunity" form lists the custom fields in (the hiring pipeline's, read
+ * 2026-10-09). A field not named here — one added in GHL later — still shows, after these.
+ */
+const GHL_FORM_ORDER = [
+  'lead source',
+  'service requested',
+  'requirement',
+  'service turn around time',
+  'translation turn around time',
+  'how many pages',
+  'document original language',
+  'message',
+  'marketing owner',
+  'visa category (if applicable)',
+  'tell us about your case',
+  'lead type(opportunity)',
+  'how did you hear about us? (opportunity)',
+  'how did you hear about us? (website)',
+  'current title (website) (join as evaluator)',
+  'primary field of expertise(website) (join as evaluator)',
+  'category applying (c)(website evaluator)',
+]
+
+const fieldName = (field: OpportunityField) => field.name.trim().replace(/\s+/g, ' ').toLowerCase()
+
 /**
  * "Add opportunity" for a salesperson — the fields GHL's own form asks for, and nothing EvalOS
  * would have to invent.
@@ -166,12 +195,18 @@ export function NewDealFields({
     (signal) => fetchOpportunityFields(signal),
     [],
   )
+  const rank = (field: OpportunityField) => {
+    const at = GHL_FORM_ORDER.indexOf(fieldName(field))
+    return at === -1 ? GHL_FORM_ORDER.length : at
+  }
+  // Candidate: the whole of GHL's form, in GHL's order, minus what GHL fills in and what EvalOS owns.
   const intake = candidate
-    ? (fields ?? []).filter(
-        (field) =>
-          !INTAKE_FIELD_KEYS.includes(field.fieldKey) &&
-          !PRODUCTION_FIELD_NAMES.includes(field.name.trim().toLowerCase()),
-      )
+    ? (fields ?? [])
+        .filter(
+          (field) =>
+            !PRODUCTION_FIELD_NAMES.includes(fieldName(field)) && !SYSTEM_FIELD_NAMES.includes(fieldName(field)),
+        )
+        .sort((a, b) => rank(a) - rank(b))
     : (fields ?? [])
         .filter((field) => INTAKE_FIELD_KEYS.includes(field.fieldKey))
         .sort(
@@ -291,7 +326,7 @@ export function NewDealFields({
             className="text-xs font-medium uppercase tracking-wide"
             style={{ color: 'var(--text-muted)' }}
           >
-            {candidate ? 'More about them' : 'What they need'}
+            {candidate ? 'Details' : 'What they need'}
           </legend>
           {intake.map((field) => (
             <CustomFieldInput
@@ -303,7 +338,7 @@ export function NewDealFields({
           ))}
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             {candidate
-              ? "The location's own opportunity fields, read from GHL."
+              ? "The same fields GHL's Add opportunity form asks for, read from GHL."
               : 'These travel with the deal into production, so nobody has to ask the client twice.'}
           </p>
         </fieldset>
