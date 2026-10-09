@@ -41,6 +41,10 @@ EvalOS has three surfaces:
   plainly that a scanned wet signature is expected, so nobody hunts for an
   e-signature button that does not exist.
 
+  **The staff app has a phone mode as of 2026-10-10** (spec 84): below 768 px the left rail is a
+  drawer behind a menu button in the top bar, the content gets the whole width, and Sign out is
+  icon-only. 768 px and up are unchanged. Individual screens still own their own small-screen layout.
+
   **⚠ "Minimal chrome, no navigation" and "one case at a time" describe Unit 14's
   one-screen portal, which is what is shipped.** The portal frontend that arrived in
   `client-expert/` draws a full navigated shell — sidebar, header, notification centre, mobile

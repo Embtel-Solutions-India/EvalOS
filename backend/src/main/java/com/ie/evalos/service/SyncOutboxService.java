@@ -83,8 +83,22 @@ public class SyncOutboxService {
 	private final PipelineRepository pipelines;
 	private final GhlWriteClient ghl;
 	private final GhlPipelineClient ghlReads;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 	private final String correlationFieldId;
+
+	/** Absent only in hand-built tests, which keep the value they were given. */
+	private com.ie.evalos.config.AppSettings settings;
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(com.ie.evalos.config.AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/** The Administrator's value from Settings when saved (D83), else the configured one. */
+	private String correlationFieldId() {
+		return settings == null ? this.correlationFieldId : settings.app(com.ie.evalos.config.Setting.GHL_CORRELATION_FIELD).map(String::trim).orElse(this.correlationFieldId);
+	}
+
 	private final OpportunityNoteRepository notes;
 	private final OpportunityNoteGhlLinkRepository noteLinks;
 	private final TeamMemberRepository teamMembers;
@@ -105,7 +119,7 @@ public class SyncOutboxService {
 		this.pipelines = pipelines;
 		this.ghl = ghl;
 		this.ghlReads = ghlReads;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
 	}
 
@@ -162,11 +176,11 @@ public class SyncOutboxService {
 	 * cannot roll back the sends that already succeeded.
 	 */
 	public DrainResult drain() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return new DrainResult(0, 0, 0, 0, false);
 		}
 		List<SyncOutboxEntry> pending = outbox
-				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrandId,
+				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(),
 						Limit.of(BATCH));
 
 		int sent = 0;
@@ -331,9 +345,9 @@ public class SyncOutboxService {
 			return;
 		}
 
-		java.util.Map<String, String> fields = correlationFieldId.isEmpty()
+		java.util.Map<String, String> fields = correlationFieldId().isEmpty()
 				? null
-				: java.util.Map.of(correlationFieldId, row.getId().toString());
+				: java.util.Map.of(correlationFieldId(), row.getId().toString());
 		GhlWriteClient.UpsertedOpportunity created = ghl.createOpportunity(ghlPipelineOf(row),
 				row.getGhlContactId(), row.getName(), row.getAmount(), null, null, fields, null);
 		row.linkGhl(created.id());
@@ -342,7 +356,7 @@ public class SyncOutboxService {
 
 	/** The contact's opportunities, matched on the correlation key EvalOS wrote when it created. */
 	private Optional<String> alreadyCreated(Opportunity row) {
-		if (correlationFieldId.isEmpty() || row.getGhlContactId() == null) {
+		if (correlationFieldId().isEmpty() || row.getGhlContactId() == null) {
 			return Optional.empty();
 		}
 		String key = row.getId().toString();
@@ -527,16 +541,16 @@ public class SyncOutboxService {
 	/** How much is waiting and how much never arrived — the status surface's numbers. */
 	@Transactional(readOnly = true)
 	public Backlog backlog() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return new Backlog(0, 0, null, List.of());
 		}
 		List<SyncOutboxEntry> oldest = outbox
-				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrandId, Limit.of(1));
+				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(), Limit.of(1));
 		return new Backlog(
-				(int) outbox.countByBrandIdAndSentAtIsNullAndDeadAtIsNull(sellingBrandId),
-				(int) outbox.countByBrandIdAndDeadAtIsNotNull(sellingBrandId),
+				(int) outbox.countByBrandIdAndSentAtIsNullAndDeadAtIsNull(sellingBrand.id()),
+				(int) outbox.countByBrandIdAndDeadAtIsNotNull(sellingBrand.id()),
 				oldest.isEmpty() ? null : oldest.getFirst().getQueuedAt(),
-				outbox.findByBrandIdAndDeadAtIsNotNullOrderByDeadAtDesc(sellingBrandId, Limit.of(20)));
+				outbox.findByBrandIdAndDeadAtIsNotNullOrderByDeadAtDesc(sellingBrand.id(), Limit.of(20)));
 	}
 
 	/**

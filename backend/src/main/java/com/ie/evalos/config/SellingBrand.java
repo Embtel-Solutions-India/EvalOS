@@ -44,16 +44,34 @@ public class SellingBrand {
 
 	private static final Logger log = LoggerFactory.getLogger(SellingBrand.class);
 
+	/** The environment's brand, resolved at boot — a bad environment value still fails the boot. */
 	private final UUID id;
+	private final BrandRepository brands;
+
+	/** Absent for hand-built instances, which keep the id they were given. */
+	private AppSettings settings;
+
+	/** The last Administrator-saved value resolved, so a slug costs one query per change, not per call. */
+	private volatile Saved saved;
+
+	private record Saved(String raw, UUID id) {
+	}
 
 	@org.springframework.beans.factory.annotation.Autowired
 	SellingBrand(@Value("${evalos.ghl.sales-brand:}") String configured, BrandRepository brands) {
 		this.id = resolve(configured == null ? "" : configured.trim(), brands);
+		this.brands = brands;
 	}
 
 	/** For tests and for callers that already hold an id. */
 	public SellingBrand(UUID id) {
 		this.id = id;
+		this.brands = null;
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(AppSettings settings) {
+		this.settings = settings;
 	}
 
 	private static UUID resolve(String configured, BrandRepository brands) {
@@ -83,11 +101,40 @@ public class SellingBrand {
 
 	/** The brand that owns the GHL location, or <strong>null when none is configured</strong>. */
 	public UUID id() {
-		return id;
+		if (settings == null || brands == null) {
+			return id;
+		}
+		// Not Optional.map: a saved brand that no longer resolves must be null (sync off), never quietly the env's.
+		java.util.Optional<String> saved = settings.app(Setting.SALES_BRAND);
+		return saved.isPresent() ? resolveSaved(saved.get().trim()) : id;
+	}
+
+	/**
+	 * The Administrator's choice (D83). Validated when saved, so an unknown value here means the brand was renamed
+	 * or removed since: logged, and treated as no selling brand (the sync goes quiet) rather than a 500 everywhere.
+	 */
+	private UUID resolveSaved(String raw) {
+		Saved current = saved;
+		if (current != null && current.raw().equals(raw)) {
+			return current.id();
+		}
+		UUID found;
+		try {
+			found = UUID.fromString(raw);
+		}
+		catch (IllegalArgumentException notAUuid) {
+			found = brands.findBySlug(raw).map(Brand::getId).orElse(null);
+			if (found == null) {
+				log.warn("The selling brand saved in Settings (\"{}\") names no brand; the GHL sync is off until it is fixed",
+						raw);
+			}
+		}
+		saved = new Saved(raw, found);
+		return found;
 	}
 
 	/** Whether anything should be mirrored at all. */
 	public boolean isConfigured() {
-		return id != null;
+		return id() != null;
 	}
 }

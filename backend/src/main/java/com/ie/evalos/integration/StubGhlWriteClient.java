@@ -67,7 +67,7 @@ public class StubGhlWriteClient extends GhlWriteClient {
 	public UpsertedContact upsertContact(String firstName, String lastName, String email, String phone,
 			String source) {
 		String id = stubId("contact");
-		log.info("STUB upsertContact -> {} ({} {}, {})", id, firstName, lastName, email);
+		log.info("STUB upsertContact -> {} ({})", id, com.ie.evalos.common.LogSafe.email(email));
 		String name = ((firstName == null ? "" : firstName) + " " + (lastName == null ? "" : lastName))
 				.strip();
 		return new UpsertedContact(id, name.isEmpty() ? email : name, email, phone);

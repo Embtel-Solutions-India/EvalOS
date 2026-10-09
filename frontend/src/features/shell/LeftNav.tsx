@@ -19,6 +19,7 @@ import {
   PlusCircle,
   Receipt,
   RefreshCw,
+  Settings,
   StickyNote,
   Timer,
   TrendingUp,
@@ -60,7 +61,7 @@ import {
  * tinted fill and accent text only — it even leaves the border rule commented out in its
  * own stylesheet — and a fill plus a bar is two markers for one state.
  */
-export default function LeftNav() {
+export default function LeftNav({ open = false }: { open?: boolean }) {
   const me = useMe();
   // A query (Unit 70), not a mount-only read: any write, a tab refocus and a live `case.changed`
   // re-read the counts. Failure stays silent — a rail showing an error where a count should be is
@@ -75,9 +76,13 @@ export default function LeftNav() {
 
   return (
     <nav
-      className="fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden"
+      // Below 768 px a drawer: off-screen (and out of the tab order) until the top bar's menu opens it.
+      className={`fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden transition-[translate,visibility] duration-200 ${
+        open ? "" : "max-md:invisible max-md:-translate-x-full"
+      }`}
       style={{
-        width: "var(--sidebar-width)",
+        width: "var(--nav-width, var(--sidebar-width))",
+        boxShadow: open ? "var(--shadow-pop)" : undefined,
         // The same fixed-attachment gradient the top bar paints, so the two merge without a seam.
         background: "var(--frame-bg)",
         backgroundAttachment: "fixed",
@@ -257,6 +262,7 @@ const ICONS: Record<string, LucideIcon> = {
   "/admin/pipelines": GitBranch,
   "/admin/sync": RefreshCw,
   "/admin/jobs": Timer,
+  "/admin/settings": Settings,
   "/brands": Building2,
 };
 

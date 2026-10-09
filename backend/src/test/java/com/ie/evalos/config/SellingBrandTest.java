@@ -77,4 +77,38 @@ class SellingBrandTest {
 				.hasMessageContaining("evalos.ghl.sales-brand")
 				.hasMessageContaining("neither a UUID");
 	}
+
+	/** D83: the brand saved in Settings applies on the next call, by slug as well as by id. */
+	@Test
+	void aBrandSavedInSettingsReplacesTheEnvironmentsOnTheNextCall() {
+		UUID env = UUID.randomUUID();
+		UUID saved = UUID.randomUUID();
+		Brand xp = mock(Brand.class);
+		given(xp.getId()).willReturn(saved);
+		given(brands.findBySlug("xpertsportal")).willReturn(Optional.of(xp));
+		AppSettings settings = mock(AppSettings.class);
+		given(settings.app(Setting.SALES_BRAND)).willReturn(Optional.empty());
+		SellingBrand brand = new SellingBrand(env.toString(), brands);
+		brand.useSettings(settings);
+		assertThat(brand.id()).isEqualTo(env);
+
+		given(settings.app(Setting.SALES_BRAND)).willReturn(Optional.of("xpertsportal"));
+
+		assertThat(brand.id()).isEqualTo(saved);
+		assertThat(brand.id()).isEqualTo(saved);
+		verify(brands, org.mockito.Mockito.times(1)).findBySlug("xpertsportal");
+	}
+
+	/** A saved brand that has since disappeared switches the sync off rather than failing every request. */
+	@Test
+	void aSavedBrandThatNoLongerExistsTurnsTheSyncOff() {
+		given(brands.findBySlug("gone")).willReturn(Optional.empty());
+		AppSettings settings = mock(AppSettings.class);
+		given(settings.app(Setting.SALES_BRAND)).willReturn(Optional.of("gone"));
+		SellingBrand brand = new SellingBrand(UUID.randomUUID().toString(), brands);
+		brand.useSettings(settings);
+
+		assertThat(brand.id()).isNull();
+		assertThat(brand.isConfigured()).isFalse();
+	}
 }

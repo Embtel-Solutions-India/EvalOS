@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth, useMe } from "../../lib/authContext";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import DateFilter from "./DateFilter";
 import { greetingFor } from "./greeting";
 import NotificationBell from "./NotificationBell";
@@ -26,7 +26,7 @@ import NotificationBell from "./NotificationBell";
  * is the follow-up once the last screen is migrated — recorded in the guide rather than left
  * as a surprise.
  */
-export default function TopBar() {
+export default function TopBar({ onMenu }: { onMenu?: () => void }) {
   const { logout } = useAuth();
   const me = useMe();
   const first = me.displayName.trim().split(/\s+/)[0];
@@ -63,6 +63,19 @@ export default function TopBar() {
         }}
       />
 
+      {/* A phone's only way to the nav, which is a drawer below 768 px (AppShell). */}
+      {onMenu && (
+        <button
+          type="button"
+          onClick={onMenu}
+          aria-label="Open menu"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full md:hidden"
+          style={{ background: "var(--bg-surface)", boxShadow: "var(--shadow-soft)" }}
+        >
+          <Menu className="h-5 w-5" aria-hidden />
+        </button>
+      )}
+
       {/* The Sketch's header opens with a greeting; it goes first and yields to the controls on
           narrow screens rather than pushing them off the bar. */}
       <Greeting name={first} />
@@ -78,7 +91,8 @@ export default function TopBar() {
         <button
           type="button"
           onClick={logout}
-          className="inline-flex h-9 items-center gap-2 px-4 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          aria-label="Sign out"
+          className="inline-flex h-9 items-center gap-2 px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:px-4"
           style={{
             background: "var(--status-red)",
             borderRadius: "999px",
@@ -86,7 +100,8 @@ export default function TopBar() {
           }}
         >
           <LogOut className="h-4 w-4" aria-hidden />
-          Sign out
+          {/* Icon-only on a phone: the label wrapped onto two lines at 390 px. */}
+          <span className="hidden sm:inline">Sign out</span>
         </button>
       </div>
     </header>

@@ -71,6 +71,13 @@ export function emptyWhen(state: CardState, isEmpty: boolean, note: string): Car
   return state.kind === 'ok' && isEmpty ? { kind: 'empty', note } : state
 }
 
+/** A plain react-query result as a card state: a skeleton while loading, the error once nothing is shown. */
+export function stateOf(query: { data?: unknown; isError: boolean; error: Error | null }): CardState {
+  if (query.data !== undefined) return { kind: 'ok' }
+  if (query.isError) return { kind: 'error', note: query.error?.message ?? 'Could not load' }
+  return { kind: 'loading' }
+}
+
 /** `warning` on a live figure that should be zero, once loaded. */
 export function warnWhen(state: CardState, condition: boolean): CardState {
   return state.kind === 'ok' && condition ? { kind: 'warning' } : state

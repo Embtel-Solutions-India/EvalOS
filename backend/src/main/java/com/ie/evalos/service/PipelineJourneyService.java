@@ -93,7 +93,7 @@ public class PipelineJourneyService {
 	private final GhlCustomFieldRepository customFields;
 	private final MemberTargetService memberTargets;
 	private final GmOverviewService gm;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	PipelineJourneyService(OpportunityMirrorService mirror, PipelineMirrorService pipelines,
 			TeamMemberPipelineRepository assignments, TeamMemberRepository teamMembers,
@@ -106,7 +106,7 @@ public class PipelineJourneyService {
 		this.customFields = customFields;
 		this.memberTargets = memberTargets;
 		this.gm = gm;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/**
@@ -126,8 +126,8 @@ public class PipelineJourneyService {
 
 		Role role = roleFor(caller, audience);
 		boolean gmView = caller.role().hasGmView();
-		List<TeamMember> desks = sellingBrandId == null ? List.of()
-				: teamMembers.findByActiveTrueAndRoleAndBrandId(role, sellingBrandId).stream()
+		List<TeamMember> desks = sellingBrand.id() == null ? List.of()
+				: teamMembers.findByActiveTrueAndRoleAndBrandId(role, sellingBrand.id()).stream()
 						.filter((member) -> !assignments.ghlIdsFor(member.getId()).isEmpty())
 						.sorted(Comparator.comparing(TeamMember::getDisplayName))
 						.toList();
@@ -188,10 +188,10 @@ public class PipelineJourneyService {
 	}
 
 	private String leadSourceFieldId() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return null;
 		}
-		return customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId, ReferenceMirrorService.OPPORTUNITY_MODEL)
+		return customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrand.id(), ReferenceMirrorService.OPPORTUNITY_MODEL)
 				.stream().filter((field) -> LEAD_SOURCE_FIELD.equals(field.getFieldKey()))
 				.map((field) -> field.getGhlId()).findFirst().orElse(null);
 	}
@@ -244,18 +244,18 @@ public class PipelineJourneyService {
 		MonthRow row = current.months().get(month.getMonthValue() - 1);
 		BigDecimal progress = kind == MemberTargetService.TargetKind.WON_VALUE ? row.wonValue()
 				: BigDecimal.valueOf(row.leads());
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return new TargetRow(kind, month, null, progress);
 		}
 		BigDecimal target;
 		if (oneDesk) {
-			target = memberTargets.current(sellingBrandId, scope.getFirst().getId(), month).orElse(null);
+			target = memberTargets.current(sellingBrand.id(), scope.getFirst().getId(), month).orElse(null);
 		}
 		else if (kind == MemberTargetService.TargetKind.WON_VALUE) {
 			target = gm.goalFor(month);
 		}
 		else {
-			Map<UUID, BigDecimal> set = memberTargets.latestForMonth(sellingBrandId, month);
+			Map<UUID, BigDecimal> set = memberTargets.latestForMonth(sellingBrand.id(), month);
 			List<BigDecimal> mine = scope.stream().map((member) -> set.get(member.getId()))
 					.filter((amount) -> amount != null).toList();
 			target = mine.isEmpty() ? null : mine.stream().reduce(BigDecimal.ZERO, BigDecimal::add);

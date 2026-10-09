@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
+import { stateOf } from '../dashboards/useMetrics'
 import { fetchSyncHealth } from './adminApi'
+import { SyncSummary } from './adminSummaries'
 
 /**
  * Whether EvalOS and GHL agree (Unit 68), read-only. A drift is never resolved by pressing a button
@@ -31,6 +33,8 @@ export default function SyncHealthPage() {
             <Tile label="Pushes waiting" value={health.outbox.pending} />
             <Tile label="Pushes failed" value={health.outbox.dead} alarm={health.outbox.dead > 0} />
           </div>
+
+          <SyncSummary health={health} state={stateOf(query)} />
 
           <Table title="Drift" empty="EvalOS and GHL agree.">
             {drifts.map((d) => (

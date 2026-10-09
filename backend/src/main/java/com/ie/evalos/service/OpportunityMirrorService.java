@@ -57,7 +57,7 @@ public class OpportunityMirrorService {
 	private final com.ie.evalos.repository.GhlNoteRepository notes;
 	private final com.ie.evalos.repository.FollowUpRepository followUps;
 	private final com.ie.evalos.repository.MeetingRepository meetings;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 	private final com.ie.evalos.notification.HiringPipelineNotifier hiring;
 	private final GhlContactClient contacts;
 
@@ -86,7 +86,7 @@ public class OpportunityMirrorService {
 		this.notes = notes;
 		this.followUps = followUps;
 		this.meetings = meetings;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/**
@@ -294,12 +294,12 @@ public class OpportunityMirrorService {
 	 * mean drift rather than "nobody looked".
 	 */
 	public int refreshStale(Duration ttl) {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			log.warn("Delta sweep skipped: evalos.ghl.sales-brand is blank, so there is no mirror to refresh.");
 			return 0;
 		}
 		int refreshed = 0;
-		for (Pipeline pipeline : pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrandId)) {
+		for (Pipeline pipeline : pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrand.id())) {
 			if (!pipeline.isLive()) {
 				continue;
 			}
@@ -558,10 +558,10 @@ public class OpportunityMirrorService {
 	@Transactional
 	public Optional<Opportunity> editLocally(String ghlOpportunityId, String name,
 			java.math.BigDecimal amount, String ghlStageId, String status) {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return Optional.empty();
 		}
-		return opportunities.findByBrandIdAndGhlId(sellingBrandId, ghlOpportunityId)
+		return opportunities.findByBrandIdAndGhlId(sellingBrand.id(), ghlOpportunityId)
 				.map((row) -> {
 					row.editedLocally(name, amount, ghlStageId, status);
 					return opportunities.save(row);
@@ -598,8 +598,8 @@ public class OpportunityMirrorService {
 	 */
 	@Transactional(readOnly = true)
 	public Optional<Opportunity> byGhlId(String ghlOpportunityId) {
-		return sellingBrandId == null ? Optional.empty()
-				: opportunities.findByBrandIdAndGhlId(sellingBrandId, ghlOpportunityId);
+		return sellingBrand.id() == null ? Optional.empty()
+				: opportunities.findByBrandIdAndGhlId(sellingBrand.id(), ghlOpportunityId);
 	}
 
 	/**
@@ -629,8 +629,8 @@ public class OpportunityMirrorService {
 	}
 
 	private Optional<Pipeline> mirroredPipeline(String ghlPipelineId) {
-		return sellingBrandId == null ? Optional.empty()
-				: pipelines.findByBrandIdAndGhlId(sellingBrandId, ghlPipelineId);
+		return sellingBrand.id() == null ? Optional.empty()
+				: pipelines.findByBrandIdAndGhlId(sellingBrand.id(), ghlPipelineId);
 	}
 
 }

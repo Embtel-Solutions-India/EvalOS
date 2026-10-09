@@ -27,7 +27,8 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  */
 @Component
 // Ahead of Spring Security's filter chain (order -100), so its time and a 401 or 403 it answers are measured too.
-@Order(Ordered.HIGHEST_PRECEDENCE)
+// One behind RequestIdFilter, so the slow-read line carries the request id.
+@Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class MetricsTimingFilter extends OncePerRequestFilter {
 
 	private static final Logger log = LoggerFactory.getLogger(MetricsTimingFilter.class);

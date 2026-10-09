@@ -23,6 +23,13 @@ public enum GhlFailure {
 
 	/** No token or no location in this environment. Nothing left the JVM. */
 	NOT_CONFIGURED,
+	/**
+	 * The Administrator switched GHL writes off (D83). Nothing left the JVM.
+	 *
+	 * <p>Retriable and stops everything, so the outbox halts with its rows kept <em>pending</em> and drains when
+	 * writes are switched back on — a pause, not a failure, and nothing is dead-lettered for it.
+	 */
+	PAUSED,
 
 	/**
 	 * 401 or 403 — the credential is wrong, or is missing the scope this call needs.
@@ -81,7 +88,7 @@ public enum GhlFailure {
 	 * retried is budget spent on a body that is still malformed.
 	 */
 	public boolean isRetriable() {
-		return this == RATE_LIMITED || this == NO_ANSWER || this == UPSTREAM_ERROR;
+		return this == RATE_LIMITED || this == NO_ANSWER || this == UPSTREAM_ERROR || this == PAUSED;
 	}
 
 	/**
@@ -96,7 +103,7 @@ public enum GhlFailure {
 	 * is no queue state to protect and no upstream to be gentle with.
 	 */
 	public boolean stopsEverything() {
-		return this == UNAUTHORIZED || this == RATE_LIMITED;
+		return this == UNAUTHORIZED || this == RATE_LIMITED || this == PAUSED;
 	}
 
 	/** Classifies a status code GHL actually returned. */

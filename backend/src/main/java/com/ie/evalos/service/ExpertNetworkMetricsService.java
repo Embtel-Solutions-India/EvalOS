@@ -58,6 +58,20 @@ public class ExpertNetworkMetricsService {
 	private final BusinessCalendar calendar;
 	private final int monthlyTarget;
 
+	/** Absent only in hand-built tests, which keep the value they were given. */
+	private com.ie.evalos.config.AppSettings settings;
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(com.ie.evalos.config.AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/** The Administrator's value from Settings when saved (D83), else the configured one. */
+	private int monthlyTarget() {
+		return settings == null ? this.monthlyTarget : settings.app(com.ie.evalos.config.Setting.ONBOARDING_TARGET).map(Integer::parseInt).orElse(this.monthlyTarget);
+	}
+
+
 	ExpertNetworkMetricsService(ExpertRepository experts, ExpertCaseOfferRepository offers,
 			ExpertLoadService loads, BusinessCalendar calendar, @Value("${evalos.roster.monthly-onboarding-target}") int monthlyTarget) {
 		this.experts = experts;
@@ -294,7 +308,7 @@ public class ExpertNetworkMetricsService {
 				.filter(expert -> expert.getDateOnboarded() != null
 						&& !expert.getDateOnboarded().isBefore(monthStart))
 				.count();
-		return new Onboarding(thisMonth, monthlyTarget);
+		return new Onboarding(thisMonth, monthlyTarget());
 	}
 
 	/**

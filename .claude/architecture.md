@@ -15,7 +15,13 @@ GHL ───────HMAC + token─► /api/webhooks/ghl/{endpointToken}  (
 
 `permitAll` on the portal chain: exactly nine POSTs under `/api/portal/auth/**` — the client's five and the expert's four (`expert/{sign-up, forgot-password, sign-in, set-password}`, Unit 59) — plus a per-IP
 limiter (60/min) in `PortalTokenFilter`. **The client's `sign-up` was removed by Unit 64 (2026-09-29)**, leaving eight. `permitAll` on the staff chain: `/api/auth/login`,
-`/actuator/health`, `/api/webhooks/**` (`/api/health` and its `HealthController` deleted 2026-09-30 — a hard-coded `UP` beside actuator's real one).
+`/actuator/health` and `/actuator/health/**` (the liveness/readiness probes; bare status only), `/api/webhooks/**` (`/api/health` and its `HealthController` deleted 2026-09-30 — a hard-coded `UP` beside actuator's real one).
+The rest of `/actuator` (`info`, `metrics` — nothing else exists, D82) is `hasRole('ADMIN')` and GET-only via `AdminAllowlist`.
+The Admin's browser view of the same figures is `GET /api/system/health` (an Admin area, spec 84), because nginx proxies only `/api/`.
+
+**Every request gets an id** (`RequestIdFilter`, first in the servlet chain): MDC `requestId`, printed on every log
+line beside the active profile, and returned as `X-Request-Id` (a proxy's plain id is reused). Security refusals
+are logged by `ApiErrors.refuse` (401 INFO, 403 WARN; method, path, member id — never a header or email).
 
 **A staff token is re-checked on every request** (Unit 68): `JwtFilter` refuses a member whose
 `team_member.active` is false, so a GM's deactivation bites at once rather than at the 8 h expiry.
@@ -123,7 +129,8 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
     upload), draft ready, delivered (to the client), and the offer and signing mails (to the
     expert) — each once per transition, a deep link and never a credential — **and (2026-10-01)
     the chase reminder, sent only when a PC/CM presses Send chase** (`checklist.chased`). So the
-    invariant is: mailbox proof, the case-opened mail, those five and the manual chase, and nothing
+    invariant is: mailbox proof, the case-opened mail, those five and the manual chase, **and (2026-10-10, D83) one
+    test mail the Administrator sends to their own address from Settings**, and nothing
     else; the `DOC_CHASE` sweep's automatic reminders send no mail. **A push notification is not mail** and does not touch this
     invariant (D37: notifications are in-app and push, and nothing else).
     **Amended 2026-09-19, on the business's instruction.** It read *"exactly one purpose: proving
@@ -144,9 +151,19 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 | `GhlHttpTest` | closed verb list; every write-verb caller reaches `AuditService` |
 | `ConfigSecretsTest` | no credential-shaped setting carries a default in a shared profile |
 | `GmOverviewRouteTest` | `/api/metrics/gm` stays `hasRole('GM')` |
+| `MonitoringConfigTest` | Actuator is off but for health/info/metrics; prod and testprod never widen it or log at DEBUG/TRACE |
+| `ActuatorEndpointsTest`, `ActuatorDatabaseDownTest` (DB) | anonymous probes see a status only; info/metrics Admin-only; dump/env/loggers absent; readiness DOWN and liveness UP when the DB is down |
+| `LoggingHygieneTest` | request id on every line of a request; no password, hash, token or email in the log |
+| `AdminSeedTest` (DB) | prod Admin seed preserves an existing Admin exactly, creates a missing one once, refuses ambiguity |
 | `navigation.test.ts` (frontend) | every GHL-location screen is GM-only; case detail is not in nav |
 
 ## Configuration
+
+**Precedence since D83 (2026-10-10, spec 85):** for the settings in `config/Setting.java` — SMTP host/port/username/
+password/from, GHL token/location/correlation field, the selling brand and three targets, plus the outbound-email and
+GHL-writes switches — **a value the Administrator saved in Settings (`app_setting`) beats every file and env var below**,
+and applies on the next use with no restart (`AppSettings.app()`, ≤30 s stale on another instance). Everything else
+still follows the order below, read once at boot.
 
 Precedence that actually decides on a dev machine: `.env` (loaded by `.vscode/launch.json` as real
 env vars) **beats** `backend/config/application-local.yml` **beats** `application-local.yml` on the
@@ -161,6 +178,9 @@ expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`
 ## Deployment
 
 `docker-compose.yml`: postgres 16 + backend (Spring, `prod,testprod`) + frontend (nginx, 80/443).
+The backend now receives `ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH` (required by the prod profile on every boot; it
+failed on the unresolved placeholder without them). **nginx proxies only `/api/`**, so `/actuator` is reachable
+only on the compose network (`backend:8080`) — a probe or scraper runs there, not through the public host.
 CI (`.github/workflows/ci.yml`) runs on push to **`main` only**: backend tests, frontend
 test/build/lint, then deploy to EC2. `client-expert/` is in neither compose nor CI — **and that is
 not this repository's debt: DevOps owns and edits deployment (D38, 2026-09-17).** Know it when

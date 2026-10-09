@@ -239,6 +239,8 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler({ AccessDeniedException.class, ForbiddenException.class })
 	public ResponseEntity<ApiResponse<Void>> onForbidden(RuntimeException ex) {
+		// A @PreAuthorize or a scope check said no — the chain's own 403s are logged in ApiErrors.
+		log.warn("Refused 403: {} for {}", ex.getClass().getSimpleName(), ApiErrors.caller());
 		return ResponseEntity.status(HttpStatus.FORBIDDEN)
 				.body(ApiResponse.error("FORBIDDEN", "Not permitted for this role, brand, or assignment"));
 	}

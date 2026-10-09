@@ -40,6 +40,10 @@ services:
       EVALOS_FIELD_KEY: ${EVALOS_FIELD_KEY}
       SEED_PASSWORD_HASH: ${SEED_PASSWORD_HASH}
       DESK_PASSWORD_HASH: ${DESK_PASSWORD_HASH}
+      # The first Administrator (V960_1 / V961, seed-prod). Required on EVERY prod boot — the profile names
+      # them as Flyway placeholders with no default. A BCrypt hash, never the password itself.
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH}
 
       GHL_SALES_BRAND_ID: ${GHL_SALES_BRAND_ID}
 

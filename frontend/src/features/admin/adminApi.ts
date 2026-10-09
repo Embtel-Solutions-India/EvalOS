@@ -121,6 +121,9 @@ export const grantPipeline = (id: string, pipelineId: string) =>
   unwrap(api.put(`/team-members/${id}/pipelines`, { pipelineId }));
 export const revokePipeline = (id: string, pipelineId: string) =>
   unwrap(api.delete(`/team-members/${id}/pipelines/${pipelineId}`));
+/** D83: a brand's name, currency and payout term. The webhook token and secret are never sent either way. */
+export const updateBrand = (id: string, edit: { name: string; currency: string | null; payoutTermDays: number }) =>
+  unwrap<Brand>(api.put(`/brands/${id}`, edit));
 export const setPurpose = (mirrorId: string, purpose: string) =>
   unwrap(api.put(`/ghl/pipelines/${mirrorId}/purpose`, { purpose }));
 

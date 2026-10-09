@@ -247,6 +247,25 @@ class SyncOutboxServiceTest {
 	}
 
 	/**
+	 * D83: the Administrator paused GHL writes. Nothing is wrong with the row, so it stays pending — never dead —
+	 * and the drain stops rather than walking the queue to no purpose. It goes out when writes are back on.
+	 */
+	@Test
+	void pausedWritesHaltTheDrainAndKeepEveryRowPending() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		willThrow(new GhlUnavailableException("GHL writes are paused by an administrator", null, GhlFailure.PAUSED, null))
+				.given(ghl).updateOpportunity(any(), any(), any(), any(), any());
+
+		var result = service.drain();
+
+		assertThat(result.halted()).isTrue();
+		assertThat(result.dead()).isZero();
+		assertThat(entry.isPending()).isTrue();
+		assertThat(entry.getLastFailure()).isEqualTo(GhlFailure.PAUSED);
+	}
+
+	/**
 	 * A refusal no retry can fix is dead-lettered on the first attempt.
 	 *
 	 * <p>A malformed body sent again is still malformed. Looping on it spends budget proving that,

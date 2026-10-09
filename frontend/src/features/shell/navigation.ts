@@ -516,6 +516,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
     becomes: "Sweep status and run ledger",
     group: "Admin",
   },
+  // D83: the SMTP relay, the GHL credential, the selling brand and the targets, changed with no restart.
+  {
+    path: "/admin/settings",
+    label: "Settings",
+    roles: ["ADMIN"],
+    becomes: "Email, GHL, selling brand and targets",
+    group: "Admin",
+  },
 ];
 
 /**

@@ -11,19 +11,26 @@ import com.ie.evalos.security.JwtService;
 import com.ie.evalos.security.SecurityConfig;
 import com.ie.evalos.security.StaffPrincipal;
 import com.ie.evalos.service.BrandQueryService;
+import com.ie.evalos.service.SettingsAdminService;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -50,6 +57,9 @@ class BrandControllerTest {
 
 	@MockitoBean
 	EvalOsUserDetailsService userDetailsService;
+
+	@MockitoBean
+	SettingsAdminService admin;
 
 	private String bearer(Role role) {
 		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), role + "@evalos.local", "Staff", role,
@@ -92,6 +102,36 @@ class BrandControllerTest {
 			mockMvc.perform(get("/api/brands").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 					.andExpect(status().isForbidden());
 		}
+	}
+
+	/** D83: the Administrator edits name, currency and payout term — and the answer still carries no secret. */
+	@Test
+	void theAdministratorEditsABrandsDetails() throws Exception {
+		UUID id = UUID.randomUUID();
+		Brand edited = brand("Intl Evaluations", "international-evaluations");
+		given(edited.getCurrency()).willReturn("USD");
+		given(edited.getPayoutTermDays()).willReturn(14);
+		given(admin.updateBrand(eq(id), any())).willReturn(edited);
+
+		mockMvc.perform(put("/api/brands/" + id).header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"name\":\"Intl Evaluations\",\"currency\":\"usd\",\"payoutTermDays\":14}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.name").value("Intl Evaluations"))
+				.andExpect(jsonPath("$.data.payoutTermDays").value(14))
+				.andExpect(jsonPath("$.data.webhookEndpointToken").doesNotExist());
+		verify(admin).updateBrand(id, new SettingsAdminService.BrandChange("Intl Evaluations", "usd", 14));
+	}
+
+	/** The GM reads brands but does not edit them; nobody else reaches the route at all. */
+	@Test
+	void onlyTheAdministratorEditsABrand() throws Exception {
+		for (Role role : List.of(Role.GM, Role.BRAND_MANAGER, Role.CASE_MANAGER)) {
+			mockMvc.perform(put("/api/brands/" + UUID.randomUUID()).header(HttpHeaders.AUTHORIZATION, bearer(role))
+					.contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"X\",\"payoutTermDays\":7}"))
+					.andExpect(status().isForbidden());
+		}
+		verify(admin, never()).updateBrand(any(), any());
 	}
 
 	@Test

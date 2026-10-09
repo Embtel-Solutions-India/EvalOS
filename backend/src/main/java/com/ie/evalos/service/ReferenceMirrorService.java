@@ -63,7 +63,7 @@ public class ReferenceMirrorService {
 	private final GhlUserRepository users;
 	private final GhlTagRepository tags;
 	private final com.ie.evalos.repository.TeamMemberRepository teamMembers;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	ReferenceMirrorService(GhlCustomFieldClient customFieldClient, GhlCalendarClient calendarClient,
 			GhlUserClient userClient, GhlTagClient tagClient, GhlCustomFieldRepository customFields,
@@ -78,7 +78,7 @@ public class ReferenceMirrorService {
 		this.calendars = calendars;
 		this.users = users;
 		this.tags = tags;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/** What the sweep did, so the ledger records something a GM can read. */
@@ -98,7 +98,7 @@ public class ReferenceMirrorService {
 	 * grant look like a dead sweep.
 	 */
 	public RefreshResult refresh() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			log.warn("Reference mirror skipped: evalos.ghl.sales-brand is blank, so there is no "
 					+ "brand to hold the location's lists.");
 			return new RefreshResult(0, 0, 0, 0);
@@ -135,22 +135,22 @@ public class ReferenceMirrorService {
 				continue;
 			}
 			seen.add(row.id());
-			GhlReference.Tag held = tags.findByBrandIdAndGhlId(sellingBrandId, row.id())
-					.orElseGet(() -> new GhlReference.Tag(sellingBrandId, row.id(), nameOf(row.name(), row.id())));
+			GhlReference.Tag held = tags.findByBrandIdAndGhlId(sellingBrand.id(), row.id())
+					.orElseGet(() -> new GhlReference.Tag(sellingBrand.id(), row.id(), nameOf(row.name(), row.id())));
 			held.seenAs(nameOf(row.name(), row.id()));
 			tags.save(held);
 		}
-		stampMissing(tags.findByBrandIdOrderByNameAsc(sellingBrandId), seen, tags::save);
+		stampMissing(tags.findByBrandIdOrderByNameAsc(sellingBrand.id()), seen, tags::save);
 		return seen.size();
 	}
 
 	/** The location's tag vocabulary. Live rows only, like every other list here. */
 	public List<GhlReference.Tag> locationTags() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return List.of();
 		}
-		refreshIfEmpty(() -> tags.countByBrandId(sellingBrandId), this::refreshTags);
-		return tags.findByBrandIdOrderByNameAsc(sellingBrandId).stream()
+		refreshIfEmpty(() -> tags.countByBrandId(sellingBrand.id()), this::refreshTags);
+		return tags.findByBrandIdOrderByNameAsc(sellingBrand.id()).stream()
 				.filter(GhlReference::isLive)
 				.toList();
 	}
@@ -164,13 +164,13 @@ public class ReferenceMirrorService {
 			}
 			seen.add(row.id());
 			GhlReference.CustomField held = customFields
-					.findByBrandIdAndGhlId(sellingBrandId, row.id())
-					.orElseGet(() -> new GhlReference.CustomField(sellingBrandId, row.id(),
+					.findByBrandIdAndGhlId(sellingBrand.id(), row.id())
+					.orElseGet(() -> new GhlReference.CustomField(sellingBrand.id(), row.id(),
 							model, nameOf(row.name(), row.id())));
 			held.seen(nameOf(row.name(), row.id()), row.fieldKey(), row.dataType(), row.picklistOptions());
 			customFields.save(held);
 		}
-		stampMissing(customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId, model),
+		stampMissing(customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrand.id(), model),
 				seen, customFields::save);
 		return seen.size();
 	}
@@ -183,12 +183,12 @@ public class ReferenceMirrorService {
 				continue;
 			}
 			seen.add(row.id());
-			GhlReference.Calendar held = calendars.findByBrandIdAndGhlId(sellingBrandId, row.id())
-					.orElseGet(() -> new GhlReference.Calendar(sellingBrandId, row.id(), nameOf(row.name(), row.id())));
+			GhlReference.Calendar held = calendars.findByBrandIdAndGhlId(sellingBrand.id(), row.id())
+					.orElseGet(() -> new GhlReference.Calendar(sellingBrand.id(), row.id(), nameOf(row.name(), row.id())));
 			held.seen(nameOf(row.name(), row.id()), row.active(), row.slotMinutes(), row.titleTemplate());
 			calendars.save(held);
 		}
-		stampMissing(calendars.findByBrandIdOrderByNameAsc(sellingBrandId), seen, calendars::save);
+		stampMissing(calendars.findByBrandIdOrderByNameAsc(sellingBrand.id()), seen, calendars::save);
 		return seen.size();
 	}
 
@@ -200,16 +200,16 @@ public class ReferenceMirrorService {
 				continue;
 			}
 			seen.add(row.id());
-			GhlReference.User held = users.findByBrandIdAndGhlId(sellingBrandId, row.id())
-					.orElseGet(() -> new GhlReference.User(sellingBrandId, row.id(), nameOf(row.name(), row.id())));
+			GhlReference.User held = users.findByBrandIdAndGhlId(sellingBrand.id(), row.id())
+					.orElseGet(() -> new GhlReference.User(sellingBrand.id(), row.id(), nameOf(row.name(), row.id())));
 			held.seen(nameOf(row.name(), row.id()), row.email());
 			users.save(held);
 			// Unit 60: the staff member with this email gets this GHL user, once (V74).
 			if (!blank(row.email())) {
-				teamMembers.linkGhlUser(sellingBrandId, row.email(), row.id());
+				teamMembers.linkGhlUser(sellingBrand.id(), row.email(), row.id());
 			}
 		}
-		stampMissing(users.findByBrandIdOrderByNameAsc(sellingBrandId), seen, users::save);
+		stampMissing(users.findByBrandIdOrderByNameAsc(sellingBrand.id()), seen, users::save);
 		return seen.size();
 	}
 
@@ -227,31 +227,31 @@ public class ReferenceMirrorService {
 	 * first booking form.
 	 */
 	public List<GhlReference.CustomField> opportunityFields() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return List.of();
 		}
-		refreshIfEmpty(() -> customFields.countByBrandIdAndModel(sellingBrandId, OPPORTUNITY_MODEL),
+		refreshIfEmpty(() -> customFields.countByBrandIdAndModel(sellingBrand.id(), OPPORTUNITY_MODEL),
 				this::refreshCustomFields);
-		return customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId, OPPORTUNITY_MODEL)
+		return customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrand.id(), OPPORTUNITY_MODEL)
 				.stream().filter(GhlReference::isLive).toList();
 	}
 
 	public List<GhlReference.Calendar> bookableCalendars() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return List.of();
 		}
-		refreshIfEmpty(() -> calendars.countByBrandId(sellingBrandId), this::refreshCalendars);
-		return calendars.findByBrandIdOrderByNameAsc(sellingBrandId).stream()
+		refreshIfEmpty(() -> calendars.countByBrandId(sellingBrand.id()), this::refreshCalendars);
+		return calendars.findByBrandIdOrderByNameAsc(sellingBrand.id()).stream()
 				.filter(GhlReference::isLive)
 				.toList();
 	}
 
 	public List<GhlReference.User> locationUsers() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return List.of();
 		}
-		refreshIfEmpty(() -> users.countByBrandId(sellingBrandId), this::refreshUsers);
-		return users.findByBrandIdOrderByNameAsc(sellingBrandId).stream()
+		refreshIfEmpty(() -> users.countByBrandId(sellingBrand.id()), this::refreshUsers);
+		return users.findByBrandIdOrderByNameAsc(sellingBrand.id()).stream()
 				.filter(GhlReference::isLive)
 				.toList();
 	}

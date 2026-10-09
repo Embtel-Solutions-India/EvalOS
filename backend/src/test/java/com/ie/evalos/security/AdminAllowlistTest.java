@@ -18,6 +18,7 @@ class AdminAllowlistTest {
 			assertThat(AdminAllowlist.allows(method, "/api/ghl/pipelines")).isTrue();
 			assertThat(AdminAllowlist.allows(method, "/api/jobs/x/run")).isTrue();
 			assertThat(AdminAllowlist.allows(method, "/api/sync/status")).isTrue();
+			assertThat(AdminAllowlist.allows(method, "/api/system/health")).isTrue();
 		}
 	}
 
@@ -39,6 +40,17 @@ class AdminAllowlistTest {
 				"/api/chat/conversations", "/api/contacts", "/api/experts", "/api/payouts", "/api/payments"}) {
 			assertThat(AdminAllowlist.allows("GET", path)).as(path).isFalse();
 		}
+	}
+
+	/** Actuator's info and metrics are the Admin's, read-only; nothing under it accepts a write. */
+	@Test
+	void diagnosticsAreGetOnly() {
+		for (String path : new String[] {"/actuator/info", "/actuator/metrics", "/actuator/metrics/jvm.memory.used"}) {
+			assertThat(AdminAllowlist.allows("GET", path)).as(path).isTrue();
+			assertThat(AdminAllowlist.allows("POST", path)).as("POST " + path).isFalse();
+		}
+		assertThat(AdminAllowlist.allows("POST", "/actuator/loggers/com.ie.evalos")).isFalse();
+		assertThat(AdminAllowlist.allows("GET", "/actuatorX")).isFalse();
 	}
 
 	@Test
