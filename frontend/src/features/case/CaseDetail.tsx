@@ -14,14 +14,12 @@ import StrategyNotes from './StrategyNotes'
 import ExpertRationale from './ExpertRationale'
 import ClientRemarks from './ClientRemarks'
 import SalesNote from './SalesNote'
-import CaseFacts from './CaseFacts'
 import Timeline from './Timeline'
 import CaseChat from './CaseChat'
 import {
   fetchCase,
   fetchTimeline,
   postNote,
-  saveIntakeFacts,
   saveStrategyNotes,
 } from './caseApi'
 
@@ -99,17 +97,6 @@ export default function CaseDetailPage() {
       // which is where the person who has to retype it is looking. `actionError` sits in the
       // sticky header at the top of the page and would be off-screen.
       await postNote(id, note)
-      await load()
-    },
-    [id, load],
-  )
-
-  const onSaveFacts = useCallback(
-    async (applicantName: string | null, rfeDate: string | null) => {
-      if (!id) return
-      // Reloaded rather than patched in place, like the notes beside it: the write appends a
-      // timeline row too, and a half-refreshed page would show the new fact above an old trail.
-      await saveIntakeFacts(id, applicantName, rfeDate)
       await load()
     },
     [id, load],
@@ -194,7 +181,6 @@ export default function CaseDetailPage() {
           <ClientRemarks detail={detail} role={me.role} />
           {/* Then what the case is about. Each note panel renders nothing for a role that may not
               read it, so the column holds only what this reader can use. */}
-          <CaseFacts detail={detail} role={me.role} onSave={onSaveFacts} />
           <SalesNote detail={detail} />
           <StrategyNotes detail={detail} onSave={onSaveNotes} />
           {/*
