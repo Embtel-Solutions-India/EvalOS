@@ -177,57 +177,36 @@ export default function CaseDetailPage() {
 
       <CaseTabs tab={tab} onChange={setTab} chatUnread={unread.total} />
 
-      {/* One section at a time. Each panel still renders nothing for a role that may not read it, so
-          a tab holds only what this reader can use; an empty one says so. */}
+      {/* Two tabs. Work is the job in hand: documents and the draft on the left, the conversation on the
+          right (stacked below `xl`). Overview is everything that describes the case. Each panel still
+          renders nothing for a role that may not read it. */}
       <div role="tabpanel" id="case-tabpanel" aria-labelledby={`case-tab-${tab}`} className="min-w-0">
+        {tab === 'work' && (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+            <div className="flex min-w-0 flex-col gap-4">
+              <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
+              <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
+            </div>
+            <div className="min-w-0">
+              <CaseChat caseId={detail.summary.id} />
+            </div>
+          </div>
+        )}
+
         {tab === 'overview' && (
-          <>
-            <div className="peer mx-auto flex max-w-4xl min-w-0 flex-col gap-4 empty:hidden">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+            <div className="flex min-w-0 flex-col gap-4">
               <ClientRemarks detail={detail} role={me.role} />
               <SalesNote detail={detail} />
               <StrategyNotes detail={detail} onSave={onSaveNotes} />
-            </div>
-            <p className="hidden text-sm peer-empty:block" style={{ color: 'var(--text-muted)' }}>
-              There are no notes or client remarks on this case that your role can read.
-            </p>
-          </>
-        )}
-
-        {tab === 'documents' && (
-          <div className="mx-auto max-w-4xl">
-            <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
-          </div>
-        )}
-
-        {tab === 'draft' && (
-          <div className="mx-auto max-w-4xl">
-            <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
-          </div>
-        )}
-
-        {tab === 'expert' && (
-          <>
-            <div className="peer mx-auto flex max-w-4xl min-w-0 flex-col gap-4 empty:hidden">
               <ExpertCard detail={detail} />
               {/* Read-only: written where the expert is chosen. A Case Manager sees the notes and not
                   this, an ENM sees this and not the notes. */}
               <ExpertRationale detail={detail} />
             </div>
-            <p className="hidden text-sm peer-empty:block" style={{ color: 'var(--text-muted)' }}>
-              No expert is on this case yet.
-            </p>
-          </>
-        )}
-
-        {tab === 'timeline' && (
-          <div className="mx-auto max-w-4xl">
-            <Timeline entries={timeline} onPostNote={onPostNote} />
-          </div>
-        )}
-
-        {tab === 'chat' && (
-          <div className="mx-auto max-w-4xl">
-            <CaseChat caseId={detail.summary.id} />
+            <div className="min-w-0">
+              <Timeline entries={timeline} onPostNote={onPostNote} />
+            </div>
           </div>
         )}
       </div>
