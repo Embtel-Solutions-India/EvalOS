@@ -172,6 +172,7 @@ export default function GmDashboard() {
             className="col-span-12 md:col-span-4"
             title="Business won"
             money
+            progress={data?.headline?.goal ? data.headline.pctToGoal : undefined}
             delta={wonChange === null ? undefined : { value: wonChange, better: "up" }}
             state={pipelineState}
             value={data?.headline ? Math.round(data.headline.won) : null}
