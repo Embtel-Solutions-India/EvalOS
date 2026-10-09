@@ -31,8 +31,12 @@
      fill of the blue accent goes muddy, and the label has to stay legible against it. */
   --sidebar-active-bg: #3c3df2;
   --sidebar-border: #bfc4ee;
-  /* The top bar: a notch lighter than the rail, so the two read as one frame around the canvas. */
-  --topbar-bg: #e1e3f9;
+  /* The frame: the rail and the top bar are one lavender surface, not two. Both paint this same gradient
+     with `background-attachment: fixed`, so it is sampled in viewport coordinates and the two can never
+     disagree about a colour — there is no seam where they meet, however the page scrolls. The content
+     canvas is inset into it with a rounded top-left corner (`--frame-radius`, cut by `TopBar`). */
+  --frame-bg: linear-gradient(120deg, #c8ccf6 0%, #d6d9f8 32%, #e4e6fa 68%, #eef0fc 100%);
+  --frame-radius: 1.75rem;
 
   /* Accent — the only decorative/brand color */
   --accent-primary: #3c3df2;

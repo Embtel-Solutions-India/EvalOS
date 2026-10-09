@@ -78,9 +78,9 @@ export default function LeftNav() {
       className="fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden"
       style={{
         width: "var(--sidebar-width)",
-        // No hard edge: the rail holds its colour, then thins toward the page over its last stretch.
-        background:
-          "linear-gradient(90deg, var(--sidebar-bg) 0%, var(--sidebar-bg) 72%, color-mix(in srgb, var(--sidebar-bg) 35%, var(--bg-base)) 100%)",
+        // The same fixed-attachment gradient the top bar paints, so the two merge without a seam.
+        background: "var(--frame-bg)",
+        backgroundAttachment: "fixed",
         color: "var(--sidebar-text)",
       }}
       aria-label="Main"

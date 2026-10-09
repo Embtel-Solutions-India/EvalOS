@@ -39,11 +39,30 @@ export default function TopBar() {
     <header
       className="sticky top-0 z-20 flex items-center gap-3"
       style={{
-        background: "var(--topbar-bg)",
+        background: "var(--frame-bg)",
+        backgroundAttachment: "fixed",
         minHeight: "var(--header-height)",
         padding: `0 var(--shell-gutter)`,
       }}
     >
+      {/* The canvas's rounded top-left corner, drawn from the frame itself: a square of the same fixed
+          gradient with a quarter circle cut out, hung under the bar's left edge. It stays put while the
+          page scrolls beneath it, which a radius on the scrolling content could not. */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute top-full left-0"
+        style={{
+          width: "var(--frame-radius)",
+          height: "var(--frame-radius)",
+          background: "var(--frame-bg)",
+          backgroundAttachment: "fixed",
+          WebkitMaskImage:
+            "radial-gradient(circle at 100% 100%, transparent calc(var(--frame-radius) - 0.5px), #000 var(--frame-radius))",
+          maskImage:
+            "radial-gradient(circle at 100% 100%, transparent calc(var(--frame-radius) - 0.5px), #000 var(--frame-radius))",
+        }}
+      />
+
       {/* The Sketch's header opens with a greeting; it goes first and yields to the controls on
           narrow screens rather than pushing them off the bar. */}
       <Greeting name={first} />
