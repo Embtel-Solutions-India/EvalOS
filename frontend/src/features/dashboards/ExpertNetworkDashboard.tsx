@@ -9,6 +9,7 @@ import {
   type ExpertNetworkMetrics,
   type ExpertNetworkWork,
 } from './pmMetricsApi'
+import { countUndated, daysSince, STALE_DAYS, staleDeals } from './dealAge'
 import { emptyWhen, useMetrics, warnWhen } from './useMetrics'
 
 /**
@@ -42,6 +43,8 @@ export default function ExpertNetworkDashboard() {
   // Unit 63: the hiring pipeline by stage, and this month's payouts — both existing reads.
   const { data: hiring, state: hiringState } = useMetrics((signal) => fetchOpportunityBoard(signal), [])
   const { data: months, state: payState } = useMetrics((signal) => fetchSummary('MONTH', signal), [])
+  const stale = staleDeals(hiring)
+  const undated = countUndated(hiring)
   const thisMonth = months?.filter((row) => row.periodStart === months[0]?.periodStart) ?? []
 
   return (
@@ -273,6 +276,30 @@ export default function ExpertNetworkDashboard() {
               <li key={column.stageId} className="flex justify-between gap-2">
                 <span className="truncate">{column.stageName}</span>
                 <span className="font-num tabular-nums">{column.deals.length}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card
+          title="Candidates gone quiet"
+          to="/hiring"
+          state={emptyWhen(
+            hiringState,
+            hiring !== null && stale.length === 0,
+            `No open candidate has been untouched for ${STALE_DAYS} days.`,
+          )}
+          note={`No change in GHL for ${STALE_DAYS}+ days, oldest first. That is last touched, not time in stage.${
+            undated > 0 ? ` ${undated} with no date are not counted.` : ''
+          }`}
+        >
+          <ul className="scroll-slim max-h-40 space-y-1 overflow-y-auto text-sm">
+            {stale.slice(0, 10).map((deal) => (
+              <li key={deal.opportunityId} className="flex justify-between gap-2">
+                <span className="truncate">{deal.name ?? 'Unnamed candidate'}</span>
+                <span className="font-num tabular-nums" style={{ color: 'var(--status-amber)' }}>
+                  {daysSince(deal.updatedAt)} d
+                </span>
               </li>
             ))}
           </ul>

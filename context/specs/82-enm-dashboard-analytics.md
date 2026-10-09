@@ -35,8 +35,8 @@ service, so no new bean). One new brand-scoped finder: `findByBrandIdAndOutcomeO
 
 ## 3. Frontend
 
-Two cards on `ExpertNetworkDashboard`, on a second independent `useMetrics` load: **Offer funnel** and **Oldest
-unanswered offers**.
+Three cards on `ExpertNetworkDashboard`, on a second independent `useMetrics` load: **Offer funnel**, **Oldest
+unanswered offers**, and (from the existing hiring board read) **Candidates gone quiet**.
 
 ## 4. Not built (and why)
 
@@ -46,7 +46,7 @@ unanswered offers**.
 | Per-expert first-pass / revision rate | needs draft rows joined to cases; same axis problem |
 | "About to time out" | offers have no timeout setting; age is shown, no threshold invented |
 | Payout aging | not built; payouts card already shows pending/processing/paid per month |
-| Hiring-stage age | GHL data, no stage-entry time held |
+| Hiring-stage age | no stage-entry time held; built instead as **Candidates gone quiet** (frontend only, reuses `dealAge`): open hiring deals with no GHL change in 7+ days, oldest first. Last touched, not time in stage |
 | Brand-wide funnel for the GM | existing limitation: no brand means no ledger read |
 
 ## 5. Verification
