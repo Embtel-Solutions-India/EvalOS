@@ -16,6 +16,9 @@ import ClientRemarks from './ClientRemarks'
 import SalesNote from './SalesNote'
 import Timeline from './Timeline'
 import CaseChat from './CaseChat'
+import CaseTabs from './CaseTabs'
+import { useCaseTab } from './useCaseTab'
+import { useCaseUnread } from './useCaseUnread'
 import {
   fetchCase,
   fetchTimeline,
@@ -36,6 +39,8 @@ import {
 export default function CaseDetailPage() {
   const { id } = useParams<{ id: string }>()
   const me = useMe()
+  const [tab, setTab] = useCaseTab()
+  const unread = useCaseUnread(id ?? '')
 
   const way = boardPathFor(me.role)
   const [pending, setPending] = useState<QuickAction | null>(null)
@@ -170,32 +175,61 @@ export default function CaseDetailPage() {
         onChanged={() => void load()}
       />
 
-      {/* Two columns from `xl` (the work, then the conversation); one column below, where two
-          would squeeze the chat and the documents side by side on a tablet. */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-4">
-          {/* The work, in the order the case moves through it: documents, draft, expert. */}
-          <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
-          <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
-          <ExpertCard detail={detail} />
-          <ClientRemarks detail={detail} role={me.role} />
-          {/* Then what the case is about. Each note panel renders nothing for a role that may not
-              read it, so the column holds only what this reader can use. */}
-          <SalesNote detail={detail} />
-          <StrategyNotes detail={detail} onSave={onSaveNotes} />
-          {/*
-            Below the notes and separate from them, which is the visible half of the decision to
-            give the rationale its own column: a Case Manager sees the notes and not this, an ENM
-            sees this and not the notes. Read-only — it is written where the expert is chosen
-            (the `expert` offer / `reassign-expert`), not in a ceremony of its own.
-          */}
-          <ExpertRationale detail={detail} />
-        </div>
+      <CaseTabs tab={tab} onChange={setTab} chatUnread={unread.total} />
 
-        <div className="flex min-w-0 flex-col gap-4">
-          <CaseChat caseId={detail.summary.id} />
-          <Timeline entries={timeline} onPostNote={onPostNote} />
-        </div>
+      {/* One section at a time. Each panel still renders nothing for a role that may not read it, so
+          a tab holds only what this reader can use; an empty one says so. */}
+      <div role="tabpanel" id="case-tabpanel" aria-labelledby={`case-tab-${tab}`} className="min-w-0">
+        {tab === 'overview' && (
+          <>
+            <div className="peer mx-auto flex max-w-4xl min-w-0 flex-col gap-4 empty:hidden">
+              <ClientRemarks detail={detail} role={me.role} />
+              <SalesNote detail={detail} />
+              <StrategyNotes detail={detail} onSave={onSaveNotes} />
+            </div>
+            <p className="hidden text-sm peer-empty:block" style={{ color: 'var(--text-muted)' }}>
+              There are no notes or client remarks on this case that your role can read.
+            </p>
+          </>
+        )}
+
+        {tab === 'documents' && (
+          <div className="mx-auto max-w-4xl">
+            <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
+          </div>
+        )}
+
+        {tab === 'draft' && (
+          <div className="mx-auto max-w-4xl">
+            <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
+          </div>
+        )}
+
+        {tab === 'expert' && (
+          <>
+            <div className="peer mx-auto flex max-w-4xl min-w-0 flex-col gap-4 empty:hidden">
+              <ExpertCard detail={detail} />
+              {/* Read-only: written where the expert is chosen. A Case Manager sees the notes and not
+                  this, an ENM sees this and not the notes. */}
+              <ExpertRationale detail={detail} />
+            </div>
+            <p className="hidden text-sm peer-empty:block" style={{ color: 'var(--text-muted)' }}>
+              No expert is on this case yet.
+            </p>
+          </>
+        )}
+
+        {tab === 'timeline' && (
+          <div className="mx-auto max-w-4xl">
+            <Timeline entries={timeline} onPostNote={onPostNote} />
+          </div>
+        )}
+
+        {tab === 'chat' && (
+          <div className="mx-auto max-w-4xl">
+            <CaseChat caseId={detail.summary.id} />
+          </div>
+        )}
       </div>
 
       {pending && (
