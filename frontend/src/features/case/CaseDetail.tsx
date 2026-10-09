@@ -155,7 +155,7 @@ export default function CaseDetailPage() {
     return (
       <div aria-busy="true" aria-label="Loading the case" className="flex flex-col gap-4">
         <div className="h-36 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <div className="h-72 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
           <div className="h-72 animate-pulse rounded-lg" style={{ background: 'var(--bg-raised)' }} />
         </div>
@@ -182,7 +182,7 @@ export default function CaseDetailPage() {
           renders nothing for a role that may not read it. */}
       <div role="tabpanel" id="case-tabpanel" aria-labelledby={`case-tab-${tab}`} className="min-w-0">
         {tab === 'work' && (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
             <div className="flex min-w-0 flex-col gap-4">
               <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
               <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
@@ -194,7 +194,7 @@ export default function CaseDetailPage() {
         )}
 
         {tab === 'overview' && (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
             <div className="flex min-w-0 flex-col gap-4">
               <ClientRemarks detail={detail} role={me.role} />
               <SalesNote detail={detail} />
