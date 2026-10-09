@@ -40,7 +40,9 @@ public class SecurityConfig {
 				.csrf(csrf -> csrf.disable())
 				.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 				.authorizeHttpRequests(auth -> auth
-						.requestMatchers("/api/auth/login", "/actuator/health").permitAll()
+						// The aggregate and the two probes (`/liveness`, `/readiness`). Anonymous callers get
+						// a bare status: `show-details` is Admin-only in application.yml.
+						.requestMatchers("/api/auth/login", "/actuator/health", "/actuator/health/**").permitAll()
 						// Inbound webhooks carry no EvalOS token: the source is a machine in
 						// another company. They are authenticated by the per-brand endpoint
 						// token in the path, resolved in WebhookGateway. Nothing here reads
@@ -57,13 +59,17 @@ public class SecurityConfig {
 						// The Admin account is default-deny (spec 78): anything it may not call is refused here, before
 						// any controller annotation is consulted.
 						.requestMatchers(AdminAllowlist::refuses).denyAll()
+						// The rest of Actuator (`info`, `metrics`) is operational diagnostics: the Admin
+						// only, never an ordinary staff role. Every other endpoint is switched off
+						// outright in application.yml, so this guards exactly two.
+						.requestMatchers("/actuator/**").hasRole("ADMIN")
 						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling
-						.authenticationEntryPoint((request, response, ex) -> apiErrors.write(
-								response, HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED",
+						.authenticationEntryPoint((request, response, ex) -> apiErrors.refuse(
+								request, response, HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED",
 								"A valid bearer token is required"))
-						.accessDeniedHandler((request, response, ex) -> apiErrors.write(
-								response, HttpStatus.FORBIDDEN, "FORBIDDEN",
+						.accessDeniedHandler((request, response, ex) -> apiErrors.refuse(
+								request, response, HttpStatus.FORBIDDEN, "FORBIDDEN",
 								"Not permitted for this role, brand, or assignment")))
 				.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)
 				.build();

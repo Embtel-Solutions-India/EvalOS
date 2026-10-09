@@ -146,7 +146,7 @@ public class OpportunityBoardService {
 	 * could not: a brand <em>slug</em> resolves too, so a shared config file is not right in one
 	 * database and silently wrong in the next.
 	 */
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	/** Where the two card fields are resolved from — one read each per board, never per card. */
 	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields;
@@ -161,7 +161,7 @@ public class OpportunityBoardService {
 		this.assignments = assignments;
 		this.customFields = customFields;
 		this.staleAfter = staleAfter;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/**
@@ -177,7 +177,7 @@ public class OpportunityBoardService {
 			// Fail closed, exactly as ScopePredicate's PIPELINE arm does: a principal with no
 			// pipeline sees an empty board, never somebody else's. One re-login fixes a token
 			// minted before V39, and that is the safe direction to be wrong in.
-			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrandId != null);
+			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrand.id() != null);
 		}
 
 		// Only the GM's board folds same-named stages together: a salesperson drags cards, and a drop onto a
@@ -286,10 +286,10 @@ public class OpportunityBoardService {
 			// The GM's (and the Admin's read-only) board is the SALES pipelines only (D19e, amended 2026-10-08): marketing funnels,
 			// Case Delivery, hiring and the Master Pipeline have their own screens. Still gated on the
 			// mirror, so a pipeline GHL stopped returning is not offered.
-			if (sellingBrandId == null) {
+			if (sellingBrand.id() == null) {
 				return List.of();
 			}
-			java.util.Set<String> sales = new java.util.HashSet<>(assignments.salesGhlIds(sellingBrandId));
+			java.util.Set<String> sales = new java.util.HashSet<>(assignments.salesGhlIds(sellingBrand.id()));
 			return mirroredPipelines.all().stream()
 					.filter(com.ie.evalos.domain.Pipeline::isLive)
 					.map(com.ie.evalos.domain.Pipeline::getGhlId)
@@ -353,8 +353,8 @@ public class OpportunityBoardService {
 		// keyed by GHL field *id*, so the two keys are turned into ids first. The read is
 		// brand-scoped to the selling brand, the only one a board draws.
 		Map<String, String> fieldIds = new java.util.HashMap<>();
-		if (sellingBrandId != null && !rows.isEmpty()) {
-			customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId,
+		if (sellingBrand.id() != null && !rows.isEmpty()) {
+			customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrand.id(),
 					ReferenceMirrorService.OPPORTUNITY_MODEL)
 					.forEach((field) -> {
 						if (field.getFieldKey() != null) fieldIds.put(field.getFieldKey(), field.getGhlId());
@@ -414,7 +414,7 @@ public class OpportunityBoardService {
 		return new Board(columns, open.size(), sum(open), lastSynced,
 				lastSynced == null
 						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,
-				sellingBrandId != null);
+				sellingBrand.id() != null);
 	}
 
 	/** Maps every stage id to the id of the column that draws it; see {@link #draw}. Static so a test can pin it. */

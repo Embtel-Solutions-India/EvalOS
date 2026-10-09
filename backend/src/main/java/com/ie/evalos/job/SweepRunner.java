@@ -5,6 +5,8 @@ import java.util.function.Supplier;
 
 import com.ie.evalos.domain.ScheduledJob;
 
+import io.micrometer.core.instrument.Metrics;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -30,6 +32,11 @@ import org.springframework.stereotype.Component;
  *
  * <p><strong>The ledger row is written before the work, not after.</strong> A row left
  * {@code RUNNING} is how a JVM killed mid-sweep announces itself, and that is worth seeing.
+ *
+ * <p>Each run and each failed item also bumps a counter ({@code evalos.jobs.runs{job,outcome}},
+ * {@code evalos.jobs.items.failed{job}}). Tagged by job type only — a dozen constants — never by the
+ * item, so a sweep failing on every case is one series, not one per case. Through Micrometer's global
+ * registry, which Boot feeds, so the many sweep tests that build this class by hand need no registry.
  */
 @Component
 public class SweepRunner {
@@ -63,31 +70,41 @@ public class SweepRunner {
 	 */
 	public <T> boolean sweep(String jobType, Supplier<List<T>> items, ItemAction<T> act) {
 		return lock.runExclusively(jobType, () -> {
-			ScheduledJob run = ledger.start(jobType);
-			int seen = 0;
-			int acted = 0;
-			try {
-				List<T> found = items.get();
-				seen = found.size();
-				for (T item : found) {
-					// Each item in its own transaction, and a thrown one is absorbed HERE so the
-					// sweep carries on — the rollback already happened inside the boundary.
-					try {
-						if (ledger.actOnOneItem(() -> act.act(item))) {
-							acted++;
-						}
-					}
-					catch (RuntimeException itemFailed) {
-						log.error("Sweep {} skipped one item and continued", jobType, itemFailed);
-					}
-				}
-				ledger.finish(run, ScheduledJob.Status.OK, seen, acted, null);
-			}
-			catch (RuntimeException failure) {
-				log.error("Sweep {} failed after seeing {} items", jobType, seen, failure);
-				ledger.finish(run, ScheduledJob.Status.FAILED, seen, acted, failure.toString());
+			// One run, one selling brand (D83): a change saved mid-run applies from the next run, never halfway.
+			try (com.ie.evalos.config.SellingBrand.Pin pin = com.ie.evalos.config.SellingBrand.pin()) {
+				runPinned(jobType, items, act);
 			}
 		});
+	}
+
+	private <T> void runPinned(String jobType, Supplier<List<T>> items, ItemAction<T> act) {
+		ScheduledJob run = ledger.start(jobType);
+		int seen = 0;
+		int acted = 0;
+		try {
+			List<T> found = items.get();
+			seen = found.size();
+			for (T item : found) {
+				// Each item in its own transaction, and a thrown one is absorbed HERE so the
+				// sweep carries on — the rollback already happened inside the boundary.
+				try {
+					if (ledger.actOnOneItem(() -> act.act(item))) {
+						acted++;
+					}
+				}
+				catch (RuntimeException itemFailed) {
+					Metrics.counter("evalos.jobs.items.failed", "job", jobType).increment();
+					log.error("Sweep {} skipped one item and continued", jobType, itemFailed);
+				}
+			}
+			ledger.finish(run, ScheduledJob.Status.OK, seen, acted, null);
+			Metrics.counter("evalos.jobs.runs", "job", jobType, "outcome", "ok").increment();
+		}
+		catch (RuntimeException failure) {
+			Metrics.counter("evalos.jobs.runs", "job", jobType, "outcome", "failed").increment();
+			log.error("Sweep {} failed after seeing {} items", jobType, seen, failure);
+			ledger.finish(run, ScheduledJob.Status.FAILED, seen, acted, failure.toString());
+		}
 	}
 
 	/** One item's work. Separated so the transaction boundary is visible at the call site. */

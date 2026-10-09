@@ -1,5 +1,8 @@
 package com.ie.evalos.integration;
 
+import com.ie.evalos.config.AppSettings;
+import com.ie.evalos.config.Setting;
+
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
@@ -7,6 +10,7 @@ import java.util.function.Function;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -82,9 +86,24 @@ public class GhlHttp {
 	/** The cap on an upstream-supplied {@code Retry-After} — a header must not park a thread pool. */
 	static final Duration MAX_BACKOFF = Duration.ofMinutes(2);
 
-	private final RestClient http;
-	private final String locationId;
-	private final boolean configured;
+	private final String baseUrl;
+	private final String apiVersion;
+	private final Duration timeout;
+	/** The environment's credential; an Administrator's saved value replaces it per call (D83). */
+	private final String envToken;
+	private final String envLocationId;
+
+	/**
+	 * The client for the token in force, rebuilt when the token changes. <strong>On this bean</strong>, never a
+	 * second one: the pacer below is per location and must stay shared by every caller.
+	 */
+	private volatile Client client;
+
+	/** Absent only in hand-built tests, which then use the environment values they passed in. */
+	private AppSettings settings;
+
+	private record Client(String token, RestClient http) {
+	}
 
 	/**
 	 * When the next request may go out. Guarded by {@code this} because the limit is per
@@ -99,10 +118,13 @@ public class GhlHttp {
 			@Value("${evalos.ghl.token:}") String token,
 			@Value("${evalos.ghl.location-id:}") String locationId,
 			@Value("${evalos.ghl.timeout}") Duration timeout) {
-		this.locationId = locationId;
-		this.configured = !token.isBlank() && !locationId.isBlank();
+		this.baseUrl = baseUrl;
+		this.apiVersion = apiVersion;
+		this.timeout = timeout;
+		this.envToken = token;
+		this.envLocationId = locationId;
 
-		if (!configured) {
+		if (token.isBlank() || locationId.isBlank()) {
 			log.warn("No GHL API token or location configured — every GHL-backed screen will "
 					+ "answer 502 and no write will leave the JVM. Set GHL_API_TOKEN and "
 					+ "GHL_LOCATION_ID to enable them.");
@@ -123,21 +145,47 @@ public class GhlHttp {
 			log.info("GHL configured: locationId={}, token length={}", locationId, token.length());
 		}
 
-		this.http = build(baseUrl, apiVersion, token, timeout);
 	}
 
-	/** The GHL sub-account every request is scoped to. One per deployment until Unit 25. */
+	@Autowired(required = false)
+	void useSettings(AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/** The GHL sub-account every request is scoped to. One per deployment until Unit 25; editable in Settings (D83). */
 	public String locationId() {
-		return locationId;
+		return AppSettings.or(settings, Setting.GHL_LOCATION_ID, envLocationId);
 	}
 
 	/** Whether a token and location are present. False means every call here answers 502. */
 	public boolean isConfigured() {
-		return configured;
+		return !token().isBlank() && !locationId().isBlank();
+	}
+
+	private String token() {
+		return AppSettings.or(settings, Setting.GHL_TOKEN, envToken);
+	}
+
+	private RestClient http() {
+		String token = token();
+		Client current = client;
+		if (current == null || !current.token().equals(token)) {
+			current = new Client(token, build(baseUrl, apiVersion, token, timeout));
+			client = current;
+		}
+		return current.http();
+	}
+
+	/** The Administrator's writes switch (D83): a paused write is retriable, so the outbox keeps it pending. */
+	private void writesAllowed() {
+		if (settings != null && !settings.enabled(Setting.GHL_WRITES_ENABLED)) {
+			throw new GhlUnavailableException("GHL writes are paused by an administrator", null, GhlFailure.PAUSED,
+					null);
+		}
 	}
 
 	public <T> T get(Class<T> type, Function<UriBuilder, URI> uri) {
-		return call(type, () -> http.get().uri(uri).retrieve().body(type));
+		return call(type, () -> http().get().uri(uri).retrieve().body(type));
 	}
 
 	/**
@@ -148,7 +196,8 @@ public class GhlHttp {
 	 * discarded the body would have written a row it cannot name.
 	 */
 	public <T> T post(Class<T> type, Function<UriBuilder, URI> uri, Object body) {
-		return call(type, () -> http.post().uri(uri).body(body).retrieve().body(type));
+		writesAllowed();
+		return call(type, () -> http().post().uri(uri).body(body).retrieve().body(type));
 	}
 
 	/**
@@ -180,13 +229,14 @@ public class GhlHttp {
 					"GhlHttp.search is for GHL's search endpoints only; " + path + " is not one. "
 							+ "A write belongs on post/put/delete, where the audit guard can see it.");
 		}
-		return call(type, () -> http.post().uri((uri) -> uri.path(path).build()).body(body)
+		return call(type, () -> http().post().uri((uri) -> uri.path(path).build()).body(body)
 				.retrieve().body(type));
 	}
 
 	/** Updates something in GHL. Same contract as {@link #post}. */
 	public <T> T put(Class<T> type, Function<UriBuilder, URI> uri, Object body) {
-		return call(type, () -> http.put().uri(uri).body(body).retrieve().body(type));
+		writesAllowed();
+		return call(type, () -> http().put().uri(uri).body(body).retrieve().body(type));
 	}
 
 	/**
@@ -197,7 +247,8 @@ public class GhlHttp {
 	 * caller that binds no payload has said it wants none.
 	 */
 	public void delete(Function<UriBuilder, URI> uri) {
-		call(Void.class, () -> http.delete().uri(uri).retrieve().body(Void.class));
+		writesAllowed();
+		call(Void.class, () -> http().delete().uri(uri).retrieve().body(Void.class));
 	}
 
 	// There is deliberately no patch(): GHL's API does not use it, and a verb no endpoint accepts
@@ -205,13 +256,14 @@ public class GhlHttp {
 	// list is closed, and GhlHttpTest fails the build on a fifth.
 
 	private <T> T call(Class<T> type, java.util.function.Supplier<T> request) {
-		if (!configured) {
+		if (!isConfigured()) {
 			// Both variable names are echoed, for the reason GoogleDriveConfig's boot message
 			// echoes its two: whoever sees this is provisioning an environment and needs to know
 			// which one to set. Neither name is a secret, and the token's *value* never appears
 			// here — it is a default header on the client and is in no message this class writes.
 			throw new GhlUnavailableException(
-					"GHL is not configured in this environment. Set GHL_API_TOKEN and GHL_LOCATION_ID.",
+					"GHL is not configured. An administrator sets the token and location in Settings, or the deployment "
+							+ "sets GHL_API_TOKEN and GHL_LOCATION_ID.",
 					null, GhlFailure.NOT_CONFIGURED, null);
 		}
 		pace();

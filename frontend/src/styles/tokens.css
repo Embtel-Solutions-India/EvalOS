@@ -121,6 +121,17 @@
   }
 }
 
+/* A phone (below Tailwind's `md`): the nav leaves the page and becomes a drawer the top bar's menu
+   button opens (AppShell), so the content gets the whole width. `--nav-width` is the drawer's own
+   width; `--sidebar-width` is what the content is offset by, and here that is nothing. */
+@media (max-width: 767px) {
+  :root {
+    --sidebar-width: 0px;
+    --nav-width: 16rem;
+    --shell-gutter: 0.875rem;
+  }
+}
+
 /* Tailwind theme: fonts and the radius scale (rounded-md/lg/xl). */
 @theme {
   /* Inter stays. It is already loaded and its tabular figures are measured rather than

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Card } from "../../components/ui/card";
 import { Pager, usePaging } from "../../components/ui/pager";
 import { useMetrics } from "../dashboards/useMetrics";
+import { RunsByDayCard } from "../admin/adminSummaries";
 import {
   fetchRuns,
   fetchSweeps,
@@ -67,7 +68,9 @@ export default function JobRunsPage() {
         </p>
       </header>
 
-      <div className="grid items-start gap-5 xl:grid-cols-2">
+      <RunsByDayCard runs={runs.data ?? undefined} state={runs.state} />
+
+      <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
         <Card
           title="Sweeps"
           state={

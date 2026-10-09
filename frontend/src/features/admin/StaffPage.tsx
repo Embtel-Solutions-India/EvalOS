@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { stateOf } from "../dashboards/useMetrics";
+import { StaffSummary } from "./adminSummaries";
 import { useState } from "react";
 import { SheetContent, SheetRoot } from "../../components/ui/dialog";
 import { useMe } from "../../lib/authContext";
@@ -71,6 +73,8 @@ export default function StaffPage() {
           Add staff
         </button>
       </header>
+
+      <StaffSummary staff={staff.data} state={stateOf(staff)} />
 
       {staff.isError && !staff.data && (
         <p className="text-sm" style={{ color: "var(--status-red)" }}>

@@ -65,13 +65,13 @@ public class ContactMirrorService {
 
 	private final GhlContactClient ghl;
 	private final ContactSnapshotService contacts;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	ContactMirrorService(GhlContactClient ghl, ContactSnapshotService contacts,
 			SellingBrand sellingBrand) {
 		this.ghl = ghl;
 		this.contacts = contacts;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/** What one pass did, for the ledger and for the log. */
@@ -94,7 +94,7 @@ public class ContactMirrorService {
 	 * FAILED ledger row that reads as though nothing happened.
 	 */
 	public Result refresh() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			log.debug("No selling brand configured; the contact mirror has nothing to attribute to");
 			return new Result(0, 0, 0, true);
 		}
@@ -124,7 +124,7 @@ public class ContactMirrorService {
 			}
 
 			for (GhlContactClient.Contact contact : page.contacts()) {
-				contacts.findOrCreate(sellingBrandId, ContactSnapshotService.Details.fromGhl(contact));
+				contacts.findOrCreate(sellingBrand.id(), ContactSnapshotService.Details.fromGhl(contact));
 				seen++;
 			}
 

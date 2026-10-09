@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+  # Test a branch before it reaches main. The deploy job below still runs only for a push to main.
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -81,6 +85,7 @@ jobs:
 
   deploy:
     name: Deploy to EC2
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - backend
       - frontend
@@ -106,6 +111,19 @@ jobs:
           docker compose --env-file ./backend/.env build frontend client expert backend
           docker compose --env-file ./backend/.env up -d frontend client expert backend
           docker compose --env-file ./backend/.env ps
+          # `up -d` returns as soon as the containers start, so a backend that fails on boot (a missing variable,
+          # a refused migration) used to report success. Wait for readiness — which also checks the database —
+          # through nginx's container, since the backend publishes no port; fail with its log if it never comes.
+          for i in $(seq 1 36); do
+            if docker compose --env-file ./backend/.env exec -T frontend                 wget -qO- http://backend:8080/actuator/health/readiness 2>/dev/null | grep -q '"UP"'; then
+              echo "Backend is ready."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Backend did not become ready within 3 minutes."
+          docker compose --env-file ./backend/.env logs --tail=120 backend
+          exit 1
           SCRIPT
 
           python3 - <<'PY'

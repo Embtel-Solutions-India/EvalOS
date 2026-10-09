@@ -247,6 +247,44 @@ class SyncOutboxServiceTest {
 	}
 
 	/**
+	 * D83: the Administrator paused GHL writes. Nothing is wrong with the row, so it stays pending — never dead —
+	 * and the drain stops rather than walking the queue to no purpose. It goes out when writes are back on.
+	 */
+	@Test
+	void pausedWritesHaltTheDrainAndKeepEveryRowPending() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		willThrow(new GhlUnavailableException("GHL writes are paused by an administrator", null, GhlFailure.PAUSED, null))
+				.given(ghl).updateOpportunity(any(), any(), any(), any(), any());
+
+		var result = service.drain();
+
+		assertThat(result.halted()).isTrue();
+		assertThat(result.dead()).isZero();
+		assertThat(entry.isPending()).isTrue();
+		// Untouched: no attempt counted, no failure recorded — a pause must not spend the row's retry budget.
+		assertThat(entry.getAttempts()).isZero();
+		assertThat(entry.getLastFailure()).isNull();
+	}
+
+	/** Switched off before the drain starts: GHL is not called at all and every row stays as it was. */
+	@Test
+	void aDrainWhileWritesAreSwitchedOffTouchesNothing() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		com.ie.evalos.config.AppSettings settings = org.mockito.Mockito.mock(com.ie.evalos.config.AppSettings.class);
+		org.mockito.BDDMockito.given(settings.enabled(com.ie.evalos.config.Setting.GHL_WRITES_ENABLED)).willReturn(false);
+		service.useSettings(settings);
+
+		var result = service.drain();
+
+		assertThat(result.halted()).isTrue();
+		assertThat(result.attempted()).isZero();
+		assertThat(entry.getAttempts()).isZero();
+		org.mockito.Mockito.verifyNoInteractions(ghl);
+	}
+
+	/**
 	 * A refusal no retry can fix is dead-lettered on the first attempt.
 	 *
 	 * <p>A malformed body sent again is still malformed. Looping on it spends budget proving that,

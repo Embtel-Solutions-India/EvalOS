@@ -97,9 +97,23 @@ public class GmOverviewService {
 	private final CaseLifecycleService lifecycle;
 	private final TeamMemberRepository teamMembers;
 	private final GhlPipelineClient ghl;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 	private final BigDecimal monthlyGoal;
 	private final int wonLookbackDays;
+
+	/** Absent only in hand-built tests, which keep the value they were given. */
+	private com.ie.evalos.config.AppSettings settings;
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(com.ie.evalos.config.AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/** The Administrator's value from Settings when saved (D83), else the configured one. */
+	private int wonLookbackDays() {
+		return com.ie.evalos.config.AppSettings.intOr(settings, com.ie.evalos.config.Setting.WON_LOOKBACK_DAYS, this.wonLookbackDays);
+	}
+
 	private final JdbcTemplate jdbc;
 	private final TeamMemberPipelineRepository assignments;
 	private final OpportunityMirrorService mirror;
@@ -117,7 +131,7 @@ public class GmOverviewService {
 		this.ghl = ghl;
 		this.monthlyGoal = monthlyGoal;
 		this.wonLookbackDays = wonLookbackDays;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	// --- the payload ---------------------------------------------------------
@@ -249,7 +263,7 @@ public class GmOverviewService {
 		LocalDate previousFrom = from.minusDays(span);
 		int bucketDays = (int) Math.ceil(span / (double) TREND_BUCKETS);
 		int buckets = (int) Math.ceil(span / (double) bucketDays);
-		boolean comparable = span <= wonLookbackDays;
+		boolean comparable = span <= wonLookbackDays();
 		int[] trendLeads = new int[buckets];
 		int[] trendPreviousLeads = new int[buckets];
 		BigDecimal[] trendWon = new BigDecimal[buckets];
@@ -263,14 +277,14 @@ public class GmOverviewService {
 		String leadSourceFieldId = jdbc.query(
 				"SELECT ghl_id FROM ghl_custom_field WHERE brand_id = ? AND model = 'opportunity' "
 						+ "AND field_key = 'opportunity.lead_source'",
-				(rs, row) -> rs.getString(1), sellingBrandId).stream().findFirst().orElse(null);
+				(rs, row) -> rs.getString(1), sellingBrand.id()).stream().findFirst().orElse(null);
 
 		// The mirror holds the contact's source for a deal GHL has none for (OpportunityMirrorService
 		// takes it as the deal arrives), and this reads GHL live, so it asks the mirror too.
 		Map<String, String> mirrored = new java.util.HashMap<>();
 		jdbc.query("SELECT ghl_id, source FROM opportunity WHERE brand_id = ? AND ghl_id IS NOT NULL "
 				+ "AND btrim(coalesce(source, '')) <> ''",
-				(rs, row) -> mirrored.put(rs.getString(1), rs.getString(2)), sellingBrandId);
+				(rs, row) -> mirrored.put(rs.getString(1), rs.getString(2)), sellingBrand.id());
 
 		List<SourceRow> bySource = new ArrayList<>();
 		Map<String, SourceRow> sourceTotals = new LinkedHashMap<>();
@@ -299,7 +313,7 @@ public class GmOverviewService {
 			// Wins are read over a wider created-window and bucketed here: GHL's date filter is on
 			// createdAt, so a deal opened before this month and won inside it is invisible to the
 			// query above. See GhlPipelineClient.opportunitiesIn(.., status).
-				wins.addAll(ghl.opportunitiesIn(pipelineId, from.minusDays(wonLookbackDays), to, WON));
+				wins.addAll(ghl.opportunitiesIn(pipelineId, from.minusDays(wonLookbackDays()), to, WON));
 			}
 
 			int deskNew = created.size();
@@ -440,12 +454,12 @@ public class GmOverviewService {
 	 * ones that can have one.
 	 */
 	private List<TeamMember> desks() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return List.of();
 		}
 		List<TeamMember> all = new ArrayList<>();
-		all.addAll(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, sellingBrandId));
-		all.addAll(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, sellingBrandId));
+		all.addAll(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, sellingBrand.id()));
+		all.addAll(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, sellingBrand.id()));
 		return all.stream().filter((member) -> !assignments.ghlIdsFor(member.getId()).isEmpty()).toList();
 	}
 
@@ -465,11 +479,11 @@ public class GmOverviewService {
 
 	/** The newest target the GM set for this month, else {@code SALES_MONTHLY_GOAL}. */
 	BigDecimal goalFor(LocalDate month) {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return monthlyGoal;
 		}
 		return jdbc.query("SELECT amount FROM sales_monthly_goal WHERE brand_id = ? AND month = ? "
-				+ "ORDER BY set_at DESC LIMIT 1", (rs, n) -> rs.getBigDecimal(1), sellingBrandId, month)
+				+ "ORDER BY set_at DESC LIMIT 1", (rs, n) -> rs.getBigDecimal(1), sellingBrand.id(), month)
 				.stream().findFirst().orElse(monthlyGoal);
 	}
 
@@ -479,14 +493,14 @@ public class GmOverviewService {
 	 */
 	@Transactional
 	public void setGoal(LocalDate month, BigDecimal amount, UUID setBy) {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			throw new InvalidRequestException("No selling brand is configured (evalos.ghl.sales-brand)");
 		}
 		if (amount == null || amount.signum() < 0) {
 			throw new InvalidRequestException("A monthly target is zero or more");
 		}
 		jdbc.update("INSERT INTO sales_monthly_goal (brand_id, month, amount, set_by) VALUES (?, ?, ?, ?)",
-				sellingBrandId, month.withDayOfMonth(1), amount, setBy);
+				sellingBrand.id(), month.withDayOfMonth(1), amount, setBy);
 	}
 
 	private static Integer deltaPct(BigDecimal previous, BigDecimal current, int previousDeals) {

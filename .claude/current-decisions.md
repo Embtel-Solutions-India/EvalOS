@@ -25,8 +25,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D3e.** **Mail leaves over SMTP, and the provider is configuration — never a class**
   (rewritten 2026-09-18). `SmtpMailTransport` is the only `MailTransport` there is; which provider
   carries the mail is `spring.mail.host/port/username/password` plus `EVALOS_MAIL_FROM`, so moving
-  between Brevo, Resend, Mailgun, Postmark or SES is **four environment variables and a restart,
-  with no build**. The per-provider settings are tabulated over `spring.mail` in `application.yml`,
+  between Brevo, Resend, Mailgun, Postmark or SES is **four values and no build** — set in the
+  environment, or **since 2026-10-10 by the Administrator in Settings with no restart** (D83; an app-saved
+  value wins over the env var). The per-provider settings are tabulated over `spring.mail` in `application.yml`,
   because the username is not the account email on most of them and a wrong one fails as a 535 that
   reads like a wrong password. **This replaced two vendor-specific transports in a year**: `ghl`
   (deleted 2026-09-16 — it addressed a `contactId`, which is what forced D3d's contact-at-sign-up)
@@ -361,8 +362,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   expires; a role or brand change still waits for the next sign-in. The GM cannot deactivate
   themselves or change their own role; a desk holding pipeline grants keeps its role and brand
   until they are revoked. Pipelines (purpose, D61's screen), sync health (read-only, D43) and the
-  brands (read-only — a brand carries the webhook secret, so it changes by migration) have GM
-  screens too.
+  brands have GM screens too. **Brands: name, currency and payout term days are editable by the
+  Administrator since 2026-10-10 (D83)**; creating a brand and its webhook token / signing secret stay
+  migration-only and are never shown.
 
 ## Data
 
@@ -593,10 +595,17 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `anyRequest().authenticated()`: an Admin request not on the list is 403 whatever the controller's
   `@PreAuthorize` says. This is not optional — many staff endpoints (case list/read/documents, timeline, chat)
   carry no `@PreAuthorize` and rely on tier scoping, so `Tier.ALL` alone would have exposed every client.
-  The Admin's `/dashboard` is its own overview (`AdminDashboard`), not the GM's, because the GM overview
-  reads revenue, which is gated to whoever may see a deal value. Only an Admin creates an Admin; the first
-  comes from the seed (`V916` local, `V961` prod from the `admin-password-hash` / `admin-email` placeholders,
-  `V954` testprod). **Prod must hold an Admin before this ships**, or nobody can add staff.
+  The Admin's `/dashboard` is not the GM's, because the GM overview reads revenue, which is gated to whoever
+  may see a deal value. **It is System health** (2026-10-10, D82, spec 84); the staff, pipeline, sync and job
+  figures the old `AdminDashboard` carried sit at the top of the Staff, Pipelines, Sync health and Background
+  jobs screens (`adminSummaries.tsx`), and `AdminDashboard` is deleted. Only an Admin creates an Admin; the first
+  comes from the seed (`V916` local, `V954` testprod; prod: `V960_1` then `V961`, from the `admin-password-hash` /
+  `admin-email` placeholders, i.e. `ADMIN_PASSWORD_HASH` / `ADMIN_EMAIL`, no defaults). **Prod must hold an Admin
+  before this ships**, or nobody can add staff. **The prod seed never changes an existing account** (2026-10-10):
+  the Administrator at `ADMIN_EMAIL` is left exactly as stored (hash, active flag, everything), it is created only
+  when no Administrator exists at all, and an `ADMIN_EMAIL` that belongs to a non-admin, differs from an existing
+  row only in case or spacing, or comes with a non-BCrypt "hash" **stops the migration** with the reason rather
+  than promoting, duplicating or storing a password. Pinned by `AdminSeedTest`.
 
 - **D79.** **A "blocked" case is one whose `exception_state` is not `NONE`** (2026-10-09, spec 79, was Q20). On hold
   awaiting client, expert declined / rematching, refund requested — the only recorded off-path states. Missing
@@ -606,3 +615,31 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   Final QC action — a separate decision, not part of UI work.
 - **D81.** **"Cases requiring reassignment" is shown only as blocked cases in `EXPERT_DECLINED_REMATCHING`** (2026-10-09,
   spec 79, was Q22). No other reassignment state exists and none is invented.
+- **D82.** **Production monitoring is Actuator + Micrometer, in-process, Admin-only** (2026-10-10). Every Actuator
+  endpoint is switched off (`management.endpoints.access.default: none`) except `health`, `info` and `metrics`.
+  `/actuator/health` and its `/liveness` and `/readiness` probes are permitAll and answer a bare status; component
+  detail is the Admin's (`show-details: when-authorized`, role ADMIN; the `local` profile alone shows it to anyone).
+  `info` and `metrics` are Admin-only and GET-only (`SecurityConfig` + `AdminAllowlist`). `env`, `configprops`,
+  `beans`, `mappings`, `heapdump`, `threaddump` and `loggers` do not exist, so no log level changes at runtime.
+  **Readiness includes the database; liveness includes nothing external**: a DB outage takes the instance out of
+  rotation, it does not get it restarted. SMTP, S3, GHL, Ably and push are in neither probe — each degrades on its
+  own by design. **It is current state, not history or alerting**: there is no scraper, time-series store or alert
+  rule, and none is added without a decision (Prometheus/Grafana would be the free route). Custom meters are
+  bounded: `evalos.jobs.runs{job,outcome}`, `evalos.jobs.items.failed{job}`, `evalos.auth.login{outcome}` —
+  never a case, client, member or email as a tag. Logs carry `[profile] [requestId]` on every line
+  (`RequestIdFilter`, `X-Request-Id` in and out), log refusals (401 INFO, 403 WARN), sign-in outcomes and every
+  audit event by id, and never a password, hash, token, cookie, email or snapshot (an address a line genuinely needs is masked by `LogSafe.email`, `a***@domain`). **The Admin reads it on their dashboard** (`/dashboard` renders `SystemHealthPage`, spec 84) through
+  `GET /api/system/health` — an `/api` Admin area, so it reaches the browser through nginx while `/actuator`
+  stays off the public host. Its charts are the page's own reads, not stored history. A pending-QC gauge was not
+  added: the PM dashboard already shows that scoped by brand, and a gauge with no scraper has no history.
+- **D83.** **The Administrator edits integration settings, brand details and two switches in the app** (2026-10-10,
+  spec 85). SMTP (host, port, username, password, from), GHL (Private Integration Token, location id, opportunity
+  correlation field), the selling brand and three business targets (cases per CM, onboarding target, won
+  lookback) are stored in `app_setting` and **an app-saved value wins over the env var**; reset deletes it and the
+  env var applies again. Changes take effect on the next use, **no restart**. Secrets are AES-GCM ciphertext
+  (`EVALOS_FIELD_KEY`) and **no response ever carries one**, not even masked; audit rows record set/cleared only.
+  Two switches: **outbound email off** (the existing `MAIL_UNAVAILABLE` path) and **GHL writes off** (`PAUSED`: the
+  outbox drain touches no row while paused — no attempt counted — and drains when switched on; reads continue). Brand name, currency and
+  payout term days are editable (D72 edited). **Never in the app:** `JWT_SECRET`, `EVALOS_FIELD_KEY`, DB
+  credentials, the Admin seed variables, `EVALOS_GHL_WRITE_MODE`, S3, Ably, VAPID, portal origins/brands, job
+  intervals, a brand's webhook token/secret. Still one GHL location per deployment (Unit 25 unchanged).

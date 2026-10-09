@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useState } from "react";
 
 /**
@@ -21,10 +21,19 @@ export function usePaging<T>(items: readonly T[], size: number) {
   };
 }
 
-/** "1–10 of 42" with previous / next. Renders nothing for a list that fits one page. */
+/**
+ * "1–10 of 42", the page, and first / previous / next / last. Works over a server page too: pass the server's
+ * total and the page size it was asked for.
+ *
+ * <p>By default it renders nothing for a list that fits one page. A screen whose reader chooses the page size
+ * (`sizes`) shows it always — the size control is how a short list becomes a paged one, so hiding it would hide
+ * the way in.
+ */
 export function Pager({
   paging,
   noun = "rows",
+  sizes,
+  onSizeChange,
 }: {
   paging: {
     page: number;
@@ -34,22 +43,22 @@ export function Pager({
     setPage: (page: number) => void;
   };
   noun?: string;
+  /** Page sizes offered; with `onSizeChange`, adds a "Rows per page" select and keeps the pager always visible. */
+  sizes?: number[];
+  onSizeChange?: (size: number) => void;
 }) {
-  if (paging.total <= paging.size) return null;
-  const from = paging.page * paging.size + 1;
-  const to = Math.min(from + paging.size - 1, paging.total);
-  const step = (
-    label: string,
-    to: number,
-    disabled: boolean,
-    icon: React.ReactNode,
-  ) => (
+  const choosesSize = sizes !== undefined && onSizeChange !== undefined;
+  if (!choosesSize && paging.total <= paging.size) return null;
+  const from = paging.total === 0 ? 0 : paging.page * paging.size + 1;
+  const to = Math.min(paging.page * paging.size + paging.size, paging.total);
+  const last = Math.max(paging.pages - 1, 0);
+  const step = (label: string, target: number, disabled: boolean, icon: React.ReactNode) => (
     <button
       type="button"
       aria-label={label}
       title={label}
       disabled={disabled}
-      onClick={() => paging.setPage(to)}
+      onClick={() => paging.setPage(target)}
       className="grid h-8 w-8 place-items-center rounded-full disabled:opacity-40"
       style={{ background: "var(--bg-raised)", color: "var(--text-muted)" }}
     >
@@ -59,28 +68,39 @@ export function Pager({
   return (
     <nav
       aria-label={`Paging ${noun}`}
-      className="mt-3 flex items-center justify-between gap-3 text-xs"
+      className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs"
       style={{ color: "var(--text-muted)" }}
     >
-      <span className="font-num tabular-nums">
-        {from}–{to} of {paging.total} {noun}
+      <span className="flex flex-wrap items-center gap-3">
+        <span className="font-num tabular-nums">
+          {from}–{to} of {paging.total} {noun}
+        </span>
+        {choosesSize && (
+          <label className="flex items-center gap-1.5">
+            Rows per page
+            <select
+              className="rounded-md border px-1.5 py-1 text-xs"
+              style={{ borderColor: "var(--border-default)", background: "var(--bg-surface)", color: "var(--text-primary)" }}
+              value={paging.size}
+              onChange={(event) => onSizeChange(Number(event.target.value))}
+            >
+              {sizes.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </span>
       <span className="flex items-center gap-2">
         <span className="font-num tabular-nums">
-          Page {paging.page + 1} of {paging.pages}
+          Page {paging.page + 1} of {Math.max(paging.pages, 1)}
         </span>
-        {step(
-          "Previous page",
-          paging.page - 1,
-          paging.page === 0,
-          <ChevronLeft className="h-4 w-4" aria-hidden />,
-        )}
-        {step(
-          "Next page",
-          paging.page + 1,
-          paging.page >= paging.pages - 1,
-          <ChevronRight className="h-4 w-4" aria-hidden />,
-        )}
+        {step("First page", 0, paging.page === 0, <ChevronsLeft className="h-4 w-4" aria-hidden />)}
+        {step("Previous page", paging.page - 1, paging.page === 0, <ChevronLeft className="h-4 w-4" aria-hidden />)}
+        {step("Next page", paging.page + 1, paging.page >= last, <ChevronRight className="h-4 w-4" aria-hidden />)}
+        {step("Last page", last, paging.page >= last, <ChevronsRight className="h-4 w-4" aria-hidden />)}
       </span>
     </nav>
   );

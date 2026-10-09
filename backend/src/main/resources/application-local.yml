@@ -44,6 +44,17 @@ spring:
     # deleted, so a missing one there is a real defect and must stop the boot.
     ignore-migration-patterns: "*:missing"
 
+logging:
+  level:
+    com.ie.evalos: DEBUG
+
+management:
+  endpoint:
+    health:
+      # A laptop: the DB and disk detail without needing an Admin token. Never in a deployed profile.
+      show-details: always
+      show-components: always
+
 evalos:
   security:
     jwt:

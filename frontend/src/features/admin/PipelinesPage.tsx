@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { stateOf } from "../dashboards/useMetrics";
+import { PipelineSummary } from "./adminSummaries";
 import { useState } from "react";
 import { PURPOSES, fetchPipelines, setPurpose } from "./adminApi";
 
@@ -37,6 +39,7 @@ export default function PipelinesPage() {
           manager, one by one, on the Staff screen.
         </p>
       </header>
+      <PipelineSummary pipelines={query.data} state={stateOf(query)} />
       {failure && (
         <p
           className="text-sm"

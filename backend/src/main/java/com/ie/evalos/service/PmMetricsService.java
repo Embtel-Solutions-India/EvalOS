@@ -49,6 +49,20 @@ public class PmMetricsService {
 	private final BusinessCalendar calendar;
 	private final int casesPerCm;
 
+	/** Absent only in hand-built tests, which keep the value they were given. */
+	private com.ie.evalos.config.AppSettings settings;
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(com.ie.evalos.config.AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/** The Administrator's value from Settings when saved (D83), else the configured one. */
+	private int casesPerCm() {
+		return com.ie.evalos.config.AppSettings.intOr(settings, com.ie.evalos.config.Setting.CASES_PER_CM, this.casesPerCm);
+	}
+
+
 	PmMetricsService(CaseLifecycleService lifecycle, TeamMemberQueryService members,
 			DeadlineRiskCalculator deadlines, BusinessCalendar calendar,
 			@Value("${evalos.workload.cases-per-cm}") int casesPerCm) {
@@ -283,7 +297,7 @@ public class PmMetricsService {
 		}
 		return counts.entrySet().stream()
 				.map(entry -> new CmWorkload(entry.getKey(), name(names, entry.getKey()),
-						entry.getValue()[0], entry.getValue()[1], casesPerCm))
+						entry.getValue()[0], entry.getValue()[1], casesPerCm()))
 				.sorted(Comparator.comparing(CmWorkload::name))
 				.toList();
 	}

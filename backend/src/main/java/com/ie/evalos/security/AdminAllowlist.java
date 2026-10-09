@@ -19,7 +19,7 @@ import com.ie.evalos.domain.Role;
  * inverted: an Admin request is refused unless it is on this list, whatever the controller says, so a
  * new endpoint is closed to the Admin until someone opens it deliberately.
  *
- * <p><strong>The one exception is the four admin areas, which are open by prefix</strong> ({@link #ADMIN_AREAS}).
+ * <p><strong>The one exception is the six admin areas, which are open by prefix</strong> ({@link #ADMIN_AREAS}).
  * A new endpoint under one of them is reachable by the Admin whatever its own annotation says, so every
  * handler there must carry its own {@code @PreAuthorize}; {@code AdminAreasPreAuthorizeTest} fails the build
  * if one does not.
@@ -29,8 +29,9 @@ import com.ie.evalos.domain.Role;
  */
 final class AdminAllowlist {
 
-	/** The admin functions themselves: staff and their pipelines, GHL pipelines and purpose, jobs, sync. */
-	static final Set<String> ADMIN_AREAS = Set.of("/api/team-members", "/api/ghl", "/api/jobs", "/api/sync");
+	/** The admin functions themselves: staff and their pipelines, GHL pipelines and purpose, jobs, sync, system health, settings. */
+	static final Set<String> ADMIN_AREAS = Set.of("/api/team-members", "/api/ghl", "/api/jobs", "/api/sync",
+			"/api/system", "/api/settings");
 
 	/** The Admin's own notifications; scoped to the recipient by the controller. */
 	private static final String NOTIFICATIONS = "/api/notifications";
@@ -39,6 +40,9 @@ final class AdminAllowlist {
 	private static final Set<String> READ_ONLY = Set.of(
 			"/api/me", "/api/brands", "/api/sales/users", "/api/metrics/gm", "/api/metrics/journey",
 			"/api/cases/board", "/api/opportunities/board");
+
+	/** Actuator's info and metrics (health is permitAll ahead of this list). Read-only, like everything Actuator has on. */
+	private static final String DIAGNOSTICS = "/actuator";
 
 	private AdminAllowlist() {
 	}
@@ -62,7 +66,11 @@ final class AdminAllowlist {
 		if (within(path, NOTIFICATIONS)) {
 			return true;
 		}
-		return "GET".equalsIgnoreCase(method) && READ_ONLY.contains(path);
+		// A brand's details (D83): the edit is the Admin's; the controller gates it to ADMIN as well.
+		if ("PUT".equalsIgnoreCase(method) && path.startsWith("/api/brands/") && path.indexOf('/', "/api/brands/".length()) < 0) {
+			return true;
+		}
+		return "GET".equalsIgnoreCase(method) && (READ_ONLY.contains(path) || within(path, DIAGNOSTICS));
 	}
 
 	/** {@code path} is the area itself or beneath it — on a segment boundary, so {@code /api/jobsX} is not. */
