@@ -476,7 +476,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   {
     path: "/payouts/pay",
-    label: "Payment batch",
+    label: "Weekly Payouts",
     roles: PAYOUT_ROLES,
     becomes: "Weekly payout batch",
     group: "Payouts",

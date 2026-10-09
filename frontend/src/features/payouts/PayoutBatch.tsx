@@ -97,7 +97,7 @@ export default function PayoutBatch() {
             className="text-[11px] font-semibold tracking-[0.08em] uppercase"
             style={MUTED}
           >
-            Payment batch
+            Weekly Payouts
           </p>
           <h1 className="mt-1 text-xl font-semibold tracking-tight">
             {view ? weekLabel(view.weekStart, view.weekEnd) : "Weekly payouts"}

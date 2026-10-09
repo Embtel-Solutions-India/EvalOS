@@ -296,8 +296,6 @@ export default function ExpertNetworkDashboard() {
             ))}
           </ul>
         </Card>
-
-        <Card title="Response time" state={{ kind: 'unavailable', blockedBy: 'Unit 15' }} />
       </div>
     </section>
   )
