@@ -178,7 +178,10 @@ expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`
 ## Deployment
 
 `docker-compose.yml`: postgres 16 + backend (Spring, `prod,testprod`) + frontend (nginx, 80/443).
-The backend now receives `ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH` (required by the prod profile on every boot; it
+**CI (2026-10-10):** tests also run on pull requests to `main`; the deploy job runs only on a push to `main`, and
+after `docker compose up -d` it **waits up to 3 minutes for `/actuator/health/readiness` = UP** (through the frontend
+container's `wget`) and fails with the backend's log otherwise — before this, a backend that died on boot reported a
+successful deploy. The backend now receives `ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH` (required by the prod profile on every boot; it
 failed on the unresolved placeholder without them). **nginx proxies only `/api/`**, so `/actuator` is reachable
 only on the compose network (`backend:8080`) — a probe or scraper runs there, not through the public host.
 CI (`.github/workflows/ci.yml`) runs on push to **`main` only**: backend tests, frontend

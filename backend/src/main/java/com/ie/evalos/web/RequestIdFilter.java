@@ -9,6 +9,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import com.ie.evalos.config.SellingBrand;
+
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -44,7 +46,8 @@ public class RequestIdFilter extends OncePerRequestFilter {
 		String id = presented != null && SAFE.matcher(presented).matches() ? presented : UUID.randomUUID().toString();
 		MDC.put(MDC_KEY, id);
 		response.setHeader(HEADER, id);
-		try {
+		// One request, one selling brand, however many services ask (D83: the Administrator can change it live).
+		try (SellingBrand.Pin pin = SellingBrand.pin()) {
 			chain.doFilter(request, response);
 		}
 		finally {

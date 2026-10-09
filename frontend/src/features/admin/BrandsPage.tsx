@@ -88,10 +88,16 @@ function BrandSheet({ brand, onClose, onDone }: { brand: Brand; onClose: () => v
   const [failure, setFailure] = useState<string | null>(null)
 
   const save = async () => {
+    // A cleared box is not a 0-day term: `Number('')` is 0 and would be saved without a word.
+    const term = days.trim() === '' ? NaN : Number(days)
+    if (!Number.isInteger(term) || term < 0 || term > 365) {
+      setFailure('The payout term is a whole number of days between 0 and 365')
+      return
+    }
     setBusy(true)
     setFailure(null)
     try {
-      await updateBrand(brand.id, { name, currency: currency.trim() || null, payoutTermDays: Number(days) })
+      await updateBrand(brand.id, { name, currency: currency.trim() || null, payoutTermDays: term })
       onDone()
     } catch (error: unknown) {
       setFailure(error instanceof Error ? error.message : 'The brand was not saved')

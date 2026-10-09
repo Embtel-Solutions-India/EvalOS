@@ -26,6 +26,12 @@ DECLARE
     configured text := lower(trim('${admin-email}'));
     matches    int;
 BEGIN
+    -- V961 inserts the value exactly as given and conflicts only on an exact match, so a padded address (a stray
+    -- space or newline in an .env file is common) would become a second login beside the one inserted below.
+    IF '${admin-email}' <> btrim('${admin-email}', E' \t\r\n') THEN
+        RAISE EXCEPTION 'Admin seed refused: ADMIN_EMAIL has a leading or trailing space or newline. Remove it.';
+    END IF;
+
     SELECT count(*) INTO matches FROM team_member WHERE lower(trim(email)) = configured;
 
     IF matches > 1 THEN
@@ -50,7 +56,7 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM team_member WHERE role = 'ADMIN') THEN
         INSERT INTO team_member (id, brand_id, team_id, role, email, password_hash, display_name, reports_to, active)
-        VALUES (gen_random_uuid(), NULL, NULL, 'ADMIN', trim('${admin-email}'), '${admin-password-hash}',
+        VALUES (gen_random_uuid(), NULL, NULL, 'ADMIN', '${admin-email}', '${admin-password-hash}',
                 'Administrator', NULL, true);
     END IF;
 END

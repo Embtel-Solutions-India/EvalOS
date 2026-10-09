@@ -111,7 +111,7 @@ public class GmOverviewService {
 
 	/** The Administrator's value from Settings when saved (D83), else the configured one. */
 	private int wonLookbackDays() {
-		return settings == null ? this.wonLookbackDays : settings.app(com.ie.evalos.config.Setting.WON_LOOKBACK_DAYS).map(Integer::parseInt).orElse(this.wonLookbackDays);
+		return com.ie.evalos.config.AppSettings.intOr(settings, com.ie.evalos.config.Setting.WON_LOOKBACK_DAYS, this.wonLookbackDays);
 	}
 
 	private final JdbcTemplate jdbc;

@@ -91,7 +91,7 @@ public class SettingsAdminService {
 	 * is validated before any is saved, so a bad port does not leave half a relay changed.
 	 */
 	@Transactional
-	public List<View> update(Map<String, String> changes) {
+	public void update(Map<String, String> changes) {
 		Map<Setting, String> valid = new LinkedHashMap<>();
 		for (Map.Entry<String, String> change : changes.entrySet()) {
 			Setting setting = known(change.getKey());
@@ -110,7 +110,6 @@ public class SettingsAdminService {
 			audit.recordEvent(OBJECT_TYPE, idOf(setting), AuditAction.UPDATED, me, before,
 					snapshot(setting, change.getValue()));
 		}
-		return list();
 	}
 
 	/** Sends one test mail to the signed-in Administrator's own address (invariant 14, amended for exactly this). */

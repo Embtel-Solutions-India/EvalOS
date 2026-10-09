@@ -59,7 +59,7 @@ public class PmMetricsService {
 
 	/** The Administrator's value from Settings when saved (D83), else the configured one. */
 	private int casesPerCm() {
-		return settings == null ? this.casesPerCm : settings.app(com.ie.evalos.config.Setting.CASES_PER_CM).map(Integer::parseInt).orElse(this.casesPerCm);
+		return com.ie.evalos.config.AppSettings.intOr(settings, com.ie.evalos.config.Setting.CASES_PER_CM, this.casesPerCm);
 	}
 
 

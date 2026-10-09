@@ -151,6 +151,17 @@ class AdminSeedTest {
 				.rootCause().hasMessageContaining("matches 2 accounts");
 	}
 
+	/** V961 matches exactly, so a padded address would otherwise end as a second login beside the guard's own. */
+	@Test
+	void aPaddedAddressIsRefusedRatherThanSeededTwice() {
+		jdbc.update("update team_member set role = 'GM' where role = 'ADMIN'");
+
+		for (String padded : new String[] {unusedEmail() + " ", unusedEmail() + "\n", " " + unusedEmail()}) {
+			assertThatThrownBy(() -> seed(padded, encoder.encode("Admin-Passw0rd"))).as(padded)
+					.rootCause().hasMessageContaining("leading or trailing space");
+		}
+	}
+
 	@Test
 	void aPasswordInPlaceOfAHashIsRefusedBeforeAnythingIsStored() {
 		jdbc.update("update team_member set role = 'GM' where role = 'ADMIN'");

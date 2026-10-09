@@ -51,11 +51,39 @@ public class SellingBrand {
 	/** Absent for hand-built instances, which keep the id they were given. */
 	private AppSettings settings;
 
-	/** The last Administrator-saved value resolved, so a slug costs one query per change, not per call. */
+	/** The last Administrator-saved value resolved, re-checked after {@link #RECHECK_MS} in case the brand changed. */
 	private volatile Saved saved;
 
-	private record Saved(String raw, UUID id) {
+	private record Saved(String raw, UUID id, long resolvedAt) {
 	}
+
+	static final long RECHECK_MS = 60_000;
+
+	/**
+	 * One operation, one brand. A request or a sweep run resolves the brand on its first {@link #id()} and keeps
+	 * that answer to the end, so an Administrator changing it mid-run cannot split one mirror pass across two
+	 * brands. Entered by {@code RequestIdFilter} (every request) and {@code SweepRunner} (every sweep run).
+	 */
+	private static final ThreadLocal<UUID[]> PINNED = new ThreadLocal<>();
+
+	/** An open pin; closing it ends the operation. Throws nothing, so it sits in a plain try-with-resources. */
+	public interface Pin extends AutoCloseable {
+		@Override
+		void close();
+	}
+
+	/** Opens a pin for the current thread; a no-op when one is already open (nested), so only the outermost closes it. */
+	public static Pin pin() {
+		if (PINNED.get() != null) {
+			return () -> {
+			};
+		}
+		PINNED.set(new UUID[1]);
+		return PINNED::remove;
+	}
+
+	/** Marks "resolved to null" inside a pin, distinct from "not yet resolved". */
+	private static final UUID NONE = new UUID(0, 0);
 
 	@org.springframework.beans.factory.annotation.Autowired
 	SellingBrand(@Value("${evalos.ghl.sales-brand:}") String configured, BrandRepository brands) {
@@ -101,6 +129,18 @@ public class SellingBrand {
 
 	/** The brand that owns the GHL location, or <strong>null when none is configured</strong>. */
 	public UUID id() {
+		UUID[] pin = PINNED.get();
+		if (pin == null) {
+			return effective();
+		}
+		if (pin[0] == null) {
+			UUID resolved = effective();
+			pin[0] = resolved == null ? NONE : resolved;
+		}
+		return pin[0] == NONE ? null : pin[0];
+	}
+
+	private UUID effective() {
 		if (settings == null || brands == null) {
 			return id;
 		}
@@ -115,21 +155,23 @@ public class SellingBrand {
 	 */
 	private UUID resolveSaved(String raw) {
 		Saved current = saved;
-		if (current != null && current.raw().equals(raw)) {
+		long now = System.currentTimeMillis();
+		if (current != null && current.raw().equals(raw) && now - current.resolvedAt() < RECHECK_MS) {
 			return current.id();
 		}
 		UUID found;
 		try {
-			found = UUID.fromString(raw);
+			UUID asId = UUID.fromString(raw);
+			found = brands.existsById(asId) ? asId : null;
 		}
 		catch (IllegalArgumentException notAUuid) {
 			found = brands.findBySlug(raw).map(Brand::getId).orElse(null);
-			if (found == null) {
-				log.warn("The selling brand saved in Settings (\"{}\") names no brand; the GHL sync is off until it is fixed",
-						raw);
-			}
 		}
-		saved = new Saved(raw, found);
+		if (found == null) {
+			log.warn("The selling brand saved in Settings (\"{}\") names no brand; the GHL sync is off until it is fixed",
+					raw);
+		}
+		saved = new Saved(raw, found, now);
 		return found;
 	}
 

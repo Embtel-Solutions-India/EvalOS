@@ -96,7 +96,7 @@ public class SyncOutboxService {
 
 	/** The Administrator's value from Settings when saved (D83), else the configured one. */
 	private String correlationFieldId() {
-		return settings == null ? this.correlationFieldId : settings.app(com.ie.evalos.config.Setting.GHL_CORRELATION_FIELD).map(String::trim).orElse(this.correlationFieldId);
+		return com.ie.evalos.config.AppSettings.or(settings, com.ie.evalos.config.Setting.GHL_CORRELATION_FIELD, this.correlationFieldId);
 	}
 
 	private final OpportunityNoteRepository notes;
@@ -179,6 +179,11 @@ public class SyncOutboxService {
 		if (sellingBrand.id() == null) {
 			return new DrainResult(0, 0, 0, 0, false);
 		}
+		// Paused by the Administrator (D83): touch no row. Counting the pause as an attempt would spend the first
+		// row's retry budget for nothing, and one ordinary failure after resuming would then dead-letter it.
+		if (settings != null && !settings.enabled(com.ie.evalos.config.Setting.GHL_WRITES_ENABLED)) {
+			return new DrainResult(0, 0, 0, 0, true);
+		}
 		List<SyncOutboxEntry> pending = outbox
 				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(),
 						Limit.of(BATCH));
@@ -202,6 +207,10 @@ public class SyncOutboxService {
 				}
 			}
 			catch (GhlUnavailableException refused) {
+				if (refused.failure() == GhlFailure.PAUSED) {
+					// Paused between the check above and this row: leave it exactly as it was.
+					return new DrainResult(attempted - 1, sent, retrying, dead, true);
+				}
 				if (refused.failure().stopsEverything()) {
 					// Not this row's fault and not this row's problem: every other pending push
 					// would fail identically. Left pending, and the drain stops here.

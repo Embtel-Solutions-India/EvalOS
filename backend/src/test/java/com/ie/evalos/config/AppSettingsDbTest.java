@@ -9,15 +9,16 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
-import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * D83 against the real {@code app_setting} table: a secret is ciphertext at rest and plaintext only in memory,
- * a reset hands the setting back to the environment, and saving one logs nothing about its value. Each test
- * ends by resetting what it saved, so the shared cache leaves this class as it found it; the transaction rolls
- * the table back as well.
+ * a reset hands the setting back to the environment, and saving one logs nothing about its value.
+ *
+ * <p><strong>Not {@code @Transactional}</strong>: a save inside a transaction is read back only after it
+ * commits, and a test transaction never does. Each test resets what it saved, so the table and the cache are
+ * left as they were found.
  */
 @SpringBootTest
 @EnabledIf("com.ie.evalos.repository.LocalPostgresIntegrationTest#postgresIsUsable")
@@ -33,7 +34,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 		"evalos.jobs.enabled=false",
 		"evalos.workload.cases-per-cm=12",
 })
-@Transactional
 @ExtendWith(OutputCaptureExtension.class)
 class AppSettingsDbTest {
 

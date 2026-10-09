@@ -68,7 +68,7 @@ public class ExpertNetworkMetricsService {
 
 	/** The Administrator's value from Settings when saved (D83), else the configured one. */
 	private int monthlyTarget() {
-		return settings == null ? this.monthlyTarget : settings.app(com.ie.evalos.config.Setting.ONBOARDING_TARGET).map(Integer::parseInt).orElse(this.monthlyTarget);
+		return com.ie.evalos.config.AppSettings.intOr(settings, com.ie.evalos.config.Setting.ONBOARDING_TARGET, this.monthlyTarget);
 	}
 
 

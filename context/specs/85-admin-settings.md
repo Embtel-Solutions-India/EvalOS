@@ -35,14 +35,20 @@ migration-only. Still **one GHL location per deployment** — per-brand GHL is U
 - Secrets are AES-GCM ciphertext through `PaymentDetailConverter` (keyed by `EVALOS_FIELD_KEY`); **no API response
   ever carries a secret, not even masked** — only whether it is set. Audit rows record "set"/"cleared".
 - `AppSettings.app(Setting)` returns the app-saved value; each consumer keeps its env value and asks for the
-  override per use. Cache refreshed on every save here, at most 30 s stale on another instance.
+  override per use (`AppSettings.or` / `intOr`). The cache reloads **after the saving transaction commits** (a
+  rolled-back save never applies), at most 30 s stale on another instance; a failed read keeps the last values for
+  the window instead of being retried by every lookup.
+- **One operation, one selling brand:** `SellingBrand.pin()` is opened per request (`RequestIdFilter`) and per
+  sweep run (`SweepRunner`); the first `id()` in it resolves the brand and the rest reuse it, so a change saved
+  mid-run applies from the next run. A saved id or slug is re-checked against `brand` every minute.
 - Consumers: `SmtpMailTransport` builds its sender from the effective values (rebuilt only when they change);
   `GhlHttp` rebuilds its client when the token changes, on the same bean so the shared pacer survives;
   `SellingBrand.id()` resolves per call; the ten services that copied the id now call it; the three targets
   are read per use.
 - **Outbound email off** → the transport reports itself unconfigured, i.e. the existing `MAIL_UNAVAILABLE` path.
-- **GHL writes off** → `post`/`put`/`delete` throw `GhlFailure.PAUSED` (retriable, stops everything): the outbox
-  halts and keeps its rows pending, and drains when writes come back on. Reads (including `search`) continue.
+- **GHL writes off** → `post`/`put`/`delete` throw `GhlFailure.PAUSED` (retriable, stops everything). The outbox drain
+  returns before touching any row while paused (no attempt is counted, so a pause never spends a row's retry
+  budget), and drains when writes come back on. Reads (including `search`) continue.
   A direct create answers 502 "GHL writes are paused by an administrator".
 - Test buttons: **Send test email** (to the signed-in Administrator's own address — invariant 14 amended for
   exactly this) and **Test connection** (one GHL read of the location).

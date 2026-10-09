@@ -639,7 +639,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   env var applies again. Changes take effect on the next use, **no restart**. Secrets are AES-GCM ciphertext
   (`EVALOS_FIELD_KEY`) and **no response ever carries one**, not even masked; audit rows record set/cleared only.
   Two switches: **outbound email off** (the existing `MAIL_UNAVAILABLE` path) and **GHL writes off** (`PAUSED`: the
-  outbox halts with rows kept pending and drains when switched on; reads continue). Brand name, currency and
+  outbox drain touches no row while paused — no attempt counted — and drains when switched on; reads continue). Brand name, currency and
   payout term days are editable (D72 edited). **Never in the app:** `JWT_SECRET`, `EVALOS_FIELD_KEY`, DB
   credentials, the Admin seed variables, `EVALOS_GHL_WRITE_MODE`, S3, Ably, VAPID, portal origins/brands, job
   intervals, a brand's webhook token/secret. Still one GHL location per deployment (Unit 25 unchanged).

@@ -154,7 +154,7 @@ public class GhlHttp {
 
 	/** The GHL sub-account every request is scoped to. One per deployment until Unit 25; editable in Settings (D83). */
 	public String locationId() {
-		return settings == null ? envLocationId : settings.app(Setting.GHL_LOCATION_ID).orElse(envLocationId);
+		return AppSettings.or(settings, Setting.GHL_LOCATION_ID, envLocationId);
 	}
 
 	/** Whether a token and location are present. False means every call here answers 502. */
@@ -163,7 +163,7 @@ public class GhlHttp {
 	}
 
 	private String token() {
-		return settings == null ? envToken : settings.app(Setting.GHL_TOKEN).orElse(envToken);
+		return AppSettings.or(settings, Setting.GHL_TOKEN, envToken);
 	}
 
 	private RestClient http() {

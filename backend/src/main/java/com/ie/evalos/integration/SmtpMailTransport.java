@@ -79,11 +79,11 @@ public class SmtpMailTransport implements MailTransport {
 	}
 
 	private String from() {
-		return settings == null ? from : settings.app(Setting.MAIL_FROM).map(String::trim).orElse(from);
+		return AppSettings.or(settings, Setting.MAIL_FROM, from);
 	}
 
 	private String host() {
-		return settings == null ? host : settings.app(Setting.MAIL_HOST).map(String::trim).orElse(host);
+		return AppSettings.or(settings, Setting.MAIL_HOST, host);
 	}
 
 	/**
@@ -96,8 +96,7 @@ public class SmtpMailTransport implements MailTransport {
 			return sender;
 		}
 		String relayHost = host();
-		int port = settings.app(Setting.MAIL_PORT).map(Integer::parseInt)
-				.orElse(mail.getPort() == null ? 587 : mail.getPort());
+		int port = AppSettings.intOr(settings, Setting.MAIL_PORT, mail.getPort() == null ? 587 : mail.getPort());
 		String username = settings.app(Setting.MAIL_USERNAME).orElse(mail.getUsername());
 		String password = settings.app(Setting.MAIL_PASSWORD).orElse(mail.getPassword());
 		// In memory only, and only to notice a change; never logged.

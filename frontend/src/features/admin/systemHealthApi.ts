@@ -8,7 +8,8 @@ import { api, unwrap } from "../../lib/api";
 export type SystemHealthReport = {
   at: string;
   status: {
-    overall: "UP" | "DOWN";
+    /** Boot's aggregate: UP, DOWN, OUT_OF_SERVICE or UNKNOWN — the same answer /actuator/health gives. */
+    overall: string;
     liveness: string;
     readiness: string;
     components: { name: string; status: string; details: Record<string, string | number | boolean> }[];

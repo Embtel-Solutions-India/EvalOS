@@ -13,6 +13,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * The settings the Administrator saved in the app (D83, spec 85), read by the code that uses them.
@@ -48,6 +50,19 @@ public class AppSettings {
 		this.jdbc = jdbc;
 		this.cipher = cipher;
 		this.environment = environment;
+	}
+
+	/**
+	 * The saved value or {@code fallback}, trimmed — the one-line accessor every consumer uses. Null-safe on
+	 * {@code settings} because hand-built instances in tests have none and keep the value they were given.
+	 */
+	public static String or(AppSettings settings, Setting setting, String fallback) {
+		return settings == null ? fallback : settings.app(setting).map(String::trim).orElse(fallback);
+	}
+
+	/** {@link #or} for a whole number; a saved value was validated as one before it was stored. */
+	public static int intOr(AppSettings settings, Setting setting, int fallback) {
+		return settings == null ? fallback : settings.app(setting).map(String::trim).map(Integer::parseInt).orElse(fallback);
 	}
 
 	/** The value saved in the app, decrypted if it is a secret; empty when nothing is saved. */
@@ -87,24 +102,59 @@ public class AppSettings {
 		jdbc.update("INSERT INTO app_setting (key, value, updated_at, updated_by) VALUES (?, ?, now(), ?) "
 				+ "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), "
 				+ "updated_by = EXCLUDED.updated_by", setting.name(), stored, by);
-		reload();
+		reloadAfterCommit();
 	}
 
 	/** Deletes the saved value, so the environment applies again. */
 	public void clear(Setting setting) {
 		jdbc.update("DELETE FROM app_setting WHERE key = ?", setting.name());
-		reload();
+		reloadAfterCommit();
+	}
+
+	/**
+	 * Inside a transaction the new values are not real until it commits — read them earlier and a save that then
+	 * rolls back stays in force here for up to {@link #MAX_STALE_MS}. So: once, after commit; at once otherwise.
+	 */
+	private void reloadAfterCommit() {
+		if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+			reload(true);
+			return;
+		}
+		boolean scheduled = TransactionSynchronizationManager.getSynchronizations().stream()
+				.anyMatch((registered) -> registered instanceof ReloadAfterCommit);
+		if (!scheduled) {
+			TransactionSynchronizationManager.registerSynchronization(new ReloadAfterCommit());
+		}
+	}
+
+	/** One reload per transaction, however many settings it saved. */
+	private final class ReloadAfterCommit implements TransactionSynchronization {
+		@Override
+		public void afterCommit() {
+			reload(true);
+		}
 	}
 
 	private Map<Setting, String> current() {
 		Map<Setting, String> map = saved;
-		if (map == null || System.currentTimeMillis() - loadedAt > MAX_STALE_MS) {
-			map = reload();
+		if (map == null || stale()) {
+			map = reload(false);
 		}
 		return map;
 	}
 
-	private synchronized Map<Setting, String> reload() {
+	private boolean stale() {
+		return System.currentTimeMillis() - loadedAt > MAX_STALE_MS;
+	}
+
+	/**
+	 * {@code force} after a save; otherwise only if still stale once the lock is held, so the threads that queued
+	 * behind the first one are answered by its read instead of each running another.
+	 */
+	private synchronized Map<Setting, String> reload(boolean force) {
+		if (!force && saved != null && !stale()) {
+			return saved;
+		}
 		Map<Setting, String> map = new EnumMap<>(Setting.class);
 		try {
 			jdbc.query("SELECT key, value FROM app_setting", (row) -> {
@@ -129,9 +179,15 @@ public class AppSettings {
 			});
 		}
 		catch (DataAccessException unreadable) {
-			// A database blip must not turn every configured integration off: keep the last good values.
-			log.warn("Could not read app settings; keeping the last values read", unreadable);
-			return saved == null ? Map.of() : saved;
+			// A database blip must not turn every configured integration off: keep the last good values — and wait
+			// out the window before asking again, or every lookup on every thread would queue here retrying it.
+			log.warn("Could not read app settings; keeping the last values read for {} s", MAX_STALE_MS / 1000,
+					unreadable);
+			if (saved == null) {
+				saved = Map.of();
+			}
+			loadedAt = System.currentTimeMillis();
+			return saved;
 		}
 		saved = map;
 		loadedAt = System.currentTimeMillis();

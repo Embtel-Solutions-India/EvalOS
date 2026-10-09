@@ -25,7 +25,9 @@ import org.springframework.boot.actuate.health.CompositeHealthContributor;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthContributor;
 import org.springframework.boot.actuate.health.HealthContributorRegistry;
+import org.springframework.boot.actuate.health.HealthEndpointGroups;
 import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.actuate.health.StatusAggregator;
 import org.springframework.boot.actuate.health.NamedContributor;
 import org.springframework.boot.availability.ApplicationAvailability;
 import org.springframework.boot.info.BuildProperties;
@@ -119,8 +121,12 @@ public class SystemHealthService {
 	private final Environment environment;
 	private final ObjectProvider<BuildProperties> build;
 
+	/** Boot's own rule for combining statuses — the one /actuator/health uses — so the two never disagree. */
+	private final StatusAggregator aggregator;
+
 	SystemHealthService(MeterRegistry registry, HealthContributorRegistry health, ApplicationAvailability availability,
-			JdbcTemplate jdbc, Environment environment, ObjectProvider<BuildProperties> build) {
+			JdbcTemplate jdbc, Environment environment, ObjectProvider<BuildProperties> build, HealthEndpointGroups groups) {
+		this.aggregator = groups.getPrimary().getStatusAggregator();
 		this.registry = registry;
 		this.health = health;
 		this.availability = availability;
@@ -133,7 +139,9 @@ public class SystemHealthService {
 		List<Component> components = new ArrayList<>();
 		collect("", health, components);
 		components.sort(Comparator.comparing(Component::name));
-		String overall = components.stream().anyMatch(c -> !"UP".equals(c.status())) ? "DOWN" : "UP";
+		String overall = aggregator.getAggregateStatus(components.stream()
+				.map((c) -> new org.springframework.boot.actuate.health.Status(c.status()))
+				.collect(java.util.stream.Collectors.toSet())).getCode();
 		Status status = new Status(overall, availability.getLivenessState().toString(),
 				availability.getReadinessState().toString(), components);
 

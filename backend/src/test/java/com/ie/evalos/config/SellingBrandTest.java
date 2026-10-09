@@ -111,4 +111,42 @@ class SellingBrandTest {
 		assertThat(brand.id()).isNull();
 		assertThat(brand.isConfigured()).isFalse();
 	}
+
+	/** One operation, one brand: a change saved while a request or sweep is running applies from the next one. */
+	@Test
+	void insideAPinTheBrandDoesNotChangeMidOperation() {
+		UUID first = UUID.randomUUID();
+		UUID second = UUID.randomUUID();
+		given(brands.existsById(first)).willReturn(true);
+		given(brands.existsById(second)).willReturn(true);
+		AppSettings settings = mock(AppSettings.class);
+		given(settings.app(Setting.SALES_BRAND)).willReturn(Optional.of(first.toString()));
+		SellingBrand brand = new SellingBrand(UUID.randomUUID().toString(), brands);
+		brand.useSettings(settings);
+
+		try (SellingBrand.Pin pin = SellingBrand.pin()) {
+			assertThat(brand.id()).isEqualTo(first);
+			given(settings.app(Setting.SALES_BRAND)).willReturn(Optional.of(second.toString()));
+			try (SellingBrand.Pin nested = SellingBrand.pin()) {
+				assertThat(brand.id()).isEqualTo(first);
+			}
+			// The nested pin closing does not end the outer operation.
+			assertThat(brand.id()).isEqualTo(first);
+		}
+
+		assertThat(brand.id()).isEqualTo(second);
+	}
+
+	/** A saved id is checked against the brands, like a slug: a brand that is gone turns the sync off. */
+	@Test
+	void aSavedIdThatNamesNoBrandTurnsTheSyncOff() {
+		UUID gone = UUID.randomUUID();
+		given(brands.existsById(gone)).willReturn(false);
+		AppSettings settings = mock(AppSettings.class);
+		given(settings.app(Setting.SALES_BRAND)).willReturn(Optional.of(gone.toString()));
+		SellingBrand brand = new SellingBrand(UUID.randomUUID().toString(), brands);
+		brand.useSettings(settings);
+
+		assertThat(brand.id()).isNull();
+	}
 }

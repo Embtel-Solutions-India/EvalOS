@@ -262,7 +262,26 @@ class SyncOutboxServiceTest {
 		assertThat(result.halted()).isTrue();
 		assertThat(result.dead()).isZero();
 		assertThat(entry.isPending()).isTrue();
-		assertThat(entry.getLastFailure()).isEqualTo(GhlFailure.PAUSED);
+		// Untouched: no attempt counted, no failure recorded — a pause must not spend the row's retry budget.
+		assertThat(entry.getAttempts()).isZero();
+		assertThat(entry.getLastFailure()).isNull();
+	}
+
+	/** Switched off before the drain starts: GHL is not called at all and every row stays as it was. */
+	@Test
+	void aDrainWhileWritesAreSwitchedOffTouchesNothing() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		com.ie.evalos.config.AppSettings settings = org.mockito.Mockito.mock(com.ie.evalos.config.AppSettings.class);
+		org.mockito.BDDMockito.given(settings.enabled(com.ie.evalos.config.Setting.GHL_WRITES_ENABLED)).willReturn(false);
+		service.useSettings(settings);
+
+		var result = service.drain();
+
+		assertThat(result.halted()).isTrue();
+		assertThat(result.attempted()).isZero();
+		assertThat(entry.getAttempts()).isZero();
+		org.mockito.Mockito.verifyNoInteractions(ghl);
 	}
 
 	/**

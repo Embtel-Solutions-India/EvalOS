@@ -44,7 +44,9 @@ public class SettingsController {
 	@PutMapping
 	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<List<SettingsAdminService.View>> update(@Valid @RequestBody Changes body) {
-		return ApiResponse.ok(settings.update(body.changes()));
+		// Listed after update() has returned, i.e. after its transaction committed and the settings reloaded.
+		settings.update(body.changes());
+		return ApiResponse.ok(settings.list());
 	}
 
 	@PostMapping("/mail/test")
