@@ -33,7 +33,6 @@ export function StaffSummary({ staff, state }: { staff?: StaffMember[]; state: C
         title="Active staff"
         state={state}
         value={active.length}
-        denominator={staff ? `of ${staff.length} accounts` : undefined}
       />
       <Card
         className="col-span-12 md:col-span-8"
@@ -62,7 +61,6 @@ export function PipelineSummary({ pipelines, state }: { pipelines?: MirroredPipe
         title="Pipelines with no purpose"
         state={state}
         value={untagged}
-        denominator={pipelines ? `of ${live.length} live pipelines` : undefined}
         tone={untagged > 0 ? "warn" : undefined}
       />
       <Card

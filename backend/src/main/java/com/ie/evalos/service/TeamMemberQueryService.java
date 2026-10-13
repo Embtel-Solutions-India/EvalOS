@@ -1,6 +1,10 @@
 package com.ie.evalos.service;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.TeamMember;
@@ -50,6 +54,25 @@ public class TeamMemberQueryService {
 	 * <p>Inactive members are excluded here rather than filtered by the caller: an offer to
 	 * assign somebody who has left is not a choice.
 	 */
+	/**
+	 * Display names for the members the caller's own cases name — owner columns on the dashboards.
+	 *
+	 * <p><strong>Not {@link #assignable}</strong>: that answers "whom may I assign", scoped by the caller's tier,
+	 * so a Project Coordinator (SELF) got no Case Managers back and every owner read "Former team member"
+	 * (2026-10-14). Here the ids come from cases the caller is already scoped to, and the read stays inside those
+	 * cases' brands. Active members only: an inactive one is the "former team member" the dashboards say.
+	 */
+	@Transactional(readOnly = true)
+	public Map<UUID, String> namesOf(Collection<UUID> ids, Collection<UUID> brandIds) {
+		if (ids.isEmpty()) {
+			return Map.of();
+		}
+		return teamMembers.findAllById(ids).stream()
+				.filter(TeamMember::isActive)
+				.filter((member) -> brandIds.contains(member.getBrandId()))
+				.collect(Collectors.toMap(TeamMember::getId, TeamMember::getDisplayName, (a, b) -> a));
+	}
+
 	@Transactional(readOnly = true)
 	public List<TeamMember> assignable(Role role) {
 		return teamMembers.findAll(ScopePredicate.<TeamMember>of(TenantContext.current(), SCOPE)

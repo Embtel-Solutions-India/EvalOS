@@ -331,6 +331,8 @@ class SalesDeskServiceTest {
 		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.UPSERT));
 		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
 		verify(deals).editLocally(OPPORTUNITY, null, null, null, "won");
+		// The win is pushed now, not on the next drain (no transaction here, so straight away).
+		verify(outbox).sendNow(eq(BRAND), any());
 	}
 
 	@Test
@@ -344,6 +346,7 @@ class SalesDeskServiceTest {
 
 		org.mockito.Mockito.verifyNoInteractions(notes);
 		verify(outbox, never()).enqueue(any(), any(), eq(SyncOutboxEntry.Intent.CLOSE));
+		verify(outbox, never()).sendNow(any(), any());
 	}
 
 	/**
@@ -411,6 +414,8 @@ class SalesDeskServiceTest {
 
 		assertThat(desk.close(OPPORTUNITY, status, "Client wants it before the 15th.").status()).isEqualTo(status);
 		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
+		// Only a win skips the wait for the drain.
+		verify(outbox, org.mockito.Mockito.times("won".equals(status) ? 1 : 0)).sendNow(eq(BRAND), any());
 	}
 
 	/**

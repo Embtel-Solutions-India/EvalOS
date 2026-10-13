@@ -534,8 +534,9 @@ public class OpportunityMirrorService {
 		Pipeline pipeline = mirrored.get();
 		Opportunity held = opportunities.findByBrandIdAndGhlId(pipeline.getBrandId(), ghlId)
 				.orElseGet(() -> new Opportunity(pipeline.getBrandId(), ghlId, pipeline.getId()));
+		// Created now, as far as the dashboards can tell, until the sweep brings GHL's own timestamp.
 		held.syncFromGhl(ghlContactId, pipeline.getId(), ghlStageId, name, amount, status, source,
-				null, null, null, null, null);
+				null, held.getGhlCreatedAt() != null ? held.getGhlCreatedAt() : Instant.now(), null, null, null);
 		opportunities.save(held);
 	}
 

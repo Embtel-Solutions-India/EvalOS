@@ -39,14 +39,13 @@ export default function TopBar({ onMenu }: { onMenu?: () => void }) {
     <header
       className="sticky top-0 z-20 flex items-center gap-3"
       style={{
-        background: "var(--frame-bg)",
-        backgroundAttachment: "fixed",
+        background: "var(--topbar-bg)",
         minHeight: "var(--header-height)",
         padding: `0 var(--shell-gutter)`,
       }}
     >
-      {/* The canvas's rounded top-left corner, drawn from the frame itself: a square of the same fixed
-          gradient with a quarter circle cut out, hung under the bar's left edge. It stays put while the
+      {/* The canvas's rounded top-left corner: a square of the frame's colour with a quarter circle cut out,
+          hung under the bar's left edge. It stays put while the
           page scrolls beneath it, which a radius on the scrolling content could not. */}
       <span
         aria-hidden
@@ -54,8 +53,8 @@ export default function TopBar({ onMenu }: { onMenu?: () => void }) {
         style={{
           width: "var(--frame-radius)",
           height: "var(--frame-radius)",
-          background: "var(--frame-bg)",
-          backgroundAttachment: "fixed",
+          // The bar's left end, which is also the rail's top: the corner sits where the two meet.
+          background: "var(--frame-top)",
           WebkitMaskImage:
             "radial-gradient(circle at 100% 100%, transparent calc(var(--frame-radius) - 0.5px), #000 var(--frame-radius))",
           maskImage:
@@ -109,10 +108,9 @@ export default function TopBar({ onMenu }: { onMenu?: () => void }) {
 }
 
 /**
- * "Good Morning, Alex" — big, black monospace in regular weight, typed out a character at a time.
+ * "Good Morning, Alex" — big bold monospace, typed out a character at a time.
  *
- * <p>Black sits straight on the pale bar (14:1), so there is no pill behind it: the pill existed only to carry
- * white text. The hour is re-read every minute, so a screen left open across noon changes its greeting, and typing
+ * <p>Light text sits straight on the navy bar (2026-10-13), so there is no pill behind it. The hour is re-read every minute, so a screen left open across noon changes its greeting, and typing
  * again only happens when the words change — a minute's tick with the same greeting does not restart it. Under
  * `prefers-reduced-motion` the whole line appears at once.
  */
@@ -144,21 +142,17 @@ function Greeting({ name }: { name: string }) {
   return (
     <p
       aria-label={text}
-      className="hidden shrink-0 items-center text-3xl leading-none font-normal lg:flex"
-      // Black letters with a hairline blue (accent) outline. `paint-order` draws the stroke
-      // first so the fill is not eaten by it: a 1px stroke leaves about 0.5px outside the glyph.
-      style={{
-        color: "#000000",
-        WebkitTextStroke: "1px var(--accent-primary)",
-        paintOrder: "stroke fill",
-      }}
+      className="hidden shrink-0 items-center text-3xl leading-none font-bold lg:flex"
+      // Light, bold letters on the navy bar; no outline.
+      style={{ color: "var(--topbar-text)" }}
     >
       <span aria-hidden>{text.slice(0, typed)}</span>
       {/* The caret rides the typing and goes when the line is written. */}
       {typed < text.length && (
         <span
           aria-hidden
-          className="caret ml-0.5 inline-block h-[1em] w-[0.5ch] bg-black"
+          className="caret ml-0.5 inline-block h-[1em] w-[0.5ch]"
+          style={{ background: "var(--topbar-text)" }}
         />
       )}
       <span aria-hidden className="invisible">

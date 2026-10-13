@@ -191,10 +191,11 @@ function renderState(state: CardState, children: ReactNode): ReactNode {
 }
 
 /**
- * A figure, its denominator, and how it moved.
+ * A figure and how it moved.
  *
- * **The denominator is not decoration.** `17-dashboards.md`'s rule: "100%" over two cases must
- * not read the same as "100%" over two hundred. So a rate always renders what it is a rate *of*.
+ * **No line under the figure (2026-10-14, the business's call).** It carried the figure's denominator ("of 12
+ * delivered", "worth $4,200"); `17-dashboards.md` asked for it so "100%" over two cases would not read like "100%"
+ * over two hundred. The tiles now show the figure alone, and a card's hover hint (`note`) is where that context goes.
  */
 /**
  * How this figure is doing, which decides the colour of the number itself.
@@ -220,7 +221,6 @@ export function KpiCard({
   value,
   money,
   unit,
-  denominator,
   delta,
   tone,
   action,
@@ -241,7 +241,6 @@ export function KpiCard({
    */
   money?: boolean;
   unit?: string;
-  denominator?: string;
   /** Change against the previous comparable period. Omitted when there is nothing to compare. */
   /** `unit` is "%" for a relative change and "pts" for a change in a rate that is itself a percentage. */
   delta?: { value: number; better: "up" | "down"; unit?: string };
@@ -271,14 +270,6 @@ export function KpiCard({
           {delta && <Delta {...delta} />}
         </div>
       </div>
-      {denominator && (
-        <p
-          className="font-num mt-1.5 text-sm tabular-nums"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {denominator}
-        </p>
-      )}
       {action}
     </Card>
   );

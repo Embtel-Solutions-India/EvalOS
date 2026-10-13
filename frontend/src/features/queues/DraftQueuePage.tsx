@@ -1,5 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
+import ViewToggle from './ViewToggle'
+import { useViewMode } from './useViewMode'
 import { Link } from 'react-router-dom'
 import { Check, ExternalLink, Eye, X } from 'lucide-react'
 import { KpiCard } from '../../components/ui/card'
@@ -44,6 +46,8 @@ export default function DraftQueuePage() {
   const load = () => void queryClient.invalidateQueries({ queryKey: ['draft-review'] }, { cancelRefetch: false })
   const [tab, setTab] = useState<DraftStatus | 'ALL'>('ALL')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Cards or the table, like the other queues; remembered per browser.
+  const [mode, setMode] = useViewMode('draft-review')
 
 
   const rows = useMemo(
@@ -71,27 +75,23 @@ export default function DraftQueuePage() {
           state={state}
           value={summary?.pendingReview ?? null}
           tone={summary && summary.pendingReview > 0 ? 'warn' : 'good'}
-          denominator={share(summary?.pendingReview, summary?.total)}
         />
         <KpiCard
           title="Revisions requested"
           state={state}
           value={summary?.revisionsRequested ?? null}
           tone={summary && summary.revisionsRequested > 0 ? 'bad' : 'good'}
-          denominator={share(summary?.revisionsRequested, summary?.total)}
         />
         <KpiCard
           title="Ready for QC"
           state={state}
           value={summary?.readyForQc ?? null}
-          denominator={share(summary?.readyForQc, summary?.total)}
         />
         <KpiCard
           title="Avg draft age"
           state={state}
           value={summary?.avgDraftAgeHours ?? null}
           unit="h"
-          denominator="business hours, pending only"
         />
         <KpiCard
           title="SLA compliance"
@@ -112,11 +112,11 @@ export default function DraftQueuePage() {
                   ? 'warn'
                   : 'bad'
           }
-          denominator="inside the 12h review budget"
         />
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Draft status">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Draft status">
         {DRAFT_TABS.map((entry) => {
           const active = entry.status === tab
           const count =
@@ -149,6 +149,8 @@ export default function DraftQueuePage() {
           )
         })}
       </div>
+        <ViewToggle mode={mode} onChange={setMode} />
+      </div>
 
       <div className="mt-4 flex flex-col gap-4 xl:flex-row">
         <div className="min-w-0 flex-1">
@@ -175,7 +177,20 @@ export default function DraftQueuePage() {
             </p>
           )}
 
-          {data && rows.length > 0 && (
+          {data && rows.length > 0 && mode === 'cards' && (
+            <ul className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+              {rows.map((row) => (
+                <DraftCard
+                  key={row.id}
+                  row={row}
+                  selected={row.id === selectedId}
+                  onSelect={() => setSelectedId(row.id)}
+                />
+              ))}
+            </ul>
+          )}
+
+          {data && rows.length > 0 && mode === 'list' && (
             <div
               className="scroll-slim overflow-x-auto rounded-lg border"
               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
@@ -220,11 +235,6 @@ export default function DraftQueuePage() {
       </div>
     </section>
   )
-}
-
-function share(part: number | undefined, total: number | undefined): string | undefined {
-  if (part === undefined || !total) return undefined
-  return `${Math.round((part * 100) / total)}% of total`
 }
 
 function Th({ children }: { children: React.ReactNode }) {
@@ -290,6 +300,62 @@ function Row({ row, selected, onSelect }: { row: DraftRow; selected: boolean; on
         </button>
       </td>
     </tr>
+  )
+}
+
+/** One draft as a card: the row's facts, its status and priority, and Inspect for the panel beside the grid. */
+function DraftCard({ row, selected, onSelect }: { row: DraftRow; selected: boolean; onSelect: () => void }) {
+  const tone = statusTone(row.status)
+  return (
+    <li
+      className="flex flex-col gap-3 rounded-lg border p-4"
+      style={{
+        background: selected ? 'var(--accent-soft)' : 'var(--bg-surface)',
+        borderColor: selected ? 'var(--accent-primary)' : 'var(--border-default)',
+      }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link to={`/cases/${row.id}`} className="font-mono text-xs font-medium">
+            {row.caseCode}
+          </Link>
+          <p className="truncate text-sm font-medium">{row.clientName ?? 'Unnamed contact'}</p>
+          <p className="truncate text-xs" style={{ color: 'var(--text-muted)' }}>
+            {readable(row.serviceType)}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium" style={{ background: tone.bg, color: tone.fg }}>
+          {tone.label}
+        </span>
+      </div>
+      <dl className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <dt style={{ color: 'var(--text-muted)' }}>Expert</dt>
+          <dd className="truncate">{row.expertName ?? 'Not assigned'}</dd>
+        </div>
+        <div>
+          <dt style={{ color: 'var(--text-muted)' }}>Priority</dt>
+          <dd className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: riskColor(row.priority) }} aria-hidden />
+            {priorityLabel(row.priority)}
+          </dd>
+        </div>
+      </dl>
+      <div className="mt-auto flex items-center justify-between gap-2 border-t pt-3" style={{ borderColor: 'var(--border-default)' }}>
+        <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
+          {row.draftUpdated ? `Updated ${new Date(row.draftUpdated).toLocaleString()}` : 'Not updated'}
+        </span>
+        <button
+          type="button"
+          onClick={onSelect}
+          className="inline-flex items-center gap-1.5 text-sm font-medium"
+          style={{ color: 'var(--accent-primary)' }}
+        >
+          <Eye className="h-4 w-4" aria-hidden />
+          Inspect
+        </button>
+      </div>
+    </li>
   )
 }
 

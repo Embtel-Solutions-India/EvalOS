@@ -88,7 +88,6 @@ export default function RevenueDashboard() {
           money
           state={state}
           value={total ? round(total.openLiability) : null}
-          denominator={data ? `${data.openCases} cases paid and not yet delivered` : undefined}
           tone={data === null ? undefined : data.openCases > 0 ? 'warn' : 'good'}
           note="Money taken for work not yet delivered — the refund exposure."
         />
@@ -180,9 +179,6 @@ export default function RevenueDashboard() {
           title="Delivered"
           state={opsState}
           value={ops ? ops.onTime.delivered : null}
-          denominator={
-            ops && ops.onTime.ratePct !== null ? `${ops.onTime.ratePct}% on time` : undefined
-          }
           tone={ops?.onTime.ratePct === null ? undefined : (ops?.onTime.ratePct ?? 0) >= 90 ? 'good' : 'warn'}
           to={linkIfReachable('/delivery')}
           note="In the selected period."
@@ -193,9 +189,6 @@ export default function RevenueDashboard() {
           state={opsState}
           value={capacity.capacity > 0 ? Math.round((capacity.active / capacity.capacity) * 100) : null}
           unit="%"
-          denominator={
-            capacity.capacity > 0 ? `${capacity.active} of ${capacity.capacity} slots` : undefined
-          }
           tone={
             capacity.capacity === 0
               ? undefined

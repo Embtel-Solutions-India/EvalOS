@@ -146,8 +146,7 @@ request at all. A **create** still calls GHL inline, because the outbox stores a
 payload and a create carries custom fields the mirror does not hold (tier 2, Unit 47). The four
 editable fields are exactly 45e's shared set — the assignee is missing on purpose, it is GHL's.
 A stage move must name a **live stage of the deal's own pipeline** (Q12, 2026-09-24) — a foreign
-stage would be a pipeline move, which is GHL's workflow. **Known cost**: a won deal reaches GHL on the next drain (≤2m), so the case arrives later than it
-used to; a win surviving an outage is worth more than the two minutes.
+stage would be a pipeline move, which is GHL's workflow. **A win is pushed on commit (edited 2026-10-13)**: queued, then `sendNow` after commit; a refused push stays pending for the drain. Lost/abandoned keep the drain.
 **The board's freshness contract**: `MIRROR_DELTA` every 5m; `lastSyncedAt` null = never synced
 (never faked as "now") and counts as stale; `board-stale-after` **5m** (one missed pass) draws a "Sync delayed" banner;
 `POST /api/opportunities/board/refresh` reconciles the mirror and then draws from it — it is never
@@ -165,7 +164,7 @@ GHL holds on the deal and its contact.
 
 **D19d/e/f (2026-09-17).** `evalos.ghl.sales-brand` takes a **brand slug** — a UUID is right in one
 database only (IE = 1111… local, 3333… testprod) — resolved once by `SellingBrand`, which replaced
-nine copies and fails the boot on a value matching no brand. The **GM's board is the SALES pipelines only**
+nine copies and fails the boot on a value matching no brand. **The board page shows ONE pipeline (D19e, edited 2026-10-13):** desks with 2+ pipelines get tabs (default first); GM/Admin get a drop-down of every live pipeline, default Master Pipeline (by name); `GET /api/opportunities/board/pipeline?id=` narrows only (not held = 403), Refresh syncs that one. The union read below still feeds dashboards and pickers. The **GM's union is the SALES pipelines only**
 (D19e, amended 2026-10-08): live mirrored pipelines held by an active SALES member or tagged purpose SALES
 (`salesGhlIds`), with same-named stages summed into one column (GM only; salespeople drag, so theirs never
 fold). Marketing funnels, Case Delivery, hiring and Master are not on it. **`WY6bW2xUCI8Tz8gw7aLJ` is the

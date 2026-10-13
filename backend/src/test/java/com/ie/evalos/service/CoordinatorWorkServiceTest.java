@@ -179,4 +179,16 @@ class CoordinatorWorkServiceTest {
 		run(List.of(open, delivered), List.of(), Set.of(), List.of());
 		verify(items).findByBrandIdInAndCaseIdIn(Set.of(BRAND), Set.of(open.getId()));
 	}
+
+	/**
+	 * Owners are named from the cases themselves, not from whom the caller may assign: a coordinator cannot assign a
+	 * Case Manager, and asking that question named every owner "Former team member" (2026-10-14).
+	 */
+	@Test
+	void anOwnerIsNamedFromTheCaseEvenWhenTheCallerCannotAssignThem() {
+		given(members.namesOf(anyCollection(), anyCollection())).willReturn(java.util.Map.of(SARAH, "Sarah Case"));
+		Case ready = set(caseAt(Stage.READY_TO_DELIVER), "assignedCm", SARAH);
+		CoordinatorWork work = run(List.of(ready), List.of(), Set.of(), List.of());
+		assertThat(work.readyToDeliver().get(0).ownerName()).isEqualTo("Sarah Case");
+	}
 }

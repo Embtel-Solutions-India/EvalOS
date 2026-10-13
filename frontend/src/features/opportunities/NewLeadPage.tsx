@@ -35,7 +35,6 @@ function NewBdeLeadPage() {
     <section className="max-w-3xl space-y-4">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Add lead</h1>
-        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Opens the opportunity in GoHighLevel, on your own pipeline.</p>
       </header>
       <Card title="" state={state}>
         <div className="p-4">
@@ -59,9 +58,6 @@ function NewCandidatePage() {
     <section className="max-w-3xl space-y-4">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Add candidate</h1>
-        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
-          Captures the candidate and opens them on the expert hiring pipeline in GoHighLevel.
-        </p>
       </header>
       <Card title="" state={state}>
         <div className="p-4">

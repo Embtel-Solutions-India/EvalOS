@@ -205,6 +205,38 @@ class SyncOutboxServiceTest {
 		then(ghl).should(never()).createOpportunity(any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
+	/** A win is sent in its own request: that deal's pending row goes now, without waiting for the drain. */
+	@Test
+	void sendNowPushesThatDealsPendingRowAtOnce() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		given(outbox.findByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(BRAND,
+				SyncEntity.OPPORTUNITY, row.getId())).willReturn(List.of(entry));
+		given(ghl.updateOpportunity(any(), any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedOpportunity("opp-1", "contact-1", "pipe-1", "s1",
+						"won", "Ana", null, false));
+
+		service.sendNow(BRAND, row.getId());
+
+		then(ghl).should().updateOpportunity(eq("opp-1"), eq("pipe-1"), anyString(), any(), any());
+		assertThat(entry.isPending()).isFalse();
+	}
+
+	/** An immediate push GHL refuses is left exactly as the drain would leave it, so the drain retries it. */
+	@Test
+	void aRefusedImmediatePushStaysPendingForTheDrain() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		given(outbox.findByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(BRAND,
+				SyncEntity.OPPORTUNITY, row.getId())).willReturn(List.of(entry));
+		willThrow(new GhlUnavailableException("rate limited", null, GhlFailure.RATE_LIMITED, 429))
+				.given(ghl).updateOpportunity(any(), any(), any(), any(), any());
+
+		service.sendNow(BRAND, row.getId());
+
+		assertThat(entry.isPending()).isTrue();
+	}
+
 	/**
 	 * <strong>A 429 stops the whole drain, not just the row that hit it.</strong>
 	 *

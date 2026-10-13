@@ -123,4 +123,15 @@ class PmOverviewServiceTest {
 		assertThat(stage(result, Stage.DELIVERED).count()).isEqualTo(2);
 		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::delivered).sum()).isEqualTo(2);
 	}
+
+	/** The chart splits each bar: a delivery after its promised date is late, one on time or with no deadline is not. */
+	@Test
+	void eachBarCountsItsLateDeliveries() {
+		Case late = set(set(caseAt(Stage.DELIVERED), "deliveryDate", pt(7, 3, 12)), "deadline", pt(7, 2, 0));
+		Case onTime = set(set(caseAt(Stage.DELIVERED), "deliveryDate", pt(7, 3, 9)), "deadline", pt(7, 4, 0));
+		Case undated = set(caseAt(Stage.DELIVERED), "deliveryDate", pt(7, 3, 10));
+		PmOverview result = run(List.of(late, onTime, undated));
+		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::delivered).sum()).isEqualTo(3);
+		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::late).sum()).isEqualTo(1);
+	}
 }

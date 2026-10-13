@@ -166,9 +166,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   edit — so `moveToStage` refuses it before anything is written or queued. The salesperson sees the change immediately and no edit is lost
   to a GHL outage. **The four editable fields are exactly 45e's shared set**, because what a desk
   may edit locally is what EvalOS is allowed to win a conflict over — the assignee is absent for
-  that reason. **The cost is named rather than hidden: a won deal reaches GHL on the next drain
-  (≤2m), so Handoff A's case arrives that much later.** Taken deliberately — a win lost to an
-  outage is the more expensive failure.
+  that reason. **A win no longer waits for the drain (edited 2026-10-13):** it is still queued first, then pushed as soon as the request commits (`SyncOutboxService.sendNow`), so `opportunity.won` and Handoff A's case arrive at once; a refused push stays pending under the drain's own retry and dead-letter rules, so an outage still loses no win. Lost and abandoned keep the drain.
   **The push sends the fields the desk actually edited and no others** (`V63`,
   `opportunity.locally_edited_fields`, amended 2026-09-18). It sent all four, and the mirror's stage
   is up to one `MIRROR_DELTA` behind — so a rename re-sent a stale stage, undoing a GHL workflow's
@@ -298,7 +296,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   services that each parsed the property themselves, and a value matching no brand **fails the
   boot** naming the fix. **Blank is legal and means no brand sells yet** — and switches every
   mirror off, which the board now says out loud (`syncConfigured`).
-- **D19e.** **The GM's board is the SALES pipelines only, with same-named stages summed into one
+- **D19e.** **The board page shows ONE pipeline at a time** (edited 2026-10-13): a desk holding two or
+  more pipelines switches between them on tabs (default: the first in GHL's order); **the GM (and the
+  Admin) pick any live mirrored pipeline from a drop-down, defaulting to the Master Pipeline** (found
+  by name). `GET /api/opportunities/board/pipeline?id=` — the id only narrows: one the caller does not
+  hold is a 403; Refresh syncs that one pipeline only. What follows is the **union read**
+  (`GET /api/opportunities/board`, no parameter), which still feeds the dashboards, the deal pickers and
+  the new-deal / new-lead forms:
+  **The GM's union is the SALES pipelines only, with same-named stages summed into one
   column** (amended 2026-10-08; was *every live mirrored pipeline*, 2026-09-17). A pipeline is a sales
   pipeline when it is held by an active SALES member of the selling brand
   (`team_member_pipeline`, not revoked) **or** a GM has tagged it purpose `SALES`

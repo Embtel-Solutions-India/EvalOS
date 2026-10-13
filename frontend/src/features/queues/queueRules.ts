@@ -183,7 +183,7 @@ export function riskColor(risk: DeadlineRisk | null): string {
 
 /** Status must never be carried by colour alone, so every band has words too. */
 export function riskLabel(risk: DeadlineRisk | null): string {
-  if (risk === 'OVERDUE') return 'Deadline critical'
+  if (risk === 'OVERDUE') return 'Deadline overdue'
   if (risk === 'AT_RISK') return 'Deadline at risk'
   if (risk === 'ON_TRACK') return 'Deadline on track'
   return 'No deadline clock'

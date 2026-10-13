@@ -20,23 +20,28 @@
   --border-tint: #dcddf2;
 
   /* The navigation rail is its own surface, not a card.
-     It is a pale-blue, flush, full-height panel — the single biggest change in this pass, and the
+     It is a navy, flush, full-height panel (light text; 2026-10-13, was pale blue), and the
      opposite of what the previous language did (a white rounded card floating on a tinted
      canvas). The rail anchors the left edge and lets the content area stay quiet, which is
      what carries a screen holding this many panels at once. */
-  --sidebar-bg: #d6d9f8;
-  --sidebar-text: #131313;
-  --sidebar-muted: #44506a;
+  --sidebar-bg: #0b1730;
+  --sidebar-text: #f5f7ff;
+  --sidebar-muted: #b4bfd8;
   /* Active nav item: a lifted navy rather than the accent at alpha. On a tinted rail an alpha
      fill of the blue accent goes muddy, and the label has to stay legible against it. */
   --sidebar-active-bg: #3c3df2;
-  --sidebar-border: #bfc4ee;
-  /* The frame: the rail and the top bar are one lavender surface, not two. Both paint this same gradient
-     with `background-attachment: fixed`, so it is sampled in viewport coordinates and the two can never
-     disagree about a colour — there is no seam where they meet, however the page scrolls. The content
-     canvas is inset into it with a rounded top-left corner (`--frame-radius`, cut by `TopBar`). */
-  --frame-bg: linear-gradient(120deg, #c8ccf6 0%, #d6d9f8 32%, #e4e6fa 68%, #eef0fc 100%);
-  --frame-radius: 1.75rem;
+  --sidebar-border: #24375a;
+  /* The frame: the rail's navy fade, top to bottom, painted with `background-attachment: fixed` so it spans
+     the viewport's height whatever the rail scrolls. */
+  --frame-bg: linear-gradient(180deg, #0b1730 0%, #142b4d 100%);
+  /* The top bar fades left to right across its own width: the rail's top colour where it meets the rail, so
+     there is no seam, to the rail's bottom colour at the right edge (2026-10-13). Its controls are white pills;
+     only the greeting needs light text. */
+  --frame-top: #0b1730;
+  --topbar-bg: linear-gradient(90deg, var(--frame-top) 0%, #142b4d 100%);
+  --topbar-text: #f5f7ff;
+  /* The canvas's top-left corner, cut by `TopBar`: a small round (was 1.75rem, removed, back at 1rem). */
+  --frame-radius: 1rem;
 
   /* Accent — the only decorative/brand color */
   --accent-primary: #3c3df2;

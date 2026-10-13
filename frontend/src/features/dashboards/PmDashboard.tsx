@@ -5,7 +5,7 @@ import { useFilters, rangeLabel } from '../shell/filtersContext'
 import { fetchPmMetrics, fetchPmOverview, type PmMetrics, type PmOverview } from './pmMetricsApi'
 import { QueueTable } from './QueueTable'
 import { StageFunnel } from './StageFunnel'
-import { ThroughputCard } from './ThroughputCard'
+import { DeliveredCard } from './DeliveredCard'
 import { useMetrics } from './useMetrics'
 
 /**
@@ -63,34 +63,12 @@ export default function PmDashboard() {
       </div>
 
       <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          title="Delivered on time"
-          wide
-          state={onTimeState}
-          to="/inbox?view=delivered"
-          value={onTime?.ratePct ?? null}
-          unit="%"
-          // Thresholds, not taste: 90% and above is healthy, below 75% is a production problem.
-          // Stated here rather than inside the card so the card stays generic and this tile's
-          // bar is visible to whoever reads the dashboard.
-          tone={
-            onTime?.ratePct === null || onTime?.ratePct === undefined
-              ? undefined
-              : onTime.ratePct >= 90
-                ? 'good'
-                : onTime.ratePct >= 75
-                  ? 'warn'
-                  : 'bad'
-          }
-          // The denominator is required, not decoration: "100%" of two cases must not read
-          // like "100%" of two hundred.
-          denominator={onTime ? `of ${onTime.delivered} delivered` : undefined}
-          delta={
-            onTime?.deltaPoints === null || onTime?.deltaPoints === undefined
-              ? undefined
-              : { value: onTime.deltaPoints, better: 'up', unit: ' pts' }
-          }
-          note="Delivered on or before the date the client was promised."
+        <DeliveredCard
+          onTime={onTime}
+          points={overview?.throughput}
+          // Both reads feed it: the overview's chart and the metrics' rate.
+          state={overviewState.kind !== 'ok' ? overviewState : onTimeState}
+          period={rangeLabel(dateRange).toLowerCase()}
         />
 
         <KpiCard
@@ -204,16 +182,10 @@ export default function PmDashboard() {
           </ul>
         </Card>
 
-        <Card
-          title="Expert response time"
-          // Honest rather than zero: the signing events this measures do not exist yet.
-          state={{ kind: 'unavailable', blockedBy: 'Unit 15' }}
-        />
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <StageFunnel stages={overview?.stages} state={overviewState} />
-        <ThroughputCard points={overview?.throughput} state={overviewState} period={rangeLabel(dateRange)} />
         <QueueTable
           title="Draft review queue"
           note="Cases waiting on a PM decision. Owner is the draft's author."

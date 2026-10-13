@@ -63,11 +63,6 @@ export default function ExpertNetworkDashboard() {
           state={warnWhen(state, (data?.roster.available ?? 1) === 0)}
           to="/experts"
           value={data?.roster.available ?? null}
-          denominator={
-            data
-              ? `${data.roster.atCapacity} at capacity · ${data.roster.onLeave} on leave · ${data.roster.total} on the roster`
-              : undefined
-          }
           tone={data === null ? undefined : data.roster.available > 0 ? 'good' : 'bad'}
           note="Availability is what decides whether a case can be staffed at all."
         />
@@ -76,7 +71,6 @@ export default function ExpertNetworkDashboard() {
           title="Onboarded this month"
           state={state}
           value={data?.onboarding.thisMonth ?? null}
-          denominator={data ? `of ${data.onboarding.target} target` : undefined}
           tone={
             data === null
               ? undefined
@@ -95,7 +89,6 @@ export default function ExpertNetworkDashboard() {
           }
           value={data?.turnaround.medianHours ?? null}
           unit="h"
-          denominator={data ? `median of ${data.turnaround.resolved} resolved offers` : undefined}
           // Derived from expert_case_offer's own timestamps (G9). The stored
           // `avg_response_hours` column was never written by any path and is deliberately not
           // revived — a column nothing fills is a figure that reads as zero.
@@ -111,7 +104,6 @@ export default function ExpertNetworkDashboard() {
           }
           value={data?.acceptance.ratePct ?? null}
           unit="%"
-          denominator={data ? `of ${data.acceptance.resolved} resolved offers` : undefined}
           // Imported from ExpertMatchService's own expression, never re-derived — two definitions
           // is how this tile and a shortlist come to disagree about the same person.
           note="Accepted over accepted, declined and timed out."

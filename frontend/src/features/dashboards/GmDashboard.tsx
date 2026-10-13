@@ -102,6 +102,7 @@ export default function GmDashboard() {
   );
 
   const data = gm.data;
+  const today = data?.today ?? null;
   const period = rangeLabel(dateRange).toLowerCase();
 
   // A desk's monthly target is for a calendar month, so the column exists only while the range is one
@@ -126,9 +127,15 @@ export default function GmDashboard() {
   const pipelineState: CardState = data?.pipelineUnavailable
     ? { kind: "error", note: data.pipelineUnavailable, onRetry: gm.reload }
     : gm.state;
+  // A server older than these tiles answers without `today`; saying so beats printing a 0 that is not a figure.
+  const todayState: CardState =
+    gm.state.kind === "ok" && data && !data.pipelineUnavailable && !today
+      ? { kind: "error", note: "Not available from the server yet", onRetry: gm.reload }
+      : pipelineState;
+  const up = (value: number | null | undefined) =>
+    value == null ? undefined : { value, better: "up" as const };
 
   const untouched = staleDeals(board.data);
-  const openDeals = board.data?.totalDeals ?? null;
 
   const rankedServices = (data?.byService ?? [])
     .filter((row) => row.openCases > 0)
@@ -153,7 +160,6 @@ export default function GmDashboard() {
   // Arrows, not lines: the change against the previous period of the same length, from the trend slices the
   // server already cut. Null (no arrow) when the previous period is partial or had nothing to compare to.
   const wonChange = trendChangePct(data?.trend, (p) => Number(p.won), (p) => Number(p.previousWon));
-  const leadsChange = trendChangePct(data?.trend, (p) => p.leads, (p) => p.previousLeads);
 
   return (
     <section>
@@ -171,55 +177,61 @@ export default function GmDashboard() {
             change={wonChange}
             onSaved={gm.reload}
           />
-          <div className="col-span-12 grid grid-cols-2 gap-5 md:col-span-8">
+          {/* Two rows of four beside the revenue card: today and this calendar month, whatever the range filter
+              says. Arrows: today against yesterday, this month against the same days of last month (none on open
+              leads). Two to a row on a phone. */}
+          <div className="col-span-12 grid grid-cols-2 gap-5 md:col-span-8 md:grid-cols-4">
             <KpiCard
-              title="Sales · new leads"
-              state={pipelineState}
-              value={data?.sales ? data.sales.newLeads : null}
-              denominator={
-                data?.sales
-                  ? `worth ${formatMoney(Math.round(data.sales.newValue))}`
-                  : undefined
-              }
-              delta={leadsChange === null ? undefined : { value: leadsChange, better: "up" }}
-              to="/opportunities/board"
-            />
-            <KpiCard
-              title="Sales · won"
+              title="Today's revenue"
+              delta={up(today?.changes?.wonValue)}
               money
-              state={pipelineState}
-              value={data?.sales ? Math.round(data.sales.wonValue) : null}
-              denominator={
-                data?.sales
-                  ? `${data.sales.won} deal${data.sales.won === 1 ? "" : "s"}`
-                  : undefined
-              }
-              delta={
-                data?.sales?.wonDeltaPct == null
-                  ? undefined
-                  : { value: data.sales.wonDeltaPct, better: "up" }
-              }
+              state={todayState}
+              value={today ? Math.round(today.wonValue) : null}
             />
             <KpiCard
-              title="Open deals"
-              state={board.state}
-              value={openDeals}
-              denominator={
-                board.data
-                  ? `worth ${formatMoney(Math.round(board.data.totalValue))}`
-                  : undefined
-              }
+              title="Won deals · today"
+              delta={up(today?.changes?.won)}
+              state={todayState}
+              value={today ? today.won : null}
+            />
+            <KpiCard
+              title="Won deals · this month"
+              delta={up(today?.changes?.monthWon)}
+              state={todayState}
+              value={today ? today.monthWon : null}
               to="/opportunities/board"
             />
             <KpiCard
-              title="Marketing · new leads"
-              state={pipelineState}
-              value={data?.marketing ? data.marketing.newLeads : null}
-              denominator={
-                data?.marketing
-                  ? `worth ${formatMoney(Math.round(data.marketing.newValue))}`
-                  : undefined
-              }
+              title="Open leads · this month"
+              state={todayState}
+              value={today ? today.monthOpenLeads : null}
+              to="/opportunities/board"
+            />
+            <KpiCard
+              title="Sales · today's leads"
+              delta={up(today?.changes?.salesLeads)}
+              state={todayState}
+              value={today ? today.salesLeads : null}
+              to="/opportunities/board"
+            />
+            <KpiCard
+              title="Sales · this month"
+              delta={up(today?.changes?.monthSalesLeads)}
+              state={todayState}
+              value={today ? today.monthSalesLeads : null}
+              to="/opportunities/board"
+            />
+            <KpiCard
+              title="Marketing · today's leads"
+              delta={up(today?.changes?.marketingLeads)}
+              state={todayState}
+              value={today ? today.marketingLeads : null}
+            />
+            <KpiCard
+              title="Marketing · this month"
+              delta={up(today?.changes?.monthMarketingLeads)}
+              state={todayState}
+              value={today ? today.monthMarketingLeads : null}
             />
           </div>
 
@@ -374,11 +386,6 @@ export default function GmDashboard() {
             title="Open cases"
             state={gm.state}
             value={data ? data.evaluation.openCases : null}
-            denominator={
-              data
-                ? `worth ${formatMoney(Math.round(data.evaluation.openValue))}`
-                : undefined
-            }
             to="/board"
           />
           <KpiCard
@@ -386,11 +393,6 @@ export default function GmDashboard() {
             title="Delivered"
             state={gm.state}
             value={data ? data.evaluation.delivered : null}
-            denominator={
-              data
-                ? `worth ${formatMoney(Math.round(data.evaluation.deliveredValue))}`
-                : undefined
-            }
             to="/delivery"
           />
           <KpiCard
@@ -399,9 +401,6 @@ export default function GmDashboard() {
             state={pm.state}
             value={pm.data?.onTime.ratePct ?? null}
             unit="%"
-            denominator={
-              pm.data ? `of ${pm.data.onTime.delivered} delivered` : undefined
-            }
             delta={
               pm.data?.onTime.deltaPoints == null
                 ? undefined

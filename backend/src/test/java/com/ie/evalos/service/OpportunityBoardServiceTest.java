@@ -137,6 +137,71 @@ class OpportunityBoardServiceTest {
 		assertThat(board.totalValue()).isEqualByComparingTo("350");
 	}
 
+	// --- One pipeline at a time: the desk's tabs and the GM's drop-down -------------
+
+	@Test
+	void aDeskHoldingTwoPipelinesSwitchesBetweenThemAndStartsOnTheFirst() {
+		authenticate(Role.SALES, null);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of(THEIRS, MINE));
+		givenMirrored(List.of());
+
+		OpportunityBoardService.Board first = service().forPipeline(null);
+		assertThat(first.pipelines()).extracting(OpportunityBoardService.PipelineOption::name)
+				.containsExactly("My pipeline", "Their pipeline");
+		assertThat(first.pipelineId()).isEqualTo(MINE);
+		assertThat(first.columns()).extracting(OpportunityBoardService.BoardColumn::stageName)
+				.containsExactly("New", "Warm");
+
+		OpportunityBoardService.Board other = service().forPipeline(THEIRS);
+		assertThat(other.pipelineId()).isEqualTo(THEIRS);
+		assertThat(other.columns()).extracting(OpportunityBoardService.BoardColumn::stageName)
+				.containsExactly("Theirs");
+		verify(deals).onPipelines(List.of(THEIRS));
+	}
+
+	@Test
+	void aPipelineTheCallerDoesNotHoldIsRefusedAndNeverRead() {
+		authenticate(Role.SALES, MINE);
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> service().forPipeline(THEIRS))
+				.isInstanceOf(com.ie.evalos.common.ForbiddenException.class);
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> service().syncNow(THEIRS))
+				.isInstanceOf(com.ie.evalos.common.ForbiddenException.class);
+		verify(deals, never()).onPipelines(any());
+		verify(deals, never()).refreshIfStale(anyString(), any());
+		// Refused before the structure read could spend any GHL budget, even on an empty mirror.
+		verify(pipelines, never()).sync();
+	}
+
+	@Test
+	void theGmChoosesFromEveryLivePipelineAndStartsOnTheMasterPipeline() {
+		authenticate(Role.GM, null);
+		Pipeline master = mirrored("pipe_master", "Master Pipeline", 2);
+		// "Mastery" is not "Master": the match is a whole word.
+		when(pipelines.all()).thenReturn(List.of(mirrored(MINE, "Mastery Leads", 0),
+				mirrored(THEIRS, "Their pipeline", 1), master));
+		givenMirrored(List.of());
+
+		OpportunityBoardService.Board board = service().forPipeline(null);
+
+		assertThat(board.pipelines()).extracting(OpportunityBoardService.PipelineOption::id)
+				.containsExactly(MINE, THEIRS, "pipe_master");
+		assertThat(board.pipelineId()).isEqualTo("pipe_master");
+		verify(deals).onPipelines(List.of("pipe_master"));
+	}
+
+	@Test
+	void refreshingOnePipelineSyncsThatOneOnly() {
+		authenticate(Role.SALES, null);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of(MINE, THEIRS));
+		givenMirrored(List.of());
+
+		service().syncNow(THEIRS);
+
+		verify(deals).refreshIfStale(eq(THEIRS), any());
+		verify(deals, never()).refreshIfStale(eq(MINE), any());
+	}
+
 	/** The headline counts what is still open — the label every screen puts on it — not won and lost deals too. */
 	@Test
 	void theTotalsCountOnlyOpenDealsWhileEveryCardStaysOnTheBoard() {

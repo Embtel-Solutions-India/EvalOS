@@ -149,6 +149,20 @@ class OpportunityBoardControllerTest {
 		then(board).should().forCaller();
 	}
 
+	/** The one-pipeline route hands the id to the service, which decides; a pipeline not held is a 403. */
+	@Test
+	void theOnePipelineRouteNarrowsAndARefusalIsForbidden() throws Exception {
+		given(board.forPipeline("pipe_mine")).willReturn(BOARD);
+		given(board.forPipeline("pipe_theirs")).willThrow(new com.ie.evalos.common.ForbiddenException("not yours"));
+
+		mockMvc.perform(get("/api/opportunities/board/pipeline").param("id", "pipe_mine")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES)))
+				.andExpect(status().isOk());
+		mockMvc.perform(get("/api/opportunities/board/pipeline").param("id", "pipe_theirs")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES)))
+				.andExpect(status().isForbidden());
+	}
+
 	/** GHL refusing is a 502, as everywhere else this location is read. */
 	@Test
 	void ghlBeingUnavailableIsABadGateway() throws Exception {

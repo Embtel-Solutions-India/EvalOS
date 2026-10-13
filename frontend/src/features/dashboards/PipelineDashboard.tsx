@@ -1,14 +1,11 @@
 import { ArrowLeft } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { Card } from '../../components/ui/card'
+import { useSearchParams } from 'react-router-dom'
 import { PillButton, PillSelect, PillToggle } from '../../components/ui/widgets'
 import { useMe } from '../../lib/authContext'
-import { fetchOpportunityBoard, type OpportunityBoard } from '../opportunities/opportunityApi'
-import { countUndated, daysSince, STALE_DAYS, staleDeals } from './dealAge'
 import { fetchJourney, type Audience } from './journeyApi'
 import { DeskCard, JourneyChart, KpiRow, SourceCard, StageCard } from './journeyWidgets'
-import { emptyWhen, useMetrics } from './useMetrics'
+import { useMetrics } from './useMetrics'
 
 /**
  * The Sales and Marketing dashboard — one component, one data scope.
@@ -25,8 +22,7 @@ import { emptyWhen, useMetrics } from './useMetrics'
  * <p><strong>Filters are the ones the data can serve</strong>: year and source. This month's target
  * is fixed to the business month; a quarter or custom range would need a different read.
  *
- * <p>The earlier "untouched deals" queue survives for a desk's own view, below the analytics: it is
- * the one question a Kanban cannot answer (`dealAge`), and it reads the caller's board.
+ * <p>The "Needs a call" queue of untouched deals was removed on 2026-10-14 at the business's request.
  */
 export default function PipelineDashboard({ audience }: { audience: Audience }) {
   const role = useMe().role
@@ -92,6 +88,8 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
       <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="min-w-0 space-y-4">
           <KpiRow data={data} state={cardState} audience={audience} canSetTarget={role === 'GM' && !memberId} source={source} />
+          {/* Where the pipeline stands right now, above the year's journey (2026-10-14). */}
+          <StageCard data={data} state={cardState} to={isGm ? undefined : '/opportunities/board'} />
           <JourneyChart
             data={data}
             state={cardState}
@@ -112,56 +110,16 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
               </>
             }
           />
-          <StageCard data={data} state={cardState} to={isGm ? undefined : '/opportunities/board'} />
         </div>
 
         <div className="min-w-0 space-y-4">
-          {isGm && !memberId ? (
+          {isGm && !memberId && (
             <DeskCard desks={data?.desks ?? []} state={cardState} audience={audience} onOpen={(id) => set('member', id)} />
-          ) : (
-            !isGm && <UntouchedDeals audience={audience} />
           )}
           <SourceCard data={data} state={cardState} selected={source} onSelect={(s) => set('source', s)} colored={compare && metric === 'leads'} />
         </div>
       </div>
     </section>
-  )
-}
-
-/**
- * What nobody has touched — the one question the board's Kanban cannot answer, and so the one thing
- * from the old screen this one keeps. Reads the caller's own board; hence not shown to the GM, whose
- * board is every desk's.
- */
-function UntouchedDeals({ audience }: { audience: Audience }) {
-  const { data, state } = useMetrics<OpportunityBoard>((signal) => fetchOpportunityBoard(signal), [audience], { key: 'PipelineDashboard:1', refreshEvery: 60_000 })
-  const untouched = staleDeals(data)
-  const undated = data ? countUndated(data) : 0
-  const copy = COPY[audience]
-
-  return (
-    <Card
-      title={`Needs a call · no activity in ${STALE_DAYS}+ days`}
-      state={emptyWhen(state, untouched.length === 0, copy.emptyUntouched)}
-    >
-      <ul className="divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
-        {untouched.slice(0, 8).map((deal) => (
-          <li key={deal.opportunityId} className="flex items-baseline justify-between gap-3 py-1.5">
-            <Link to="/opportunities/board" className="truncate text-sm hover:underline">{deal.name ?? 'Unnamed deal'}</Link>
-            <span className="font-num shrink-0 text-xs tabular-nums" style={{ color: 'var(--status-red)' }}>{daysSince(deal.updatedAt)}d</span>
-          </li>
-        ))}
-      </ul>
-      {untouched.length > 8 && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>and {untouched.length - 8} more</p>
-      )}
-      {undated > 0 && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--text-muted)' }}>{undated} deals have no last-modified date from GHL, so they cannot be aged.</p>
-      )}
-      {data?.stale && (
-        <p className="mt-2 text-xs" style={{ color: 'var(--status-amber)' }}>The mirror has not confirmed with GHL recently; ages may be behind.</p>
-      )}
-    </Card>
   )
 }
 
@@ -171,13 +129,11 @@ const COPY = {
     team: 'salespeople',
     teamNote: 'The whole sales team. Select a salesperson to see the same dashboard for them.',
     ownNote: 'Your pipeline in GHL.',
-    emptyUntouched: 'Every open deal has had activity this week.',
   },
   marketing: {
     title: 'Marketing',
     team: 'marketers',
     teamNote: 'The whole marketing team. Select a member to see the same dashboard for them.',
     ownNote: 'Your leads pipeline in GHL.',
-    emptyUntouched: 'Every open lead has had activity this week.',
   },
 } as const

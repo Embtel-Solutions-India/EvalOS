@@ -19,10 +19,8 @@ import java.util.stream.Stream;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.DeadlineRisk;
 import com.ie.evalos.domain.ExceptionState;
-import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
-import com.ie.evalos.domain.TeamMember;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,7 +66,8 @@ public class PmOverviewService {
 	public record Queues(List<QueueRow> draftReview, List<QueueRow> finalQc) {
 	}
 
-	public record Throughput(LocalDate bucket, int delivered) {
+	/** Cases delivered in one day or week, and how many of them were late (`PmMetricsService.deliveredOnTime`). */
+	public record Throughput(LocalDate bucket, int delivered, int late) {
 	}
 
 	/**
@@ -112,8 +111,11 @@ public class PmOverviewService {
 				.filter(c -> c.getCurrentStage() != Stage.DELIVERED && c.getCurrentStage() != Stage.CLOSED)
 				.toList();
 
-		Map<UUID, String> cmNames = names(Role.CASE_MANAGER);
-		Map<UUID, String> pmNames = names(Role.PROJECT_MANAGER);
+		java.util.Set<UUID> brands = open.stream().map(Case::getBrandId).collect(java.util.stream.Collectors.toSet());
+		Map<UUID, String> cmNames = members.namesOf(
+				open.stream().map(Case::getAssignedCm).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()), brands);
+		Map<UUID, String> pmNames = members.namesOf(
+				open.stream().map(Case::getAssignedPm).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()), brands);
 
 		return new PmOverview(
 				stages,
@@ -173,9 +175,11 @@ public class PmOverviewService {
 		boolean daily = ChronoUnit.DAYS.between(first, last) < DAILY_MAX_DAYS;
 
 		Map<LocalDate, Integer> buckets = new LinkedHashMap<>();
+		Map<LocalDate, Integer> late = new LinkedHashMap<>();
 		LocalDate cursor = daily ? first : first.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 		while (!cursor.isAfter(last)) {
 			buckets.put(cursor, 0);
+			late.put(cursor, 0);
 			cursor = cursor.plusDays(daily ? 1 : 7);
 		}
 		for (Case subject : scoped) {
@@ -183,17 +187,15 @@ public class PmOverviewService {
 				continue;
 			}
 			LocalDate day = subject.getDeliveryDate().atZone(zone).toLocalDate();
-			buckets.merge(daily ? day : day.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)),
-					1, Integer::sum);
+			LocalDate bucket = daily ? day : day.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+			buckets.merge(bucket, 1, Integer::sum);
+			if (!PmMetricsService.deliveredOnTime(subject)) {
+				late.merge(bucket, 1, Integer::sum);
+			}
 		}
-		return buckets.entrySet().stream().map(e -> new Throughput(e.getKey(), e.getValue())).toList();
+		return buckets.entrySet().stream()
+				.map(e -> new Throughput(e.getKey(), e.getValue(), late.getOrDefault(e.getKey(), 0)))
+				.toList();
 	}
 
-	private Map<UUID, String> names(Role role) {
-		Map<UUID, String> names = new LinkedHashMap<>();
-		for (TeamMember member : members.assignable(role)) {
-			names.put(member.getId(), member.getDisplayName());
-		}
-		return names;
-	}
 }

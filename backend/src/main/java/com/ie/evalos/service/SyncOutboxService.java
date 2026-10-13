@@ -181,62 +181,124 @@ public class SyncOutboxService {
 		}
 		// Paused by the Administrator (D83): touch no row. Counting the pause as an attempt would spend the first
 		// row's retry budget for nothing, and one ordinary failure after resuming would then dead-letter it.
-		if (settings != null && !settings.enabled(com.ie.evalos.config.Setting.GHL_WRITES_ENABLED)) {
+		if (paused()) {
 			return new DrainResult(0, 0, 0, 0, true);
 		}
-		List<SyncOutboxEntry> pending = outbox
-				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(),
-						Limit.of(BATCH));
+		sending.lock();
+		try {
+			List<SyncOutboxEntry> pending = outbox
+					.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(),
+							Limit.of(BATCH));
 
-		int sent = 0;
-		int retrying = 0;
-		int dead = 0;
-		int attempted = 0;
-		for (SyncOutboxEntry entry : pending) {
-			attempted++;
-			try {
-				boolean editedUnderUs = push(entry);
-				record(entry, Outcome.SENT, null, null);
-				sent++;
-				if (editedUnderUs) {
-					// After SENT, never before: the pending-row constraint is what collapses
-					// duplicates, so queueing while this row is still pending would be swallowed
-					// as "already queued" and the newer edit would never travel.
-					enqueue(entry.getBrandId(), entry.getEntityType(), entry.getEntityId(),
-							entry.getIntent());
+			int sent = 0;
+			int retrying = 0;
+			int dead = 0;
+			int attempted = 0;
+			for (SyncOutboxEntry entry : pending) {
+				attempted++;
+				switch (send(entry)) {
+					case SENT -> sent++;
+					case RETRYING -> retrying++;
+					case DEAD -> dead++;
+					// Paused between the check above and this row: left exactly as it was.
+					case PAUSED -> {
+						return new DrainResult(attempted - 1, sent, retrying, dead, true);
+					}
+					case HALTED -> {
+						return new DrainResult(attempted, sent, retrying + 1, dead, true);
+					}
 				}
 			}
-			catch (GhlUnavailableException refused) {
-				if (refused.failure() == GhlFailure.PAUSED) {
-					// Paused between the check above and this row: leave it exactly as it was.
-					return new DrainResult(attempted - 1, sent, retrying, dead, true);
+			return new DrainResult(attempted, sent, retrying, dead, false);
+		}
+		finally {
+			sending.unlock();
+		}
+	}
+
+	/**
+	 * Sends one deal's pending pushes now, in the request that queued them — a <strong>won deal</strong>, so
+	 * GHL's {@code opportunity.won} (and the case behind it) does not wait for the next drain.
+	 *
+	 * <p>Called after the caller's transaction commits, because the push reads the row at send time. A
+	 * failure leaves the row exactly where the drain would, under the same retry and dead-letter rules, so
+	 * nothing is lost by trying early. Never throws.
+	 *
+	 * <p>ponytail: skipped while a drain holds the lock (the drain sends it anyway), so the two never push one
+	 * row twice in this JVM. A second backend instance would need a row lock ({@code FOR UPDATE SKIP LOCKED}).
+	 */
+	public void sendNow(UUID brandId, UUID opportunityId) {
+		if (paused() || !sending.tryLock()) {
+			return;
+		}
+		try {
+			for (SyncOutboxEntry entry : outbox
+					.findByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(brandId,
+							SyncEntity.OPPORTUNITY, opportunityId)) {
+				Sent outcome = send(entry);
+				if (outcome == Sent.PAUSED || outcome == Sent.HALTED) {
+					return;
 				}
-				if (refused.failure().stopsEverything()) {
-					// Not this row's fault and not this row's problem: every other pending push
-					// would fail identically. Left pending, and the drain stops here.
-					record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
-					log.error("Outbox halted on {}: {}", refused.failure(), refused.getMessage());
-					return new DrainResult(attempted, sent, retrying + 1, dead, true);
-				}
-				if (!refused.isRetriable() || entry.getAttempts() + 1 >= MAX_ATTEMPTS) {
-					record(entry, Outcome.DEAD, refused.failure(), refused.getMessage());
-					dead++;
-				}
-				else {
-					record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
-					retrying++;
-				}
-			}
-			catch (RuntimeException ourBug) {
-				// An EvalOS defect, not an upstream one. Dead-lettered rather than retried: a
-				// NullPointerException does not become true on the fourth attempt, and looping on
-				// it would hide it behind a queue that never drains.
-				record(entry, Outcome.DEAD, GhlFailure.REFUSED, ourBug.toString());
-				log.error("Outbox row {} failed inside EvalOS and was dead-lettered", entry.getId(), ourBug);
-				dead++;
 			}
 		}
-		return new DrainResult(attempted, sent, retrying, dead, false);
+		catch (RuntimeException unexpected) {
+			log.warn("Immediate push for {} failed; the drain sends it: {}", opportunityId, unexpected.toString());
+		}
+		finally {
+			sending.unlock();
+		}
+	}
+
+	private boolean paused() {
+		return settings != null && !settings.enabled(com.ie.evalos.config.Setting.GHL_WRITES_ENABLED);
+	}
+
+	/** The drain and {@link #sendNow} never send at the same time, so one row is never pushed twice. */
+	private final java.util.concurrent.locks.ReentrantLock sending = new java.util.concurrent.locks.ReentrantLock();
+
+	private enum Sent {
+		SENT, RETRYING, DEAD, PAUSED, HALTED
+	}
+
+	/** One row: push it and record the outcome. */
+	private Sent send(SyncOutboxEntry entry) {
+		try {
+			boolean editedUnderUs = push(entry);
+			record(entry, Outcome.SENT, null, null);
+			if (editedUnderUs) {
+				// After SENT, never before: the pending-row constraint is what collapses
+				// duplicates, so queueing while this row is still pending would be swallowed
+				// as "already queued" and the newer edit would never travel.
+				enqueue(entry.getBrandId(), entry.getEntityType(), entry.getEntityId(), entry.getIntent());
+			}
+			return Sent.SENT;
+		}
+		catch (GhlUnavailableException refused) {
+			if (refused.failure() == GhlFailure.PAUSED) {
+				return Sent.PAUSED;
+			}
+			if (refused.failure().stopsEverything()) {
+				// Not this row's fault and not this row's problem: every other pending push
+				// would fail identically. Left pending, and the drain stops here.
+				record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
+				log.error("Outbox halted on {}: {}", refused.failure(), refused.getMessage());
+				return Sent.HALTED;
+			}
+			if (!refused.isRetriable() || entry.getAttempts() + 1 >= MAX_ATTEMPTS) {
+				record(entry, Outcome.DEAD, refused.failure(), refused.getMessage());
+				return Sent.DEAD;
+			}
+			record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
+			return Sent.RETRYING;
+		}
+		catch (RuntimeException ourBug) {
+			// An EvalOS defect, not an upstream one. Dead-lettered rather than retried: a
+			// NullPointerException does not become true on the fourth attempt, and looping on
+			// it would hide it behind a queue that never drains.
+			record(entry, Outcome.DEAD, GhlFailure.REFUSED, ourBug.toString());
+			log.error("Outbox row {} failed inside EvalOS and was dead-lettered", entry.getId(), ourBug);
+			return Sent.DEAD;
+		}
 	}
 
 	private enum Outcome {

@@ -17,17 +17,14 @@ import com.ie.evalos.common.DateRange;
 import com.ie.evalos.common.DateWindow;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
-import com.ie.evalos.integration.GhlPipelineClient;
-import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.repository.TeamMemberPipelineRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -37,12 +34,10 @@ import org.springframework.transaction.annotation.Transactional;
  * The GM's monthly overview: the money, where it came from, and the four departments behind it.
  *
  * <p><strong>Two halves, and the split is the design.</strong> The <em>production</em> half is
- * EvalOS's own rows — cases, services, deliveries, lateness — and is always answerable. The
- * <em>pipeline</em> half is GHL's, and GHL can be unconfigured, rate-limited or down. They are
- * returned in one payload with the pipeline half <strong>nullable</strong> rather than as two
- * endpoints, because the alternative is a screen where half the tiles 502 and the reader cannot
- * tell whether the business had no wins or whether nobody could ask. {@code pipelineUnavailable}
- * carries the reason, and the screen prints it on exactly the tiles it invalidates.
+ * EvalOS's own rows — cases, services, deliveries, lateness. The <em>pipeline</em> half is GHL's
+ * deals as the mirror holds them, so it is answerable whenever the database is; how current it is
+ * is the sweep's question, shown on the board's sync stamp. {@code pipelineUnavailable} stays on the
+ * payload for the screen and is always null since the mirror read (2026-10-13).
  *
  * <p><strong>Everything here is a figure nothing else already serves.</strong> The GM's screen
  * also reads {@code /metrics/revenue} (collected, recognised, open liability),
@@ -57,16 +52,12 @@ import org.springframework.transaction.annotation.Transactional;
  * keeps the single-brand ceiling ({@code 00b}) intact without a second rule: a location EvalOS
  * cannot attribute to a brand is read only through members it can.
  *
- * <p><strong>ponytail: no cache.</strong> One page load is two GHL searches per desk — roughly
- * eight paced requests for a team of four, about a second, for a screen one person opens.
- *
- * <p>The upgrade path is {@code ghl_funnel_cache}, keyed {@code (funnel, window_key)}: it would
- * take a {@code "GM"} row with no migration, and {@code V25}'s comment on it is worth reading
- * first — it records why a per-process map was wrong (a completed background read lost on
- * restart, a handover state private to one instance, a rate-limit budget multiplied by the
- * instance count). Do that when this screen starts polling or a desk's month stops fitting in a
- * page or two — not before, because the version-race handling that comes with it is real code
- * protecting one reader.
+ * <p><strong>The pipeline half reads the mirror, never GHL live</strong> (2026-10-13, as D76's desk
+ * dashboards already did). It used to make up to three paged GHL searches per desk and pipeline, one
+ * after another under the shared rate limit: 18.8 s for one page load. The mirror carries every field
+ * the figures need ({@code ghl_created_at}, status, {@code last_status_change_at}, amount, source,
+ * custom fields), and a win is placed by its status-change time directly, so the created-date lookback
+ * GHL's search forced no longer bounds the "won" count.
  *
  * <p><strong>ponytail: that table is otherwise orphaned, and could not be dropped here.</strong>
  * Its only reader, {@code MarketingPipelineService}, went with the two funnel screens on
@@ -79,8 +70,6 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class GmOverviewService {
-
-	private static final Logger log = LoggerFactory.getLogger(GmOverviewService.class);
 
 	/** GHL's own word for a closed-won opportunity. */
 	private static final String WON = "won";
@@ -96,7 +85,6 @@ public class GmOverviewService {
 
 	private final CaseLifecycleService lifecycle;
 	private final TeamMemberRepository teamMembers;
-	private final GhlPipelineClient ghl;
 	private final SellingBrand sellingBrand;
 	private final BigDecimal monthlyGoal;
 	private final int wonLookbackDays;
@@ -118,7 +106,7 @@ public class GmOverviewService {
 	private final TeamMemberPipelineRepository assignments;
 	private final OpportunityMirrorService mirror;
 
-	GmOverviewService(CaseLifecycleService lifecycle, TeamMemberRepository teamMembers, GhlPipelineClient ghl,
+	GmOverviewService(CaseLifecycleService lifecycle, TeamMemberRepository teamMembers,
 			SellingBrand sellingBrand, JdbcTemplate jdbc, TeamMemberPipelineRepository assignments,
 			OpportunityMirrorService mirror,
 			@Value("${evalos.sales.monthly-goal}") BigDecimal monthlyGoal,
@@ -128,7 +116,6 @@ public class GmOverviewService {
 		this.assignments = assignments;
 		this.mirror = mirror;
 		this.teamMembers = teamMembers;
-		this.ghl = ghl;
 		this.monthlyGoal = monthlyGoal;
 		this.wonLookbackDays = wonLookbackDays;
 		this.sellingBrand = sellingBrand;
@@ -228,7 +215,35 @@ public class GmOverviewService {
 
 	public record GmOverview(Headline headline, List<SourceRow> bySource, List<ServiceRow> byService, Sales sales,
 			List<DeskRow> desks, Marketing marketing, Evaluation evaluation, Trend trend, Instant readAt,
-			String pipelineUnavailable) {
+			String pipelineUnavailable, Today today) {
+
+		/** Without today's figures — what a hand-built fixture needs. */
+		public GmOverview(Headline headline, List<SourceRow> bySource, List<ServiceRow> byService, Sales sales,
+				List<DeskRow> desks, Marketing marketing, Evaluation evaluation, Trend trend, Instant readAt,
+				String pipelineUnavailable) {
+			this(headline, bySource, byService, sales, desks, marketing, evaluation, trend, readAt, pipelineUnavailable,
+					null);
+		}
+	}
+
+	/**
+	 * Today and this calendar month so far, in the business's own zone, whatever range the dashboard is filtered to:
+	 * sales leads opened, sales deals won, marketing leads opened, and the sales leads opened this month that are still
+	 * open. Each with its value; counted once per deal, like the windowed figures.
+	 */
+	public record Today(int salesLeads, BigDecimal salesLeadValue, int won, BigDecimal wonValue, int marketingLeads,
+			BigDecimal marketingLeadValue, int monthWon, BigDecimal monthWonValue, int monthSalesLeads,
+			BigDecimal monthSalesLeadValue, int monthMarketingLeads, BigDecimal monthMarketingLeadValue,
+			int monthOpenLeads, BigDecimal monthOpenLeadValue, Changes changes) {
+	}
+
+	/**
+	 * The arrows on those tiles, as whole percentages: today against yesterday, and this month so far against the
+	 * same number of days at the start of last month. Null where the earlier figure was zero — growth from nothing is
+	 * not a percentage. Still-open leads have none: "still open" a month later is not the same question.
+	 */
+	public record Changes(Integer wonValue, Integer won, Integer salesLeads, Integer marketingLeads, Integer monthWon,
+			Integer monthSalesLeads, Integer monthMarketingLeads) {
 	}
 
 	private static final int TREND_BUCKETS = 31;
@@ -240,17 +255,7 @@ public class GmOverviewService {
 		Evaluation evaluation = evaluation(window, brandId);
 		List<ServiceRow> byService = byService(window, brandId);
 
-		try {
-			return pipeline(window, evaluation, byService);
-		}
-		catch (GhlUnavailableException unreachable) {
-			// Degrade rather than 502. Production is EvalOS's own data and is still true when
-			// GHL is not answering; refusing the whole payload would take four working tiles
-			// down with the four that broke.
-			log.warn("GM overview served without its pipeline half: {}", unreachable.getMessage());
-			return new GmOverview(null, List.of(), byService, null, List.of(), null, evaluation, null,
-					Instant.now(), unreachable.getMessage());
-		}
+		return pipeline(window, evaluation, byService);
 	}
 
 	private GmOverview pipeline(DateWindow window, Evaluation evaluation, List<ServiceRow> byService) {
@@ -282,13 +287,6 @@ public class GmOverviewService {
 						+ "AND field_key = 'opportunity.lead_source'",
 				(rs, row) -> rs.getString(1), sellingBrand.id()).stream().findFirst().orElse(null);
 
-		// The mirror holds the contact's source for a deal GHL has none for (OpportunityMirrorService
-		// takes it as the deal arrives), and this reads GHL live, so it asks the mirror too.
-		Map<String, String> mirrored = new java.util.HashMap<>();
-		jdbc.query("SELECT ghl_id, source FROM opportunity WHERE brand_id = ? AND ghl_id IS NOT NULL "
-				+ "AND btrim(coalesce(source, '')) <> ''",
-				(rs, row) -> mirrored.put(rs.getString(1), rs.getString(2)), sellingBrand.id());
-
 		List<SourceRow> bySource = new ArrayList<>();
 		Map<String, SourceRow> sourceTotals = new LinkedHashMap<>();
 		List<DeskRow> deskRows = new ArrayList<>();
@@ -304,89 +302,174 @@ public class GmOverviewService {
 		BigDecimal salesWonValue = BigDecimal.ZERO;
 		BigDecimal previousWonValue = BigDecimal.ZERO;
 
+		// A pipeline is read once however many desks hold it, and a deal counts once in the totals: two desks
+		// granted the same pipeline each show it on their own row, but "Business won" must not double it.
+		Map<String, List<Opportunity>> byPipeline = new java.util.HashMap<>();
+		java.util.Set<String> counted = new java.util.HashSet<>();
+
+		LocalDate today = LocalDate.now(BusinessCalendar.clock());
+		Instant todayStart = today.atStartOfDay(window.zone()).toInstant();
+		Instant todayEnd = today.plusDays(1).atStartOfDay(window.zone()).toInstant();
+		Instant monthStart = today.withDayOfMonth(1).atStartOfDay(window.zone()).toInstant();
+		Instant yesterdayStart = today.minusDays(1).atStartOfDay(window.zone()).toInstant();
+		// Last month's first N days, N being today's day of the month (capped at that month's length).
+		LocalDate lastMonth = today.withDayOfMonth(1).minusMonths(1);
+		Instant lastMonthStart = lastMonth.atStartOfDay(window.zone()).toInstant();
+		Instant lastMonthSoFar = lastMonth.plusDays(Math.min(today.getDayOfMonth(), lastMonth.lengthOfMonth()))
+				.atStartOfDay(window.zone()).toInstant();
+		int yesterdaySalesLeads = 0;
+		int yesterdayMarketingLeads = 0;
+		int yesterdayWon = 0;
+		BigDecimal yesterdayWonValue = BigDecimal.ZERO;
+		int lastMonthWon = 0;
+		int lastMonthSalesLeads = 0;
+		int lastMonthMarketingLeads = 0;
+		int monthWon = 0;
+		BigDecimal monthWonValue = BigDecimal.ZERO;
+		int monthSalesLeads = 0;
+		int monthMarketingLeads = 0;
+		int monthOpenLeads = 0;
+		BigDecimal monthSalesLeadValue = BigDecimal.ZERO;
+		BigDecimal monthMarketingLeadValue = BigDecimal.ZERO;
+		BigDecimal monthOpenLeadValue = BigDecimal.ZERO;
+		int todaySalesLeads = 0;
+		int todayMarketingLeads = 0;
+		int todayWon = 0;
+		BigDecimal todaySalesLeadValue = BigDecimal.ZERO;
+		BigDecimal todayMarketingLeadValue = BigDecimal.ZERO;
+		BigDecimal todayWonValue = BigDecimal.ZERO;
+
 		for (TeamMember desk : desks) {
 			// The desk's pipelines are the set they are granted (D19b), the same one their board draws —
 			// not `team_member.ghl_pipeline_id`, which nothing has written since Unit 44b. A desk on two
 			// pipelines is both of them here, and a desk granted one after that migration is on this card.
-			List<GhlPipelineClient.Opportunity> created = new ArrayList<>();
-			List<GhlPipelineClient.Opportunity> wins = new ArrayList<>();
-			List<String> held = assignments.ghlIdsFor(desk.getId());
-			for (String pipelineId : held) {
-				created.addAll(ghl.opportunitiesIn(pipelineId, from, to));
-			// Wins are read over a wider created-window and bucketed here: GHL's date filter is on
-			// createdAt, so a deal opened before this month and won inside it is invisible to the
-			// query above. See GhlPipelineClient.opportunitiesIn(.., status).
-				wins.addAll(ghl.opportunitiesIn(pipelineId, from.minusDays(wonLookbackDays()), to, WON));
-			}
+			// ponytail: each pipeline's whole history is loaded and filtered here; a date-bounded query is the
+			// upgrade if a desk ever holds a pipeline the size of the Master Pipeline.
+			List<Opportunity> rows = assignments.ghlIdsFor(desk.getId()).stream()
+					.flatMap((id) -> byPipeline.computeIfAbsent(id, (key) -> mirror.onPipelines(List.of(key))).stream())
+					.toList();
+			boolean sales = desk.getRole() != Role.MARKETING;
+			String group = sales ? "S:" : "M:";
 
-			int deskNew = created.size();
+			int deskNew = 0;
 			int deskWon = 0;
-			BigDecimal deskWonValue = BigDecimal.ZERO;
 			BigDecimal deskNewValue = BigDecimal.ZERO;
+			BigDecimal deskWonValue = BigDecimal.ZERO;
 
-			if (desk.getRole() != Role.MARKETING) {
-				// The trend is the sales desks', like the headline it sits under.
-				for (GhlPipelineClient.Opportunity opportunity : created) {
-					bump(trendLeads, opportunity.createdAt(), from, bucketDays, window);
+			for (Opportunity row : rows) {
+				Instant createdAt = row.getGhlCreatedAt();
+				boolean firstForGroup = counted.add(group + row.getGhlId());
+				boolean firstAtAll = counted.add("A:" + row.getGhlId());
+				Instant wonAt = WON.equalsIgnoreCase(row.getStatus()) ? row.getLastStatusChangeAt() : null;
+
+				if (firstForGroup && within(createdAt, todayStart, todayEnd)) {
+					if (sales) {
+						todaySalesLeads++;
+						todaySalesLeadValue = todaySalesLeadValue.add(amountOf(row));
+					}
+					else {
+						todayMarketingLeads++;
+						todayMarketingLeadValue = todayMarketingLeadValue.add(amountOf(row));
+					}
 				}
-				// The previous period is only read when it will be shown: `trend` drops it when it is not
-				// comparable, and each pipeline costs a GHL round trip against the shared rate budget.
-				if (comparable) {
-					for (String pipelineId : held) {
-						for (GhlPipelineClient.Opportunity opportunity : ghl.opportunitiesIn(pipelineId, previousFrom,
-								from.minusDays(1))) {
-							bump(trendPreviousLeads, opportunity.createdAt(), previousFrom, bucketDays, window);
+				if (sales && firstForGroup && within(wonAt, todayStart, todayEnd)) {
+					todayWon++;
+					todayWonValue = todayWonValue.add(amountOf(row));
+				}
+				if (sales && firstForGroup && within(wonAt, monthStart, todayEnd)) {
+					monthWon++;
+					monthWonValue = monthWonValue.add(amountOf(row));
+				}
+				if (firstForGroup && within(createdAt, yesterdayStart, todayStart)) {
+					if (sales) {
+						yesterdaySalesLeads++;
+					}
+					else {
+						yesterdayMarketingLeads++;
+					}
+				}
+				if (firstForGroup && within(createdAt, lastMonthStart, lastMonthSoFar)) {
+					if (sales) {
+						lastMonthSalesLeads++;
+					}
+					else {
+						lastMonthMarketingLeads++;
+					}
+				}
+				if (sales && firstForGroup && within(wonAt, yesterdayStart, todayStart)) {
+					yesterdayWon++;
+					yesterdayWonValue = yesterdayWonValue.add(amountOf(row));
+				}
+				if (sales && firstForGroup && within(wonAt, lastMonthStart, lastMonthSoFar)) {
+					lastMonthWon++;
+				}
+				if (firstForGroup && within(createdAt, monthStart, todayEnd)) {
+					if (sales) {
+						monthSalesLeads++;
+						monthSalesLeadValue = monthSalesLeadValue.add(amountOf(row));
+						if (OpportunityBoardService.isOpen(row)) {
+							monthOpenLeads++;
+							monthOpenLeadValue = monthOpenLeadValue.add(amountOf(row));
+						}
+					}
+					else {
+						monthMarketingLeads++;
+						monthMarketingLeadValue = monthMarketingLeadValue.add(amountOf(row));
+					}
+				}
+
+				if (within(createdAt, windowStart, windowEnd)) {
+					deskNew++;
+					deskNewValue = deskNewValue.add(amountOf(row));
+					if (firstAtAll) {
+						opportunities++;
+						if (isBlank(sourceOf(row, leadSourceFieldId))) {
+							unattributed++;
+						}
+					}
+					if (firstForGroup) {
+						if (sales) {
+							salesNew++;
+							salesNewValue = salesNewValue.add(amountOf(row));
+							// The trend is the sales desks', like the headline it sits under.
+							bump(trendLeads, createdAt, from, bucketDays, window);
+						}
+						else {
+							marketingNew++;
+							marketingNewValue = marketingNewValue.add(amountOf(row));
 						}
 					}
 				}
-			}
-
-			for (GhlPipelineClient.Opportunity opportunity : created) {
-				deskNewValue = deskNewValue.add(amountOf(opportunity));
-				opportunities++;
-				if (isBlank(sourceOf(opportunity, leadSourceFieldId, mirrored))) {
-					unattributed++;
+				else if (sales && firstForGroup && comparable && within(createdAt, previousStart, windowStart)) {
+					bump(trendPreviousLeads, createdAt, previousFrom, bucketDays, window);
 				}
-			}
 
-			for (GhlPipelineClient.Opportunity win : wins) {
-				Instant at = win.lastStatusChangeAt();
-				if (at == null) {
-					continue;
-				}
-				if (!at.isBefore(windowStart) && at.isBefore(windowEnd)) {
+				// Placed by when it was won, not when it was opened: a deal opened in July and won in September is
+				// September's win.
+				if (within(wonAt, windowStart, windowEnd)) {
 					deskWon++;
-					deskWonValue = deskWonValue.add(amountOf(win));
+					deskWonValue = deskWonValue.add(amountOf(row));
 					// Sales wins only, same rule as the headline these bars split.
-					if (desk.getRole() != Role.MARKETING) {
-						merge(sourceTotals, win, leadSourceFieldId, mirrored);
-						add(trendWon, at, from, bucketDays, window, amountOf(win));
+					if (sales && firstForGroup) {
+						salesWon++;
+						salesWonValue = salesWonValue.add(amountOf(row));
+						merge(sourceTotals, row, leadSourceFieldId);
+						add(trendWon, wonAt, from, bucketDays, window, amountOf(row));
 					}
 				}
 				// Sales desks only, like the current window's salesWon: counting Marketing's wins here as well made
 				// the "before" figure larger than the "now" one it is compared with, so the change read too low.
-				else if (!at.isBefore(previousStart) && at.isBefore(windowStart) && desk.getRole() != Role.MARKETING) {
+				else if (sales && firstForGroup && within(wonAt, previousStart, windowStart)) {
 					previousWon++;
-					previousWonValue = previousWonValue.add(amountOf(win));
-					add(trendPreviousWon, at, previousFrom, bucketDays, window, amountOf(win));
+					previousWonValue = previousWonValue.add(amountOf(row));
+					add(trendPreviousWon, wonAt, previousFrom, bucketDays, window, amountOf(row));
 				}
 			}
 
-			if (desk.getRole() == Role.MARKETING) {
-				marketingNew += deskNew;
-				marketingNewValue = marketingNewValue.add(deskNewValue);
-			}
-			else {
-				salesNew += deskNew;
-				salesNewValue = salesNewValue.add(deskNewValue);
-				salesWon += deskWon;
-				salesWonValue = salesWonValue.add(deskWonValue);
-			}
 			// What the desk holds open right now, from the mirror — the figure their board's header shows.
 			// Independent of the date window, which only scopes New / Won / Value.
-			List<com.ie.evalos.domain.Opportunity> openNow = mirror.onPipelines(held).stream()
-					.filter(OpportunityBoardService::isOpen).toList();
-			BigDecimal openValue = openNow.stream().map(com.ie.evalos.domain.Opportunity::getAmount)
+			List<Opportunity> openNow = rows.stream().filter(OpportunityBoardService::isOpen).toList();
+			BigDecimal openValue = openNow.stream().map(Opportunity::getAmount)
 					.filter((amount) -> amount != null).reduce(BigDecimal.ZERO, BigDecimal::add);
 			deskRows.add(new DeskRow(desk.getId(), desk.getDisplayName(), desk.getRole(), deskNew, deskWon,
 					deskWonValue, openNow.size(), openValue));
@@ -409,7 +492,15 @@ public class GmOverviewService {
 				evaluation,
 				trend(from, bucketDays, comparable, trendLeads, trendPreviousLeads, trendWon, trendPreviousWon),
 				Instant.now(),
-				null);
+				null,
+				new Today(todaySalesLeads, todaySalesLeadValue, todayWon, todayWonValue, todayMarketingLeads,
+						todayMarketingLeadValue, monthWon, monthWonValue, monthSalesLeads, monthSalesLeadValue,
+						monthMarketingLeads, monthMarketingLeadValue, monthOpenLeads, monthOpenLeadValue,
+						new Changes(deltaPct(yesterdayWonValue, todayWonValue, yesterdayWon), change(yesterdayWon, todayWon),
+								change(yesterdaySalesLeads, todaySalesLeads),
+								change(yesterdayMarketingLeads, todayMarketingLeads), change(lastMonthWon, monthWon),
+								change(lastMonthSalesLeads, monthSalesLeads),
+								change(lastMonthMarketingLeads, monthMarketingLeads))));
 	}
 
 	private static Trend trend(LocalDate from, int bucketDays, boolean comparable, int[] leads, int[] previousLeads,
@@ -506,6 +597,11 @@ public class GmOverviewService {
 				sellingBrand.id(), month.withDayOfMonth(1), amount, setBy);
 	}
 
+	/** A count's change as a whole percentage; null when there was nothing before. */
+	private static Integer change(int previous, int current) {
+		return previous == 0 ? null : Math.round((current - previous) * 100f / previous);
+	}
+
 	private static Integer deltaPct(BigDecimal previous, BigDecimal current, int previousDeals) {
 		// Null rather than 100% when the previous window was empty: a first win is not an
 		// improvement of any percentage, and a tile reading "up 100%" on a month that started
@@ -517,29 +613,33 @@ public class GmOverviewService {
 				.divide(previous, 0, RoundingMode.HALF_UP).intValue();
 	}
 
-	/** The native Source, else the Lead Source custom field, else the mirror's (the contact's); null if none. */
-	private static String sourceOf(GhlPipelineClient.Opportunity opportunity, String leadSourceFieldId,
-			Map<String, String> mirrored) {
-		if (!isBlank(opportunity.source())) {
-			return opportunity.source();
-		}
-		String custom = leadSourceFieldId == null ? null : opportunity.customFields().stream()
-				.filter((field) -> leadSourceFieldId.equals(field.id()) && !isBlank(field.value()))
-				.map(GhlPipelineClient.CustomFieldValue::value)
-				.findFirst().orElse(null);
-		return custom != null ? custom : mirrored.get(opportunity.id());
+	/**
+	 * The Lead Source custom field, else the mirrored Source; null if neither.
+	 *
+	 * <p>The custom field first because it is the deliberate attribution (the back-fill and the desks write
+	 * it; GHL's API cannot set the native Source), while the mirror's {@code source} is GHL's native one or,
+	 * failing that, the contact's — a fallback that must not outrank it. ponytail: the mirror does not keep
+	 * native and contact-derived apart, so a native Source set in GHL's UI now loses to a differing custom
+	 * field; a {@code source_origin} column is the upgrade if that ever matters.
+	 */
+	private static String sourceOf(Opportunity opportunity, String leadSourceFieldId) {
+		String custom = leadSourceFieldId == null ? null : opportunity.getCustomFields().get(leadSourceFieldId);
+		return !isBlank(custom) ? custom : opportunity.getSource();
 	}
 
-	private static void merge(Map<String, SourceRow> totals, GhlPipelineClient.Opportunity opportunity,
-			String leadSourceFieldId, Map<String, String> mirrored) {
-		String source = sourceOf(opportunity, leadSourceFieldId, mirrored);
+	private static boolean within(Instant at, Instant from, Instant to) {
+		return at != null && !at.isBefore(from) && at.isBefore(to);
+	}
+
+	private static void merge(Map<String, SourceRow> totals, Opportunity opportunity, String leadSourceFieldId) {
+		String source = sourceOf(opportunity, leadSourceFieldId);
 		String name = isBlank(source) ? UNATTRIBUTED : source.trim();
 		totals.merge(name.toLowerCase(Locale.ROOT), new SourceRow(name, 1, amountOf(opportunity)),
 				(a, b) -> new SourceRow(a.source(), a.deals() + b.deals(), a.value().add(b.value())));
 	}
 
-	private static BigDecimal amountOf(GhlPipelineClient.Opportunity opportunity) {
-		return opportunity.monetaryValue() == null ? BigDecimal.ZERO : opportunity.monetaryValue();
+	private static BigDecimal amountOf(Opportunity opportunity) {
+		return opportunity.getAmount() == null ? BigDecimal.ZERO : opportunity.getAmount();
 	}
 
 	// --- the production half -------------------------------------------------

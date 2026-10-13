@@ -116,7 +116,13 @@ public class PmMetricsService {
 		List<Case> scoped = scoped(brandId);
 
 		Instant now = Instant.now();
+		// The roster seeds the workload chart (a CM with nothing yet still has a bar); the cases' own CMs are named
+		// whether or not the caller may assign them.
 		Map<UUID, String> names = cmNames();
+		members.namesOf(
+				scoped.stream().map(Case::getAssignedCm).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()),
+				scoped.stream().map(Case::getBrandId).collect(java.util.stream.Collectors.toSet()))
+				.forEach(names::putIfAbsent);
 
 		return new PmMetrics(
 				onTime(scoped, from, to),
@@ -172,12 +178,20 @@ public class PmMetricsService {
 				continue;
 			}
 			delivered++;
-			// A delivered case with no deadline was never promised a date, so it cannot be late.
-			if (subject.getDeadline() == null || !date.isAfter(subject.getDeadline())) {
+			if (deliveredOnTime(subject)) {
 				onTime++;
 			}
 		}
 		return new Tally(delivered, onTime);
+	}
+
+	/**
+	 * Delivered on or before the date the client was promised. One definition for the on-time rate and the
+	 * delivered chart's on-time / late split (`PmOverviewService`). A delivered case with no deadline was never
+	 * promised a date, so it cannot be late.
+	 */
+	static boolean deliveredOnTime(Case subject) {
+		return subject.getDeadline() == null || !subject.getDeliveryDate().isAfter(subject.getDeadline());
 	}
 
 	/**

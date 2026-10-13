@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
-import { ChatProvider, ChatToast, PushRefresh } from '@evalos/chat'
+import { ChatProvider, ChatToast, PushPrompt, PushRefresh } from '@evalos/chat'
 import '@evalos/chat/chat.css'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { usePortalToken } from '@shared/hooks/usePortalToken'
@@ -52,6 +52,7 @@ export function PortalLayout() {
     <ChatProvider client={chat}>
       <LiveInvalidate prefix="portal" />
       <PushRefresh workerUrl="/sw.js" />
+      <PushPrompt workerUrl="/sw.js" />
       <div className="flex min-h-dvh flex-col bg-muted/30">
         <div className="flex-1 lg:grid lg:grid-cols-[16rem_1fr]">
           <aside className="hidden bg-sidebar lg:block">

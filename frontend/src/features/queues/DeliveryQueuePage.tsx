@@ -6,6 +6,8 @@ import { QUICK_ACTIONS, type BoardCard } from '../board/boardRules'
 import { useFilters } from '../shell/filtersContext'
 import { deliveryQueue, riskColor, riskLabel } from './queueRules'
 import { DialogContent, DialogRoot, DialogTrigger } from '../../components/ui/dialog'
+import ViewToggle from './ViewToggle'
+import { useViewMode, type ViewMode } from './useViewMode'
 
 const DELIVER = QUICK_ACTIONS.find((action) => action.path === 'deliver')!
 
@@ -23,17 +25,21 @@ export default function DeliveryQueuePage() {
   const { activeBrandId } = useFilters()
   // Unit 70a: the cached board read, shared with the board and the other queues.
   const { data, error, load } = useBoard(null, activeBrandId)
-
+  // A grid of cards like the other queues, or the rows it had; remembered per browser.
+  const [mode, setMode] = useViewMode('delivery-queue')
 
   const rows = data ? deliveryQueue(data) : []
 
   return (
     <section>
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Delivery queue</h1>
-        <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {data ? `${rows.length} ready` : ''}
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Delivery queue</h1>
+          <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
+            {data ? `${rows.length} ready` : ''}
+          </p>
+        </div>
+        <ViewToggle mode={mode} onChange={setMode} />
       </header>
 
       {error && (
@@ -59,16 +65,16 @@ export default function DeliveryQueuePage() {
         </p>
       )}
 
-      <ul className="mt-4 space-y-2">
+      <ul className={mode === 'cards' ? 'mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4' : 'mt-4 space-y-2'}>
         {rows.map((card) => (
-          <DeliveryRow key={card.id} card={card} onDelivered={load} />
+          <DeliveryRow key={card.id} card={card} mode={mode} onDelivered={load} />
         ))}
       </ul>
     </section>
   )
 }
 
-function DeliveryRow({ card, onDelivered }: { card: BoardCard; onDelivered: () => void }) {
+function DeliveryRow({ card, mode, onDelivered }: { card: BoardCard; mode: ViewMode; onDelivered: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
@@ -91,10 +97,15 @@ function DeliveryRow({ card, onDelivered }: { card: BoardCard; onDelivered: () =
 
   return (
     <li
-      className="flex flex-wrap items-center gap-3 rounded-lg border p-4"
+      // A card stacks the case over its Deliver button, the button full width at the foot; a row keeps them side by side.
+      className={
+        mode === 'cards'
+          ? 'flex flex-col gap-3 rounded-lg border p-4 [&_button]:w-full'
+          : 'flex flex-wrap items-center gap-3 rounded-lg border p-4'
+      }
       style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
     >
-      <div className="min-w-48 flex-1">
+      <div className={mode === 'cards' ? 'min-w-0 flex-1' : 'min-w-48 flex-1'}>
         <Link to={`/cases/${card.id}`} className="font-mono text-xs font-medium">
           {card.caseCode}
         </Link>
