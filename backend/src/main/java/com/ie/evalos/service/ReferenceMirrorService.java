@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 
 import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.GhlReference;

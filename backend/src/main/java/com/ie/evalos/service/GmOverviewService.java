@@ -172,8 +172,11 @@ public class GmOverviewService {
 	/**
 	 * @param wonDeltaPct against the previous window of the same length, or null when the previous
 	 *                    window had no wins — a rise from zero is not a percentage
+	 * @param comparedFrom first day of that previous window, so the screen can say what "−60%" is against
+	 * @param comparedTo   its last day (the day before the current window starts)
 	 */
-	public record Sales(int newLeads, BigDecimal newValue, int won, BigDecimal wonValue, Integer wonDeltaPct) {
+	public record Sales(int newLeads, BigDecimal newValue, int won, BigDecimal wonValue, Integer wonDeltaPct,
+			LocalDate comparedFrom, LocalDate comparedTo) {
 	}
 
 	/**
@@ -360,12 +363,12 @@ public class GmOverviewService {
 						add(trendWon, at, from, bucketDays, window, amountOf(win));
 					}
 				}
-				else if (!at.isBefore(previousStart) && at.isBefore(windowStart)) {
+				// Sales desks only, like the current window's salesWon: counting Marketing's wins here as well made
+				// the "before" figure larger than the "now" one it is compared with, so the change read too low.
+				else if (!at.isBefore(previousStart) && at.isBefore(windowStart) && desk.getRole() != Role.MARKETING) {
 					previousWon++;
 					previousWonValue = previousWonValue.add(amountOf(win));
-					if (desk.getRole() != Role.MARKETING) {
-						add(trendPreviousWon, at, previousFrom, bucketDays, window, amountOf(win));
-					}
+					add(trendPreviousWon, at, previousFrom, bucketDays, window, amountOf(win));
 				}
 			}
 
@@ -399,7 +402,7 @@ public class GmOverviewService {
 				bySource,
 				byService,
 				new Sales(salesNew, salesNewValue, salesWon, salesWonValue,
-						deltaPct(previousWonValue, salesWonValue, previousWon)),
+						deltaPct(previousWonValue, salesWonValue, previousWon), previousFrom, from.minusDays(1)),
 				deskRows.stream().sorted(Comparator.comparing(DeskRow::name)).toList(),
 				new Marketing(marketingNew, marketingNewValue,
 						opportunities == 0 ? null : Math.round(unattributed * 100f / opportunities)),

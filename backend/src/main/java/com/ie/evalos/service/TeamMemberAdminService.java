@@ -6,7 +6,6 @@ import java.util.UUID;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.domain.Segment;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.TeamMemberPipelineRepository;
@@ -32,16 +31,15 @@ public class TeamMemberAdminService {
 	static final int MIN_PASSWORD = 12;
 
 	/** What a GM types. The password travels only on create and on {@link #setPassword}. */
-	public record Details(String displayName, String email, Role role, UUID brandId, Segment segment, String ghlUserId) {
+	public record Details(String displayName, String email, Role role, UUID brandId, String ghlUserId) {
 	}
 
 	/** What the trail records: never a password, never a hash. */
-	record Snapshot(String displayName, String email, Role role, UUID brandId, Segment segment, String ghlUserId,
+	record Snapshot(String displayName, String email, Role role, UUID brandId, String ghlUserId,
 			boolean active) {
 
 		static Snapshot of(TeamMember m) {
-			return new Snapshot(m.getDisplayName(), m.getEmail(), m.getRole(), m.getBrandId(), m.getSegment(),
-					m.getGhlUserId(), m.isActive());
+			return new Snapshot(m.getDisplayName(), m.getEmail(), m.getRole(), m.getBrandId(), m.getGhlUserId(), m.isActive());
 		}
 	}
 
@@ -139,11 +137,6 @@ public class TeamMemberAdminService {
 		if (!crossBrand && (brandId == null || brands.findById(brandId).isEmpty())) {
 			throw new InvalidRequestException("Choose this member's brand");
 		}
-		// A segment for the two desks and nobody else (team_member_segment_matches_role).
-		Segment segment = d.role().isPipelineScoped() ? d.segment() : null;
-		if (d.role().isPipelineScoped() && segment == null) {
-			throw new InvalidRequestException("Sales and Marketing members need a segment");
-		}
 		String ghlUser = d.ghlUserId() == null || d.ghlUserId().isBlank() ? null : d.ghlUserId().trim();
 		if (ghlUser != null) {
 			members.findByGhlUserId(ghlUser).filter(other -> current == null || !other.getId().equals(current.getId()))
@@ -151,11 +144,11 @@ public class TeamMemberAdminService {
 						throw new InvalidRequestException("That GHL user is already linked to " + other.getDisplayName());
 					});
 		}
-		return new Details(name, email, d.role(), brandId, segment, ghlUser);
+		return new Details(name, email, d.role(), brandId, ghlUser);
 	}
 
 	private static void describe(TeamMember member, Details d) {
-		member.describe(d.displayName(), d.email(), d.role(), d.brandId(), d.segment(), d.ghlUserId());
+		member.describe(d.displayName(), d.email(), d.role(), d.brandId(), d.ghlUserId());
 	}
 
 	private static void requirePassword(String password) {

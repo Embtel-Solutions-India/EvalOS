@@ -331,8 +331,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D20.** Eight staff roles with ABAC tiers: `GM`(ALL), `BRAND_MANAGER`(BRAND),
   `PROJECT_MANAGER`(TEAM), `PROJECT_COORDINATOR`/`CASE_MANAGER`(SELF),
   `EXPERT_NETWORK_MANAGER`(SUPPLY), `SALES`/`MARKETING`(PIPELINE).
-- **D21.** Sales and Marketing are roles; attorney/employer/individual are `team_member.segment`,
-  not roles — identical permissions.
+- **D21.** Sales and Marketing are roles, and **the role is all EvalOS records** (edited
+  2026-10-13). The attorney / employer-firm / individual split is not stored: `team_member.segment`
+  was display-only, changed no permission, and is now VESTIGIAL (`V91` drops its CHECK and empties
+  it; the column stays only because applied seeds V908/V909/V960 insert into it).
 - **D22.** Two Spring Security chains: `/api/portal/**` on an opaque portal token (order 1),
   everything else on staff JWT (order 2).
 - **D23.** Clients authenticate with email + password. **Experts will too — the stakeholder
@@ -355,7 +357,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   token-in-the-URL `/case` and the portal-links ledger all go in Unit 59, and live expert links are
   revoked by migration.
 - **D72.** **The GM administers staff in EvalOS** (2026-10-02, Unit 68, spec `68-gm-admin.md`):
-  create, edit (name, email, role, brand, segment, GHL user), deactivate / reactivate — never delete
+  create, edit (name, email, role, brand, GHL user), deactivate / reactivate — never delete
   — and set a password, GM-only and audited without the password. **The GM sets the password and
   hands it over; no staff mail** (invariant 14; `open-decisions.md` Q18). **A deactivation bites on
   the member's next request** (`JwtFilter` re-reads `team_member.active`), not when their 8 h token

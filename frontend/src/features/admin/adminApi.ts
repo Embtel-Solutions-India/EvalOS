@@ -3,8 +3,6 @@ import type { Role } from "../../lib/session";
 
 /** Unit 68: the GM's admin reads and writes, over routes the server gates to the GM. */
 
-export type Segment = "ATTORNEY" | "EMPLOYER_FIRM" | "INDIVIDUAL";
-
 export type StaffMember = {
   id: string;
   displayName: string;
@@ -13,7 +11,6 @@ export type StaffMember = {
   brandId: string | null;
   teamId: string | null;
   active: boolean;
-  segment: Segment | null;
   ghlUserId: string | null;
 };
 
@@ -22,7 +19,6 @@ export type StaffForm = {
   email: string;
   role: Role;
   brandId: string | null;
-  segment: Segment | null;
   ghlUserId: string | null;
 };
 
@@ -88,11 +84,6 @@ export const PURPOSES = [
   "DELIVERY",
   "EXPERT_HIRING",
 ] as const;
-export const SEGMENTS: readonly Segment[] = [
-  "ATTORNEY",
-  "EMPLOYER_FIRM",
-  "INDIVIDUAL",
-];
 
 export const fetchStaff = (signal?: AbortSignal) =>
   unwrap<StaffMember[]>(api.get("/team-members", { signal }));

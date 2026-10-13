@@ -59,7 +59,7 @@ called — a key minted in memory and lost to a timeout is a key no retry can se
 **Unit 47 (`V60`, BUILT 2026-09-17):** `ghl_custom_field`, `ghl_calendar`, `ghl_user` — the
 location's reference lists, upserted on GHL's id, `synced_at` stamped, never deleted
 (`missing_since`). Prefixed `ghl_` because `user` is reserved in Postgres. **No slots table, ever**
-(D48). **`V74` (Unit 60):** `team_member.ghl_user_id`, unique where set, linked by email on `REFERENCE_MIRROR`, never overwritten. Custom field **values** are `jsonb` maps keyed by field id, not columns (D49): `opportunity.custom_fields` (`V62`) and `contact_snapshot.custom_fields` (`V81`, with `country` and `tags text[]`). `ghl_custom_field.model` holds `opportunity` and `contact` definitions; readers filter by model.
+(D48). **`V91`:** `team_member.segment` VESTIGIAL (no CHECK, always NULL, unmapped; D21). **`V74` (Unit 60):** `team_member.ghl_user_id`, unique where set, linked by email on `REFERENCE_MIRROR`, never overwritten. Custom field **values** are `jsonb` maps keyed by field id, not columns (D49): `opportunity.custom_fields` (`V62`) and `contact_snapshot.custom_fields` (`V81`, with `country` and `tags text[]`). `ghl_custom_field.model` holds `opportunity` and `contact` definitions; readers filter by model.
 
 **2026-09-18 review pass — two columns.**
 

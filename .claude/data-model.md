@@ -19,7 +19,7 @@ live in `backend/src/main/resources/db/migration/`.
 |---|---|---|
 | `brand` | tenant; webhook endpoint token, GHL webhook secret, currency, payout terms. **Name, currency and payout term are editable by the Administrator** (D83, `Brand.update`, audited `BRAND`); slug, token and secret are not | — |
 | `app_setting` (`V90`, D83) | the Administrator's saved settings: `key` (a `Setting` enum name), `value` (AES-GCM ciphertext for a secret), `updated_at`, `updated_by`. **No row = the env var applies**; reset deletes the row. Deployment-wide, no `brand_id` (configures the server, not a brand's rows). History is the audit trail (`object_type = 'SETTING'`, secrets as set/cleared) | — |
-| `team_member` | staff login, role, `segment`; `ghl_pipeline_id` is **VESTIGIAL** as of 44b and, since `V84` (Unit 68), **no longer required** for SALES/MARKETING (still forbidden for every other role); **`ghl_user_id`** (`V74`, Unit 60): the member's GHL user, unique where set, linked by email on `REFERENCE_MIRROR` | yes (nullable for GM) |
+| `team_member` | staff login, role; `segment` is **VESTIGIAL** since `V91` (D21: unmapped, always NULL, no CHECK — kept because applied seeds insert into it); `ghl_pipeline_id` is **VESTIGIAL** as of 44b and, since `V84` (Unit 68), **no longer required** for SALES/MARKETING (still forbidden for every other role); **`ghl_user_id`** (`V74`, Unit 60): the member's GHL user, unique where set, linked by email on `REFERENCE_MIRROR` | yes (nullable for GM) |
 | `team_member_pipeline` | **which pipelines a member may work** (44b, `V54`): FK to `pipeline`, many-to-many, `granted_at`/`granted_by`, `revoked_at` (`V64`). **A revoke stamps, never deletes** — the row is what stops `backfillFromLegacyColumn` re-creating the grant from `team_member.ghl_pipeline_id`, which `V39` forbids emptying for SALES/MARKETING. Every read filters `revoked_at IS NULL` | via the member |
 | `client_account` | **portal identity**: email, password_hash, ghl_contact_id, `contact_id` (`V55` — FK to the CRM row), name, phone, `created_via` (`V59` — SEED / SIGNUP / STAFF, **CASE** since `V78`: opened when the client's case was created, Unit 64; the only thing `PORTAL_CLEANUP` is allowed to delete on) | yes |
 | `client_credential_token` | single-use SET / RESET password links | yes |
@@ -94,7 +94,6 @@ only write path was delete-all-then-insert-all per pipeline — is why it could 
 | Field | Values |
 |---|---|
 | `team_member.role` | GM, **ADMIN** (`V88`, D78; NULL brand like the GM), BRAND_MANAGER, PROJECT_MANAGER, PROJECT_COORDINATOR, CASE_MANAGER, EXPERT_NETWORK_MANAGER, SALES, MARKETING |
-| `team_member.segment` | ATTORNEY, EMPLOYER_FIRM, INDIVIDUAL (required iff SALES/MARKETING) |
 | `evalos_case.current_stage` | the 12 stages (see `architecture.md`) |
 | `evalos_case.exception_state` | NONE plus hold / refund states |
 | `client_credential_token.purpose` | SET, RESET |

@@ -207,7 +207,7 @@ class GhlHttpTest {
 
 	/**
 	 * The scan above has to be able to fail, or it is decoration — the same rule
-	 * {@code SegmentIsNotAnAccessKeyTest} applies to its own scan.
+	 * {@code OpportunityRepositoryScopeTest} applies to its own scan.
 	 */
 	@Test
 	@DisplayName("the write-caller scan recognises a caller and ignores a reader")

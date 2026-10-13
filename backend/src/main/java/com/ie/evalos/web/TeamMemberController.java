@@ -31,11 +31,11 @@ public class TeamMemberController {
 	/** No password hash, no email-adjacent secrets — projection is the DTO's job. */
 	public record TeamMemberSummary(UUID id, String displayName, String email, Role role, UUID brandId, UUID teamId,
 			/** Unit 68, for the staff directory. */
-			boolean active, com.ie.evalos.domain.Segment segment, String ghlUserId) {
+			boolean active, String ghlUserId) {
 
 		static TeamMemberSummary of(TeamMember member) {
 			return new TeamMemberSummary(member.getId(), member.getDisplayName(), member.getEmail(),
-					member.getRole(), member.getBrandId(), member.getTeamId(), member.isActive(), member.getSegment(),
+					member.getRole(), member.getBrandId(), member.getTeamId(), member.isActive(),
 					member.getGhlUserId());
 		}
 	}
@@ -43,13 +43,13 @@ public class TeamMemberController {
 	/** Unit 68: a new member. The password is the GM's to set and hand over; no mail is sent. */
 	public record CreateRequest(@jakarta.validation.constraints.NotBlank String displayName,
 			@jakarta.validation.constraints.NotBlank String email, @jakarta.validation.constraints.NotNull Role role,
-			UUID brandId, com.ie.evalos.domain.Segment segment, String ghlUserId,
+			UUID brandId, String ghlUserId,
 			@jakarta.validation.constraints.NotBlank String password) {
 	}
 
 	public record UpdateRequest(@jakarta.validation.constraints.NotBlank String displayName,
 			@jakarta.validation.constraints.NotBlank String email, @jakarta.validation.constraints.NotNull Role role,
-			UUID brandId, com.ie.evalos.domain.Segment segment, String ghlUserId) {
+			UUID brandId, String ghlUserId) {
 	}
 
 	public record ActiveRequest(boolean active) {
@@ -75,7 +75,7 @@ public class TeamMemberController {
 	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<TeamMemberSummary> create(@RequestBody @jakarta.validation.Valid CreateRequest r) {
 		return ApiResponse.ok(TeamMemberSummary.of(admin.create(new com.ie.evalos.service.TeamMemberAdminService.Details(
-				r.displayName(), r.email(), r.role(), r.brandId(), r.segment(), r.ghlUserId()), r.password())));
+				r.displayName(), r.email(), r.role(), r.brandId(), r.ghlUserId()), r.password())));
 	}
 
 	@PutMapping("/{id}")
@@ -83,7 +83,7 @@ public class TeamMemberController {
 	public ApiResponse<TeamMemberSummary> update(@PathVariable UUID id,
 			@RequestBody @jakarta.validation.Valid UpdateRequest r) {
 		return ApiResponse.ok(TeamMemberSummary.of(admin.update(id, new com.ie.evalos.service.TeamMemberAdminService.Details(
-				r.displayName(), r.email(), r.role(), r.brandId(), r.segment(), r.ghlUserId()))));
+				r.displayName(), r.email(), r.role(), r.brandId(), r.ghlUserId()))));
 	}
 
 	@PutMapping("/{id}/active")

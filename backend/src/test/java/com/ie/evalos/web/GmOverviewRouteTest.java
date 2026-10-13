@@ -64,7 +64,8 @@ class GmOverviewRouteTest {
 					java.time.LocalDate.parse("2026-09-01")),
 			List.of(new GmOverviewService.SourceRow("Referral", 3, new BigDecimal("14000"))),
 			List.of(),
-			new GmOverviewService.Sales(142, new BigDecimal("61000"), 9, new BigDecimal("22000"), 12),
+			new GmOverviewService.Sales(142, new BigDecimal("61000"), 9, new BigDecimal("22000"), 12,
+				java.time.LocalDate.of(2026, 9, 21), java.time.LocalDate.of(2026, 9, 30)),
 			List.of(), new GmOverviewService.Marketing(61, new BigDecimal("12000"), 61),
 			new GmOverviewService.Evaluation(34, new BigDecimal("28000"), 3, 28, new BigDecimal("41000")),
 			null, Instant.parse("2026-09-15T09:00:00Z"), null);

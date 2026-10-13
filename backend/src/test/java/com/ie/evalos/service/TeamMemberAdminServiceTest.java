@@ -8,7 +8,6 @@ import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.AuditAction;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Role;
-import com.ie.evalos.domain.Segment;
 import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.TeamMemberPipelineRepository;
@@ -62,13 +61,13 @@ class TeamMemberAdminServiceTest {
 		SecurityContextHolder.clearContext();
 	}
 
-	private static TeamMemberAdminService.Details details(Role role, UUID brand, Segment segment) {
-		return new TeamMemberAdminService.Details("  Nia Desk ", " Nia@IE.test ", role, brand, segment, " ");
+	private static TeamMemberAdminService.Details details(Role role, UUID brand) {
+		return new TeamMemberAdminService.Details("  Nia Desk ", " Nia@IE.test ", role, brand, " ");
 	}
 
 	@Test
 	void aMemberIsCreatedCleanAndTheTrailHoldsNoPassword() {
-		TeamMember created = service.create(details(Role.SALES, BRAND, Segment.ATTORNEY), "a-long-enough-password");
+		TeamMember created = service.create(details(Role.SALES, BRAND), "a-long-enough-password");
 
 		assertThat(created.getEmail()).isEqualTo("nia@ie.test");
 		assertThat(created.getDisplayName()).isEqualTo("Nia Desk");
@@ -81,23 +80,20 @@ class TeamMemberAdminServiceTest {
 
 	@Test
 	void theRoleRulesAreA400BeforeTheDatabaseSeesThem() {
-		assertThatThrownBy(() -> service.create(details(Role.CASE_MANAGER, null, null), "a-long-enough-password"))
+		assertThatThrownBy(() -> service.create(details(Role.CASE_MANAGER, null), "a-long-enough-password"))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("brand");
-		assertThatThrownBy(() -> service.create(details(Role.SALES, BRAND, null), "a-long-enough-password"))
-				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("segment");
-		assertThatThrownBy(() -> service.create(details(Role.CASE_MANAGER, BRAND, null), "short"))
+		assertThatThrownBy(() -> service.create(details(Role.CASE_MANAGER, BRAND), "short"))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("12");
-		// A GM is cross-brand, and a non-desk carries no segment, whatever was sent.
-		TeamMember gm = service.create(details(Role.GM, BRAND, Segment.ATTORNEY), "a-long-enough-password");
+		// A GM is cross-brand, whatever was sent.
+		TeamMember gm = service.create(details(Role.GM, BRAND), "a-long-enough-password");
 		assertThat(gm.getBrandId()).isNull();
-		assertThat(gm.getSegment()).isNull();
 	}
 
 	@Test
 	void aTakenEmailIsRefused() {
 		when(members.findByEmailIgnoreCase("nia@ie.test")).thenReturn(Optional.of(mock(TeamMember.class)));
 
-		assertThatThrownBy(() -> service.create(details(Role.CASE_MANAGER, BRAND, null), "a-long-enough-password"))
+		assertThatThrownBy(() -> service.create(details(Role.CASE_MANAGER, BRAND), "a-long-enough-password"))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("already");
 	}
 
@@ -109,7 +105,7 @@ class TeamMemberAdminServiceTest {
 		when(members.findById(GM_ID)).thenReturn(Optional.of(me));
 
 		assertThatThrownBy(() -> service.setActive(GM_ID, false)).isInstanceOf(InvalidRequestException.class);
-		assertThatThrownBy(() -> service.update(GM_ID, details(Role.BRAND_MANAGER, BRAND, null)))
+		assertThatThrownBy(() -> service.update(GM_ID, details(Role.BRAND_MANAGER, BRAND)))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("own role");
 		verify(members, never()).save(me);
 	}
@@ -124,7 +120,7 @@ class TeamMemberAdminServiceTest {
 		when(members.findById(id)).thenReturn(Optional.of(desk));
 		when(grants.ghlIdsFor(id)).thenReturn(List.of("pipe_1"));
 
-		assertThatThrownBy(() -> service.update(id, details(Role.CASE_MANAGER, BRAND, null)))
+		assertThatThrownBy(() -> service.update(id, details(Role.CASE_MANAGER, BRAND)))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("pipelines");
 	}
 
@@ -140,7 +136,7 @@ class TeamMemberAdminServiceTest {
 		UUID otherBrand = UUID.randomUUID();
 		when(brands.findById(otherBrand)).thenReturn(Optional.of(mock(Brand.class)));
 
-		assertThatThrownBy(() -> service.update(id, details(Role.EXPERT_NETWORK_MANAGER, otherBrand, null)))
+		assertThatThrownBy(() -> service.update(id, details(Role.EXPERT_NETWORK_MANAGER, otherBrand)))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("pipelines");
 	}
 }

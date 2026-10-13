@@ -376,8 +376,8 @@ references, so `--noEmit` typechecks nothing and exits 0.)
 22. **Unit 68 — GM admin (D72).** **Built 2026-10-02** (spec `68-gm-admin.md`, `V84`):
    `TeamMemberAdminService` + `POST /api/team-members`, `PUT /{id}`, `PUT /{id}/active`,
    `PUT /{id}/password` (GM, audited, no password in the trail; ≥ 12 characters; email and GHL user
-   unique; brand for every role but the GM; segment for desks only; no self-deactivation or own-role
-   change; a desk with grants keeps role and brand); `GET /api/team-members` gains `active`, `segment`,
+   unique; brand for every role but the GM; no self-deactivation or own-role
+   change; a desk with grants keeps role and brand); `GET /api/team-members` gains `active`,
    `ghlUserId`; `JwtFilter` refuses an inactive member per request; `V84` drops the requirement for
    the vestigial `ghl_pipeline_id`; `GET /api/brands` gains `active`, `currency`, `payoutTermDays`;
    `GET /api/sales/users` admits the GM. Staff SPA `features/admin/`: **Staff** (`/admin/staff`:
@@ -695,3 +695,5 @@ references, so `--noEmit` typechecks nothing and exits 0.)
 Evidence: full backend suite 1621 tests, 0 failures, 4 skipped (a clean build was needed once: an incremental compile left stale classes); `tsc` clean; vitest 232/232.
 
 **Review of specs 80-82, 2026-10-10 (uncommitted).** The checklist bar's "Still required" segment no longer shares the track colour (`cmWorkRules.ts`); the ENM offer cards say "Offers are read per brand; this account has none." for a caller with no brand instead of "no offers". `tsc` clean, vitest 232/232; not checked in a browser.
+
+**Segment removed (D21 edited), 2026-10-13 (uncommitted).** A Sales or Marketing member is chosen by role alone. `Segment` enum and `SegmentIsNotAnAccessKeyTest` deleted; `TeamMember`, `TeamMemberAdminService` (no "need a segment" 400), `TeamMemberController` (no `segment` in create/update/read) and the Staff sheet (no Segment select) drop it. `V91` drops `team_member_segment_matches_role`, nulls the column and marks it VESTIGIAL — not dropped, because seeds V908/V909/V960 insert into it and replay after V91 on a fresh database. Evidence: `LocalPostgresIntegrationTest` 60/60 (fresh migrate incl. seeds), backend suite 1683 run, 2 failures (`CoordinatorWorkServiceTest`, `PmOverviewServiceTest` ordering — fail identically with this change stashed); `tsc` clean, vitest 255/255; not browser-checked.

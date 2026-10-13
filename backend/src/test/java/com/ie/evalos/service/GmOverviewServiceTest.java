@@ -121,6 +121,31 @@ class GmOverviewServiceTest {
 	}
 
 	/**
+	 * The change compares like with like: Sales wins now against Sales wins in the window before. A Marketing win in
+	 * the earlier window used to be counted too, so a flat month read as a fall (here: −50% instead of 0%).
+	 */
+	@Test
+	void theWonChangeComparesSalesWinsWithSalesWinsAndNamesItsWindow() {
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND))
+				.willReturn(List.of(desk(Role.SALES, PIPELINE)));
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND))
+				.willReturn(List.of(desk(Role.MARKETING, "pipe-marketing")));
+		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
+		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won"))).willReturn(List.of(
+				won("5000", at("2026-09-04"), at("2026-09-01"), "Referral"),
+				won("5000", at("2026-08-20"), at("2026-08-01"), "Referral")));
+		given(ghl.opportunitiesIn(eq("pipe-marketing"), any(), any(), eq("won")))
+				.willReturn(List.of(won("5000", at("2026-08-20"), at("2026-08-01"), "Newsletter")));
+
+		var sales = service("0").forCaller(window("month"), BRAND).sales();
+
+		assertThat(sales.wonDeltaPct()).isZero();
+		// "This month" to the 15th is compared with the 15 days before it: 17–31 August.
+		assertThat(sales.comparedFrom()).isEqualTo(LocalDate.parse("2026-08-17"));
+		assertThat(sales.comparedTo()).isEqualTo(LocalDate.parse("2026-08-31"));
+	}
+
+	/**
 	 * "By desk" reads the pipelines a desk is <em>granted</em> (D19b) — the set their board draws — and
 	 * not the legacy `ghl_pipeline_id` column, which nothing has written since Unit 44b. So a desk on
 	 * two pipelines counts both, and one whose grants were all revoked drops off the card even though

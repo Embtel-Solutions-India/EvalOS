@@ -61,17 +61,9 @@ public class TeamMember {
 	@Column(name = "ghl_pipeline_id")
 	private String ghlPipelineId;
 
-	/**
-	 * Which kind of client this member handles. Display and reporting only — see {@link Segment},
-	 * and note that nothing may branch on it.
-	 */
 	/** Unit 60: this member's GHL user, linked by email on the reference sweep (V74). */
 	@Column(name = "ghl_user_id")
 	private String ghlUserId;
-
-	@Enumerated(EnumType.STRING)
-	@Column(name = "segment")
-	private Segment segment;
 
 	@Column(nullable = false)
 	private boolean active = true;
@@ -90,16 +82,15 @@ public class TeamMember {
 	}
 
 	/**
-	 * Unit 68: who this person is and what they do. The CHECKs (brand for every role but the GM,
-	 * a segment for SALES / MARKETING and only them) are the database's; the admin service checks
+	 * Unit 68: who this person is and what they do. The CHECK (brand for every role but the GM) is
+	 * the database's; the admin service checks
 	 * the same rules first, so a bad edit is a 400 and never a 500.
 	 */
-	public void describe(String displayName, String email, Role role, UUID brandId, Segment segment, String ghlUserId) {
+	public void describe(String displayName, String email, Role role, UUID brandId, String ghlUserId) {
 		this.displayName = displayName;
 		this.email = email;
 		this.role = role;
 		this.brandId = brandId;
-		this.segment = segment;
 		this.ghlUserId = ghlUserId;
 	}
 
@@ -149,10 +140,6 @@ public class TeamMember {
 
 	public String getGhlPipelineId() {
 		return ghlPipelineId;
-	}
-
-	public Segment getSegment() {
-		return segment;
 	}
 
 	/**

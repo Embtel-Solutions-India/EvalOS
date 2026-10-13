@@ -1,7 +1,6 @@
 package com.ie.evalos.service;
 
 import java.util.List;
-import java.util.UUID;
 
 import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.integration.GhlContactClient;
