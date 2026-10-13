@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -96,9 +97,10 @@ class PmOverviewServiceTest {
 
 	@Test
 	void queueIsLongestWaitingFirstAndNamesFormerMembers() {
-		Case older = set(set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(86400 * 3)),
+		// Business hours on the real clock: three days once spanned a weekend plus Columbus Day and tied at zero (CI, 2026-10-13).
+		Case older = set(set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minus(Duration.ofDays(14))),
 				"assignedCm", SARAH);
-		Case newer = set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(3600));
+		Case newer = set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(60));
 		PmOverview result = run(List.of(newer, older));
 		assertThat(result.queues().draftReview()).hasSize(2);
 		assertThat(result.queues().draftReview().get(0).caseId()).isEqualTo(older.getId());
