@@ -49,6 +49,20 @@ public class PmMetricsService {
 	private final BusinessCalendar calendar;
 	private final int casesPerCm;
 
+	/** Absent only in hand-built tests, which keep the value they were given. */
+	private com.ie.evalos.config.AppSettings settings;
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(com.ie.evalos.config.AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/** The Administrator's value from Settings when saved (D83), else the configured one. */
+	private int casesPerCm() {
+		return com.ie.evalos.config.AppSettings.intOr(settings, com.ie.evalos.config.Setting.CASES_PER_CM, this.casesPerCm);
+	}
+
+
 	PmMetricsService(CaseLifecycleService lifecycle, TeamMemberQueryService members,
 			DeadlineRiskCalculator deadlines, BusinessCalendar calendar,
 			@Value("${evalos.workload.cases-per-cm}") int casesPerCm) {
@@ -102,7 +116,13 @@ public class PmMetricsService {
 		List<Case> scoped = scoped(brandId);
 
 		Instant now = Instant.now();
+		// The roster seeds the workload chart (a CM with nothing yet still has a bar); the cases' own CMs are named
+		// whether or not the caller may assign them.
 		Map<UUID, String> names = cmNames();
+		members.namesOf(
+				scoped.stream().map(Case::getAssignedCm).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()),
+				scoped.stream().map(Case::getBrandId).collect(java.util.stream.Collectors.toSet()))
+				.forEach(names::putIfAbsent);
 
 		return new PmMetrics(
 				onTime(scoped, from, to),
@@ -158,12 +178,20 @@ public class PmMetricsService {
 				continue;
 			}
 			delivered++;
-			// A delivered case with no deadline was never promised a date, so it cannot be late.
-			if (subject.getDeadline() == null || !date.isAfter(subject.getDeadline())) {
+			if (deliveredOnTime(subject)) {
 				onTime++;
 			}
 		}
 		return new Tally(delivered, onTime);
+	}
+
+	/**
+	 * Delivered on or before the date the client was promised. One definition for the on-time rate and the
+	 * delivered chart's on-time / late split (`PmOverviewService`). A delivered case with no deadline was never
+	 * promised a date, so it cannot be late.
+	 */
+	static boolean deliveredOnTime(Case subject) {
+		return subject.getDeadline() == null || !subject.getDeliveryDate().isAfter(subject.getDeadline());
 	}
 
 	/**
@@ -283,7 +311,7 @@ public class PmMetricsService {
 		}
 		return counts.entrySet().stream()
 				.map(entry -> new CmWorkload(entry.getKey(), name(names, entry.getKey()),
-						entry.getValue()[0], entry.getValue()[1], casesPerCm))
+						entry.getValue()[0], entry.getValue()[1], casesPerCm()))
 				.sorted(Comparator.comparing(CmWorkload::name))
 				.toList();
 	}

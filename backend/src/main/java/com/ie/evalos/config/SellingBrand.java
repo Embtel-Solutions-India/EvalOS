@@ -44,16 +44,62 @@ public class SellingBrand {
 
 	private static final Logger log = LoggerFactory.getLogger(SellingBrand.class);
 
+	/** The environment's brand, resolved at boot — a bad environment value still fails the boot. */
 	private final UUID id;
+	private final BrandRepository brands;
+
+	/** Absent for hand-built instances, which keep the id they were given. */
+	private AppSettings settings;
+
+	/** The last Administrator-saved value resolved, re-checked after {@link #RECHECK_MS} in case the brand changed. */
+	private volatile Saved saved;
+
+	private record Saved(String raw, UUID id, long resolvedAt) {
+	}
+
+	static final long RECHECK_MS = 60_000;
+
+	/**
+	 * One operation, one brand. A request or a sweep run resolves the brand on its first {@link #id()} and keeps
+	 * that answer to the end, so an Administrator changing it mid-run cannot split one mirror pass across two
+	 * brands. Entered by {@code RequestIdFilter} (every request) and {@code SweepRunner} (every sweep run).
+	 */
+	private static final ThreadLocal<UUID[]> PINNED = new ThreadLocal<>();
+
+	/** An open pin; closing it ends the operation. Throws nothing, so it sits in a plain try-with-resources. */
+	public interface Pin extends AutoCloseable {
+		@Override
+		void close();
+	}
+
+	/** Opens a pin for the current thread; a no-op when one is already open (nested), so only the outermost closes it. */
+	public static Pin pin() {
+		if (PINNED.get() != null) {
+			return () -> {
+			};
+		}
+		PINNED.set(new UUID[1]);
+		return PINNED::remove;
+	}
+
+	/** Marks "resolved to null" inside a pin, distinct from "not yet resolved". */
+	private static final UUID NONE = new UUID(0, 0);
 
 	@org.springframework.beans.factory.annotation.Autowired
 	SellingBrand(@Value("${evalos.ghl.sales-brand:}") String configured, BrandRepository brands) {
 		this.id = resolve(configured == null ? "" : configured.trim(), brands);
+		this.brands = brands;
 	}
 
 	/** For tests and for callers that already hold an id. */
 	public SellingBrand(UUID id) {
 		this.id = id;
+		this.brands = null;
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(AppSettings settings) {
+		this.settings = settings;
 	}
 
 	private static UUID resolve(String configured, BrandRepository brands) {
@@ -83,11 +129,54 @@ public class SellingBrand {
 
 	/** The brand that owns the GHL location, or <strong>null when none is configured</strong>. */
 	public UUID id() {
-		return id;
+		UUID[] pin = PINNED.get();
+		if (pin == null) {
+			return effective();
+		}
+		if (pin[0] == null) {
+			UUID resolved = effective();
+			pin[0] = resolved == null ? NONE : resolved;
+		}
+		return pin[0] == NONE ? null : pin[0];
+	}
+
+	private UUID effective() {
+		if (settings == null || brands == null) {
+			return id;
+		}
+		// Not Optional.map: a saved brand that no longer resolves must be null (sync off), never quietly the env's.
+		java.util.Optional<String> saved = settings.app(Setting.SALES_BRAND);
+		return saved.isPresent() ? resolveSaved(saved.get().trim()) : id;
+	}
+
+	/**
+	 * The Administrator's choice (D83). Validated when saved, so an unknown value here means the brand was renamed
+	 * or removed since: logged, and treated as no selling brand (the sync goes quiet) rather than a 500 everywhere.
+	 */
+	private UUID resolveSaved(String raw) {
+		Saved current = saved;
+		long now = System.currentTimeMillis();
+		if (current != null && current.raw().equals(raw) && now - current.resolvedAt() < RECHECK_MS) {
+			return current.id();
+		}
+		UUID found;
+		try {
+			UUID asId = UUID.fromString(raw);
+			found = brands.existsById(asId) ? asId : null;
+		}
+		catch (IllegalArgumentException notAUuid) {
+			found = brands.findBySlug(raw).map(Brand::getId).orElse(null);
+		}
+		if (found == null) {
+			log.warn("The selling brand saved in Settings (\"{}\") names no brand; the GHL sync is off until it is fixed",
+					raw);
+		}
+		saved = new Saved(raw, found, now);
+		return found;
 	}
 
 	/** Whether anything should be mirrored at all. */
 	public boolean isConfigured() {
-		return id != null;
+		return id() != null;
 	}
 }

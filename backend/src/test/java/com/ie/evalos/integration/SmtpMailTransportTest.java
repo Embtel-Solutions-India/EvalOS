@@ -112,4 +112,36 @@ class SmtpMailTransportTest {
 				.isEqualTo("smtp");
 		verifyNoInteractions(sender);
 	}
+
+	/** D83: switched off by the Administrator reads exactly like unconfigured — the MAIL_UNAVAILABLE path. */
+	@Test
+	void outboundEmailSwitchedOffIsNotConfigured() {
+		com.ie.evalos.config.AppSettings settings = mock(com.ie.evalos.config.AppSettings.class);
+		given(settings.app(any())).willReturn(java.util.Optional.empty());
+		given(settings.enabled(com.ie.evalos.config.Setting.MAIL_ENABLED)).willReturn(false);
+		SmtpMailTransport transport = new SmtpMailTransport(mock(JavaMailSender.class), "no-reply@example.com",
+				"smtp.resend.com");
+		transport.useSettings(settings, new org.springframework.boot.autoconfigure.mail.MailProperties());
+
+		assertThat(transport.isConfigured()).isFalse();
+	}
+
+	/** D83: a relay and sender saved in Settings configure a deployment whose environment set neither. */
+	@Test
+	void savedHostAndSenderConfigureItAndTheSavedRelayIsTheOneUsed() {
+		com.ie.evalos.config.AppSettings settings = mock(com.ie.evalos.config.AppSettings.class);
+		given(settings.app(any())).willReturn(java.util.Optional.empty());
+		given(settings.enabled(com.ie.evalos.config.Setting.MAIL_ENABLED)).willReturn(true);
+		given(settings.app(com.ie.evalos.config.Setting.MAIL_HOST)).willReturn(java.util.Optional.of("127.0.0.1"));
+		given(settings.app(com.ie.evalos.config.Setting.MAIL_PORT)).willReturn(java.util.Optional.of("1"));
+		given(settings.app(com.ie.evalos.config.Setting.MAIL_FROM)).willReturn(java.util.Optional.of("ops@example.com"));
+		JavaMailSender bootSender = mock(JavaMailSender.class);
+		SmtpMailTransport transport = new SmtpMailTransport(bootSender, "", "");
+		transport.useSettings(settings, new org.springframework.boot.autoconfigure.mail.MailProperties());
+
+		assertThat(transport.isConfigured()).isTrue();
+		// Port 1 refuses at once: false, not a throw — and Boot's sender, built from the environment, was not used.
+		assertThat(transport.send(ANA, "Test", "text", "<p>html</p>")).isFalse();
+		verifyNoInteractions(bootSender);
+	}
 }

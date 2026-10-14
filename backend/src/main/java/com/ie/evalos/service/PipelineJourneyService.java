@@ -74,7 +74,12 @@ public class PipelineJourneyService {
 	}
 
 	public record Journey(int year, String audience, Member member, List<MonthRow> months,
-			List<SourceRow> sources, List<StageRow> stages, TargetRow target, List<DeskRow> desks) {
+			List<SourceRow> sources, List<StageRow> stages, TargetRow target, List<DeskRow> desks,
+			List<PipelineTab> pipelines, String pipelineId) {
+	}
+
+	/** One of the desk's pipelines, for the dashboard's tabs — as the board's. Listed only when a desk holds two or more. */
+	public record PipelineTab(String id, String name) {
 	}
 
 	/** A mirrored deal reduced to what the arithmetic needs, so the arithmetic is testable without a database. */
@@ -83,7 +88,7 @@ public class PipelineJourneyService {
 	}
 
 	record Aggregate(List<MonthRow> months, List<SourceRow> sources, Map<String, int[]> stageCounts,
-			Map<String, BigDecimal> stageValues) {
+			Map<String, BigDecimal> stageValues, int open) {
 	}
 
 	private final OpportunityMirrorService mirror;
@@ -93,7 +98,7 @@ public class PipelineJourneyService {
 	private final GhlCustomFieldRepository customFields;
 	private final MemberTargetService memberTargets;
 	private final GmOverviewService gm;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	PipelineJourneyService(OpportunityMirrorService mirror, PipelineMirrorService pipelines,
 			TeamMemberPipelineRepository assignments, TeamMemberRepository teamMembers,
@@ -106,7 +111,7 @@ public class PipelineJourneyService {
 		this.customFields = customFields;
 		this.memberTargets = memberTargets;
 		this.gm = gm;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/**
@@ -114,9 +119,11 @@ public class PipelineJourneyService {
 	 * @param memberId one desk to scope to; only the GM may name someone other than themselves
 	 * @param source   narrows months and stages to one source; the per-source series stays whole so the
 	 *                 chart can still compare channels
+	 * @param pipelineId one desk's pipeline (GHL id), when the desk holds two or more; it only narrows, so one
+	 *                 the desk does not hold is a 403. Null is the desk's first, as on the board
 	 */
 	@Transactional(readOnly = true)
-	public Journey forCaller(Integer year, String audience, UUID memberId, String source) {
+	public Journey forCaller(Integer year, String audience, UUID memberId, String source, String pipelineId) {
 		TenantContext caller = TenantContext.current();
 		LocalDate today = LocalDate.now(BusinessCalendar.clock());
 		int shown = year == null ? today.getYear() : year;
@@ -126,8 +133,8 @@ public class PipelineJourneyService {
 
 		Role role = roleFor(caller, audience);
 		boolean gmView = caller.role().hasGmView();
-		List<TeamMember> desks = sellingBrandId == null ? List.of()
-				: teamMembers.findByActiveTrueAndRoleAndBrandId(role, sellingBrandId).stream()
+		List<TeamMember> desks = sellingBrand.id() == null ? List.of()
+				: teamMembers.findByActiveTrueAndRoleAndBrandId(role, sellingBrand.id()).stream()
 						.filter((member) -> !assignments.ghlIdsFor(member.getId()).isEmpty())
 						.sorted(Comparator.comparing(TeamMember::getDisplayName))
 						.toList();
@@ -160,15 +167,32 @@ public class PipelineJourneyService {
 		Map<String, String> stageNames = new HashMap<>();
 		Map<String, Integer> stagePositions = new HashMap<>();
 
-		List<Deal> deals = dealsOf(scope, leadSourceFieldId, stageNames, stagePositions);
+		// One desk with two or more pipelines reads one at a time, by tab; the GM's whole-team view stays combined.
+		List<PipelineTab> tabs = selected == null ? List.of() : tabsOf(scope.getFirst());
+		String shownPipeline = null;
+		if (pipelineId != null && tabs.stream().noneMatch((tab) -> tab.id().equals(pipelineId))) {
+			throw new ForbiddenException("That pipeline is not one of this desk's.");
+		}
+		if (tabs.size() > 1) {
+			shownPipeline = pipelineId != null ? pipelineId : tabs.getFirst().id();
+		}
+		else {
+			tabs = List.of();
+		}
+
+		List<Deal> deals = dealsOf(scope, shownPipeline, leadSourceFieldId, stageNames, stagePositions);
 		ZoneId zone = BusinessCalendar.ZONE;
 		Aggregate all = aggregate(deals, shown, zone, source);
 		Aggregate whole = aggregate(deals, shown, zone, null);
 
-		List<StageRow> stages = all.stageCounts().entrySet().stream()
-				.map((entry) -> new StageRow(entry.getKey(), stageNames.getOrDefault(entry.getKey(), entry.getKey()),
-						stagePositions.getOrDefault(entry.getKey(), Integer.MAX_VALUE), entry.getValue()[0],
-						all.stageValues().get(entry.getKey())))
+		// Every live stage of the pipelines in scope, empty ones at 0, plus any stage a deal sits in that is not live.
+		java.util.Set<String> stageIds = new java.util.LinkedHashSet<>(stageNames.keySet());
+		stageIds.addAll(all.stageCounts().keySet());
+		List<StageRow> stages = stageIds.stream()
+				.map((id) -> new StageRow(id, stageNames.getOrDefault(id, id),
+						stagePositions.getOrDefault(id, Integer.MAX_VALUE),
+						all.stageCounts().getOrDefault(id, new int[1])[0],
+						all.stageValues().getOrDefault(id, BigDecimal.ZERO)))
 				.sorted(Comparator.comparingInt(StageRow::position))
 				.toList();
 
@@ -177,7 +201,15 @@ public class PipelineJourneyService {
 		List<DeskRow> deskRows = gmView && selected == null ? deskRows(desks, leadSourceFieldId, shown, zone) : List.of();
 
 		return new Journey(shown, role == Role.SALES ? "sales" : "marketing", selected, all.months(),
-				whole.sources(), stages, target(role, scope, selected != null, month, thisYear), deskRows);
+				whole.sources(), stages, target(role, scope, selected != null, month, thisYear), deskRows, tabs,
+				shownPipeline);
+	}
+
+	/** The desk's pipelines in the mirror's order, which is the order the board's tabs use. */
+	private List<PipelineTab> tabsOf(TeamMember desk) {
+		List<String> held = assignments.ghlIdsFor(desk.getId());
+		return pipelines.all().stream().filter((pipeline) -> held.contains(pipeline.getGhlId()))
+				.map((pipeline) -> new PipelineTab(pipeline.getGhlId(), pipeline.getName())).toList();
 	}
 
 	private static Role roleFor(TenantContext caller, String audience) {
@@ -188,18 +220,18 @@ public class PipelineJourneyService {
 	}
 
 	private String leadSourceFieldId() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return null;
 		}
-		return customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId, ReferenceMirrorService.OPPORTUNITY_MODEL)
+		return customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrand.id(), ReferenceMirrorService.OPPORTUNITY_MODEL)
 				.stream().filter((field) -> LEAD_SOURCE_FIELD.equals(field.getFieldKey()))
 				.map((field) -> field.getGhlId()).findFirst().orElse(null);
 	}
 
-	private List<Deal> dealsOf(List<TeamMember> scope, String leadSourceFieldId, Map<String, String> stageNames,
-			Map<String, Integer> stagePositions) {
-		List<String> ghlIds = scope.stream().flatMap((member) -> assignments.ghlIdsFor(member.getId()).stream())
-				.distinct().toList();
+	private List<Deal> dealsOf(List<TeamMember> scope, String onlyPipeline, String leadSourceFieldId,
+			Map<String, String> stageNames, Map<String, Integer> stagePositions) {
+		List<String> ghlIds = onlyPipeline != null ? List.of(onlyPipeline)
+				: scope.stream().flatMap((member) -> assignments.ghlIdsFor(member.getId()).stream()).distinct().toList();
 		pipelines.all().stream().filter((pipeline) -> ghlIds.contains(pipeline.getGhlId()))
 				.flatMap((pipeline) -> pipelines.stagesOf(pipeline.getId()).stream())
 				.filter(PipelineStage::isLive)
@@ -223,10 +255,10 @@ public class PipelineJourneyService {
 	private List<DeskRow> deskRows(List<TeamMember> desks, String leadSourceFieldId, int year, ZoneId zone) {
 		List<DeskRow> rows = new ArrayList<>();
 		for (TeamMember desk : desks) {
-			Aggregate one = aggregate(dealsOf(List.of(desk), leadSourceFieldId, new HashMap<>(), new HashMap<>()), year, zone, null);
+			Aggregate one = aggregate(dealsOf(List.of(desk), null, leadSourceFieldId, new HashMap<>(), new HashMap<>()), year, zone, null);
 			int leads = one.months().stream().mapToInt(MonthRow::leads).sum();
 			int won = one.months().stream().mapToInt(MonthRow::won).sum();
-			int open = one.stageCounts().values().stream().mapToInt((count) -> count[0]).sum();
+			int open = one.open();
 			rows.add(new DeskRow(desk.getId(), desk.getDisplayName(), leads,
 					one.months().stream().map(MonthRow::leadValue).reduce(BigDecimal.ZERO, BigDecimal::add), won,
 					one.months().stream().map(MonthRow::wonValue).reduce(BigDecimal.ZERO, BigDecimal::add), open,
@@ -244,18 +276,18 @@ public class PipelineJourneyService {
 		MonthRow row = current.months().get(month.getMonthValue() - 1);
 		BigDecimal progress = kind == MemberTargetService.TargetKind.WON_VALUE ? row.wonValue()
 				: BigDecimal.valueOf(row.leads());
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return new TargetRow(kind, month, null, progress);
 		}
 		BigDecimal target;
 		if (oneDesk) {
-			target = memberTargets.current(sellingBrandId, scope.getFirst().getId(), month).orElse(null);
+			target = memberTargets.current(sellingBrand.id(), scope.getFirst().getId(), month).orElse(null);
 		}
 		else if (kind == MemberTargetService.TargetKind.WON_VALUE) {
 			target = gm.goalFor(month);
 		}
 		else {
-			Map<UUID, BigDecimal> set = memberTargets.latestForMonth(sellingBrandId, month);
+			Map<UUID, BigDecimal> set = memberTargets.latestForMonth(sellingBrand.id(), month);
 			List<BigDecimal> mine = scope.stream().map((member) -> set.get(member.getId()))
 					.filter((amount) -> amount != null).toList();
 			target = mine.isEmpty() ? null : mine.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -273,6 +305,7 @@ public class PipelineJourneyService {
 		Map<String, BigDecimal> bySourceValue = new HashMap<>();
 		Map<String, int[]> stageCounts = new LinkedHashMap<>();
 		Map<String, BigDecimal> stageValues = new LinkedHashMap<>();
+		int openDeals = 0;
 
 		for (Deal deal : deals) {
 			String name = deal.source() == null || deal.source().isBlank() ? UNATTRIBUTED : deal.source().trim();
@@ -302,7 +335,12 @@ public class PipelineJourneyService {
 				}
 			}
 			boolean open = deal.status() == null || deal.status().isBlank() || "open".equalsIgnoreCase(deal.status());
-			if (matches && open && deal.stageId() != null) {
+			if (matches && open) {
+				openDeals++;
+			}
+			// Every deal standing in a stage, whatever its status, as the board shows it: a Won stage holds won
+			// deals, and counting only open ones read 0 there (2026-10-14).
+			if (matches && deal.stageId() != null) {
 				stageCounts.computeIfAbsent(deal.stageId(), (key) -> new int[1])[0]++;
 				stageValues.merge(deal.stageId(), amount, BigDecimal::add);
 			}
@@ -317,7 +355,7 @@ public class PipelineJourneyService {
 			List<Integer> monthly = java.util.Arrays.stream(entry.getValue()).boxed().toList();
 			return new SourceRow(entry.getKey(), total, bySourceValue.get(entry.getKey().toLowerCase(Locale.ROOT)), monthly);
 		}).sorted(Comparator.comparingInt(SourceRow::leads).reversed().thenComparing(SourceRow::source)).toList();
-		return new Aggregate(months, sources, stageCounts, stageValues);
+		return new Aggregate(months, sources, stageCounts, stageValues, openDeals);
 	}
 
 	private static BigDecimal[] zeros() {

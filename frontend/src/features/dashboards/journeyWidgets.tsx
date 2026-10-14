@@ -185,7 +185,7 @@ function Bar({ share, color = 'var(--accent-primary)' }: { share: number; color?
   )
 }
 
-/** Open deals by stage, in GHL's order. The ring shows share of open deals; the list keeps every stage with its count and value. */
+/** Every deal by the stage it stands in (won and lost too, as the board shows them), in GHL's order. The ring shows each stage's share; the list keeps every stage with its count and value. */
 export function StageCard({ data, state, to }: { data: Journey | null; state: CardState; to?: string }) {
   // Pipelines that share stage names (Lead, Warm, Hot, Cold, Lost) read as duplicates, so they add up by name, in first-seen order.
   const byName = new Map<string, { name: string; deals: number; value: number }>()
@@ -208,13 +208,13 @@ export function StageCard({ data, state, to }: { data: Journey | null; state: Ca
   return (
     <Card
       title="Pipeline by stage"
-      state={state.kind === 'ok' && stages.length === 0 ? { kind: 'empty', note: 'Nothing is open on this pipeline right now.' } : state}
+      state={state.kind === 'ok' && stages.length === 0 ? { kind: 'empty', note: 'This pipeline has no stages yet.' } : state}
       to={to}
     >
       <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-        <Donut slices={slices} centre={formatCount(total)} caption="open deals" />
+        <Donut slices={slices} centre={formatCount(total)} caption="deals" />
         <div className="min-w-0 max-w-sm flex-1">
-          <p className="text-sm" style={MUTED}>{formatMoney(Math.round(value))} open right now</p>
+          <p className="text-sm" style={MUTED}>{formatMoney(Math.round(value))} across every stage</p>
           <ul className="mt-2 space-y-1.5 text-sm">
             {slices.filter((s) => s.value > 0).map((s) => (
               <li key={s.name} className="flex items-center gap-2">

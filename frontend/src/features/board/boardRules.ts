@@ -338,10 +338,6 @@ export const STAGE_ACCESS: Record<Role, Record<Stage, StageAccess>> = {
   // out `none` columns, so these roles get an empty production board rather than a read-only
   // view of work they have no part in. A salesperson who can watch the whole delivery pipeline
   // is a salesperson who will be asked to explain its delays.
-  //
-  // The three business kinds of each (Attorney / Employer-Firm / Individual) are NOT roles and
-  // never reach this map: they are `team_member.segment`, they carry identical permissions, and
-  // nothing branches on them.
   SALES: {
     DOC_COLLECTION: 'none', PM_REVIEW: 'none', DRAFT_IN_PROGRESS: 'none', DRAFT_REVIEW: 'none',
     READY_TO_SEND: 'none', CLIENT_REVIEW: 'none', CLIENT_APPROVAL: 'none', EXPERT_SIGNING: 'none',

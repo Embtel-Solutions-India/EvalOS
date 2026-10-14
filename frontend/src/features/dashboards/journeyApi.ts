@@ -30,14 +30,18 @@ export type Journey = {
   target: { kind: 'WON_VALUE' | 'LEADS'; month: string; target: number | null; progress: number }
   /** Only the GM's team view carries desks: they are the drill-down list. */
   desks: JourneyDesk[]
+  /** One desk's pipelines when it holds two or more (the tabs), else empty; `pipelineId` is the one shown. */
+  pipelines: { id: string; name: string }[]
+  pipelineId: string | null
 }
 
-export type JourneyQuery = { year: number; audience: Audience; memberId: string | null; source: string | null }
+export type JourneyQuery = { year: number; audience: Audience; memberId: string | null; source: string | null; pipelineId?: string | null }
 
 /** The scope is the server's; these parameters only narrow it. */
 export function fetchJourney(query: JourneyQuery, signal?: AbortSignal): Promise<Journey> {
   const params: Record<string, string | number> = { year: query.year, audience: query.audience }
   if (query.memberId) params.memberId = query.memberId
   if (query.source) params.source = query.source
+  if (query.pipelineId) params.pipelineId = query.pipelineId
   return unwrap<Journey>(api.get('/metrics/journey', { params, signal }))
 }

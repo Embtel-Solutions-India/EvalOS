@@ -1521,58 +1521,23 @@ class LocalPostgresIntegrationTest {
 
 	// --- Unit 36: pipeline-scoped access, V39 ---------------------------------
 
-	private UUID insertPipelineMember(UUID brandId, String role, String pipelineId, String segment,
-			boolean active) {
+	private UUID insertPipelineMember(UUID brandId, String role, String pipelineId, boolean active) {
 		UUID id = UUID.randomUUID();
 		jdbc.update("INSERT INTO team_member "
-				+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id, segment, active) "
-				+ "VALUES (?, ?, ?, ?, 'x', 'Desk', ?, ?, ?)",
-				id, brandId, role, role.toLowerCase() + "-" + id + "@evalos.local", pipelineId, segment, active);
+				+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id, active) "
+				+ "VALUES (?, ?, ?, ?, 'x', 'Desk', ?, ?)",
+				id, brandId, role, role.toLowerCase() + "-" + id + "@evalos.local", pipelineId, active);
 		return id;
 	}
 
-	/**
-	 * <strong>Both halves of both CHECKs, against the real database.</strong>
-	 *
-	 * <p>Each direction matters and for a different reason. A sales row with no pipeline is a
-	 * person who can see nothing and has no error to show for it. A Case Manager <em>with</em> one
-	 * is a column that has started to mean two things — which is precisely the mistake V29 made
-	 * and V30 recorded, and the reason both constraints are written as a biconditional rather than
-	 * a NOT NULL.
-	 */
+	/** A role that is not pipeline-scoped may not carry a pipeline (V39; desks no longer need one since V84). */
 	@Test
-	void aPipelineAndASegmentBelongToPipelineScopedRolesAndOnlyThem() {
-		// A pipeline-scoped role must have a segment. It no longer needs the old single-pipeline
-		// column (V84: its grants are `team_member_pipeline` rows) — see
-		// aDeskIsCreatedWithoutTheOldPipelineColumnAndNobodyElseCarriesIt.
-		assertThatThrownBy(() -> jdbc.update(
-				"INSERT INTO team_member "
-						+ "(id, brand_id, role, email, password_hash, display_name, ghl_pipeline_id) "
-						+ "VALUES (?, ?, 'MARKETING', ?, 'x', 'No Segment', ?)",
-				UUID.randomUUID(), BRAND_IE, "noseg-" + UUID.randomUUID() + "@evalos.local",
-				"pipe-" + UUID.randomUUID()))
-				.hasMessageContaining("team_member_segment_matches_role");
-
-		// And a role that is not pipeline-scoped must have neither.
-		assertThatThrownBy(() -> insertPipelineMember(BRAND_IE, "CASE_MANAGER", "pipe-" + UUID.randomUUID(),
-				null, true))
+	void aPipelineBelongsToPipelineScopedRolesOnly() {
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_IE, "CASE_MANAGER", "pipe-" + UUID.randomUUID(), true))
 				.hasMessageContaining("team_member_pipeline_matches_role");
 
-		assertThatThrownBy(() -> jdbc.update(
-				"INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
-						+ "VALUES (?, ?, 'CASE_MANAGER', ?, 'x', 'Segmented CM', 'INDIVIDUAL')",
-				UUID.randomUUID(), BRAND_IE, "segcm-" + UUID.randomUUID() + "@evalos.local"))
-				.hasMessageContaining("team_member_segment_matches_role");
-
-		// An unknown segment is refused too: the CHECK is the writer the enum cannot reach.
-		assertThatThrownBy(() -> insertPipelineMember(BRAND_IE, "SALES", "pipe-" + UUID.randomUUID(),
-				"PARTNER", true))
-				.hasMessageContaining("team_member_segment_matches_role");
-
-		// The happy path, so the constraints are not passing by rejecting everything.
-		UUID sales = insertPipelineMember(BRAND_IE, "SALES", "pipe-" + UUID.randomUUID(), "ATTORNEY", true);
-		assertThat(jdbc.queryForObject("SELECT segment FROM team_member WHERE id = ?", String.class, sales))
-				.isEqualTo("ATTORNEY");
+		// The happy path, so the constraint is not passing by rejecting everything.
+		UUID sales = insertPipelineMember(BRAND_IE, "SALES", "pipe-" + UUID.randomUUID(), true);
 		jdbc.update("DELETE FROM team_member WHERE id = ?", sales);
 	}
 
@@ -1590,15 +1555,15 @@ class LocalPostgresIntegrationTest {
 	@Test
 	void onePipelineHasOneLiveOwnerEvenAcrossBrands() {
 		String pipeline = "pipe-" + UUID.randomUUID();
-		UUID first = insertPipelineMember(BRAND_IE, "SALES", pipeline, "ATTORNEY", true);
+		UUID first = insertPipelineMember(BRAND_IE, "SALES", pipeline, true);
 
-		assertThatThrownBy(() -> insertPipelineMember(BRAND_XP, "SALES", pipeline, "INDIVIDUAL", true))
+		assertThatThrownBy(() -> insertPipelineMember(BRAND_XP, "SALES", pipeline, true))
 				.hasMessageContaining("uq_team_member_pipeline");
 
 		// Partial on `active`, so a leaver does not hold their pipeline hostage: the replacement
 		// inherits it the moment the previous holder is deactivated.
 		jdbc.update("UPDATE team_member SET active = false WHERE id = ?", first);
-		UUID replacement = insertPipelineMember(BRAND_IE, "SALES", pipeline, "ATTORNEY", true);
+		UUID replacement = insertPipelineMember(BRAND_IE, "SALES", pipeline, true);
 
 		assertThat(replacement).isNotNull();
 		jdbc.update("DELETE FROM team_member WHERE id IN (?, ?)", first, replacement);
@@ -1616,8 +1581,8 @@ class LocalPostgresIntegrationTest {
 	void thePipelinePredicateNarrowsWithinTheBrandAndNeverAcrossIt() {
 		String mine = "pipe-" + UUID.randomUUID();
 		String theirs = "pipe-" + UUID.randomUUID();
-		UUID ieDesk = insertPipelineMember(BRAND_IE, "SALES", mine, "ATTORNEY", true);
-		UUID xpDesk = insertPipelineMember(BRAND_XP, "SALES", theirs, "INDIVIDUAL", true);
+		UUID ieDesk = insertPipelineMember(BRAND_IE, "SALES", mine, true);
+		UUID xpDesk = insertPipelineMember(BRAND_XP, "SALES", theirs, true);
 
 		// Mine, in my brand: one row.
 		assertThat(jdbc.queryForObject(
@@ -2192,8 +2157,8 @@ class LocalPostgresIntegrationTest {
 	/** V84 (Unit 68): a new desk needs no vestigial pipeline column; every other role still may not carry one. */
 	@Test
 	void aDeskIsCreatedWithoutTheOldPipelineColumnAndNobodyElseCarriesIt() {
-		jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name, segment) "
-				+ "VALUES (?, ?, 'SALES', ?, 'x', 'New Desk', 'ATTORNEY')",
+		jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name) "
+				+ "VALUES (?, ?, 'SALES', ?, 'x', 'New Desk')",
 				UUID.randomUUID(), BRAND_IE, "desk-" + UUID.randomUUID() + "@evalos.local");
 
 		assertThatThrownBy(() -> jdbc.update(

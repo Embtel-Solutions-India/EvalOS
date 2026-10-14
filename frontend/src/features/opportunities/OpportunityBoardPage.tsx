@@ -1,5 +1,6 @@
 import { memo, useDeferredValue, useMemo, useRef, useState, type DragEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
 import { formatCount, formatMoney } from '../../lib/money'
@@ -12,11 +13,12 @@ import { openSummary } from './dealOpen'
 import MyTarget from './MyTarget'
 import WinNote from './WinNote'
 import {
-  fetchOpportunityBoard,
+  fetchPipelineBoard,
   moveStage,
-  refreshOpportunityBoard,
+  refreshPipelineBoard,
   type BoardColumn,
   type Deal,
+  type PipelineOption,
 } from './opportunityApi'
 
 /**
@@ -51,6 +53,7 @@ import {
  */
 /** How often a desk's open board re-reads the mirror. The sweep itself runs every 5 minutes. */
 const BOARD_REFRESH_MS = 60_000
+const BOARD_KEY = 'OpportunityBoardPage:1'
 
 export default function OpportunityBoardPage() {
   // **`reload` from the hook, not a counter in the deps.** Passing a counter as a dependency made
@@ -59,11 +62,18 @@ export default function OpportunityBoardPage() {
   // documents itself as having been fixed to avoid by returning a separate `reload` that keeps the
   // last good data on screen while the new read is in flight.
   const role = useMe().role
+  const gmView = role === 'GM' || role === 'ADMIN'
+  // One pipeline at a time. Null until chosen: the server then draws the default (a desk's first, the GM's
+  // Master Pipeline) and says which one it drew.
+  const [pipeline, setPipeline] = useState<string | null>(null)
   // The sweeps rewrite the mirror every few minutes and tell no browser, so a desk's board re-reads once a
-  // minute while visible. Not the GM's: theirs is every pipeline (thousands of cards) and a poll would be heavy.
-  const { data, state, reload } = useMetrics((signal) => fetchOpportunityBoard(signal), [], {
-    refreshEvery: role === 'GM' ? undefined : BOARD_REFRESH_MS,
+  // minute while visible. Not the GM's: the Master Pipeline is thousands of cards and a poll would be heavy.
+  const { data, state, reload } = useMetrics((signal) => fetchPipelineBoard(pipeline, signal), [pipeline], {
+    key: BOARD_KEY,
+    refreshEvery: gmView ? undefined : BOARD_REFRESH_MS,
   })
+  const queryClient = useQueryClient()
+  const active = data?.pipelineId ?? pipeline
   const [syncing, setSyncing] = useState(false)
   // The server refuses a stage move to anyone else, and a drag that 403s is worse than none.
   // Unit 63: the ENM moves candidates on their hiring pipeline, through the same stage route.
@@ -74,9 +84,12 @@ export default function OpportunityBoardPage() {
   // adjusted during render rather than in an effect, so no frame shows the old board.
   const [columns, setColumns] = useState(data?.columns ?? null)
   const [read, setRead] = useState(data)
+  // Kept across a switch, so the tabs stay put while the next pipeline loads.
+  const [choices, setChoices] = useState<readonly PipelineOption[]>([])
   if (read !== data) {
     setRead(data)
     setColumns(data?.columns ?? null)
+    if (data) setChoices(data.pipelines)
   }
 
   // Deferred, not debounced: filtering a few hundred names is cheap, and React keeps the input
@@ -118,13 +131,15 @@ export default function OpportunityBoardPage() {
   const syncNow = async () => {
     setSyncing(true)
     try {
-      await refreshOpportunityBoard()
+      // The refresh answers with the board it drew, so it goes straight into the cache — no second read.
+      // Same key `useMetrics` builds: ['metrics', key, ...deps].
+      queryClient.setQueryData(['metrics', BOARD_KEY, pipeline], await refreshPipelineBoard(active))
     } catch {
-      // Even a failed or timed-out press may have synced some pipelines server-side; the reload
-      // below shows whatever the mirror now holds, and the button stays amber if it is still behind.
+      // Even a failed or timed-out press may have synced some of it server-side; the reload shows whatever
+      // the mirror now holds, and the button stays amber if it is still behind.
+      reload()
     } finally {
       setSyncing(false)
-      reload()
     }
   }
 
@@ -241,13 +256,22 @@ export default function OpportunityBoardPage() {
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{hiring ? 'Hiring pipeline' : 'My pipeline'}</h1>
-          <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-            {hiring
-              ? 'Expert candidates in GoHighLevel. A move here reaches GHL, and a move in GHL shows here.'
-              : 'Opportunities in GoHighLevel. EvalOS shows them; GHL owns them.'}
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm" style={{ color: 'var(--text-muted)' }}>
+          {gmView && choices.length > 0 && (
+            <select
+              value={active ?? ''}
+              onChange={(event) => setPipeline(event.target.value)}
+              aria-label="Pipeline"
+              className="field h-9 max-w-64"
+            >
+              {choices.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name}
+                </option>
+              ))}
+            </select>
+          )}
           {(role === 'SALES' || role === 'MARKETING') && <MyTarget />}
           {data && openTotals && (
             <span className="font-num tabular-nums">
@@ -279,6 +303,8 @@ export default function OpportunityBoardPage() {
           {/* Behind on sync (past `board-stale-after`: new GHL deals are not arriving here) is
               shown on the button that fixes it — an amber dot and border, the reason on hover —
               rather than as a banner across the board. */}
+          {/* Not the Admin's: the board is read-only for them, and the refresh route refuses them. */}
+          {role !== 'ADMIN' && (
           <button
             type="button"
             onClick={syncNow}
@@ -301,8 +327,37 @@ export default function OpportunityBoardPage() {
             )}
             {syncing ? 'Syncing…' : 'Refresh'}
           </button>
+          )}
         </div>
       </header>
+
+      {/* A desk holding two or more pipelines switches between them here; the GM has the drop-down above. */}
+      {!gmView && choices.length > 1 && (
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Pipelines">
+          {choices.map((option) => {
+            const selected = option.id === active
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setPipeline(option.id)}
+                className="h-9 px-3 text-sm"
+                style={{
+                  borderRadius: 'var(--radius-md)',
+                  background: selected ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                  border: `1px solid ${selected ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+                  color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
+                  fontWeight: selected ? 500 : 400,
+                }}
+              >
+                {option.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/*
         Not configured at all is still a banner: the board is empty for that reason, and no button
@@ -408,6 +463,22 @@ export default function OpportunityBoardPage() {
   )
 }
 
+/**
+ * A column's value line: what is still open in it. A column holding only closed deals (the Won stage) shows
+ * their total as "Closed" instead of a dash, so a column full of wins does not read as worth nothing.
+ */
+function ColumnValue({ deals }: { deals: readonly Deal[] }) {
+  const open = openSummary(deals)
+  const closed = open.count === 0 && deals.length > 0
+  const value = closed ? deals.reduce((total, deal) => total + (deal.amount ?? 0), 0) : open.value
+  return (
+    <p className="font-num px-2 text-xs tabular-nums">
+      <span style={{ color: 'var(--text-muted)' }}>{closed ? 'Closed ' : 'Value '}</span>
+      <span className="font-medium">{open.count > 0 || closed ? formatMoney(value) : '—'}</span>
+    </p>
+  )
+}
+
 /** The column with only the deals whose name matches — the same object when nothing is hidden. */
 function narrow(column: BoardColumn, needle: string): BoardColumn {
   const deals = column.deals.filter((deal) => deal.name?.toLowerCase().includes(needle))
@@ -443,18 +514,15 @@ const Column = memo(function Column({
     >
       <StageColumn
         label={column.stageName}
-        count={openSummary(column.deals).count}
+        // Every card the column draws, not only the open ones: StageColumn shows its empty text instead of the
+        // cards when this is 0, which hid the whole Won column (every deal in it is won, so none is open).
+        count={column.deals.length}
         emptyText="No deals at this stage."
         color={color}
         addHref={addHref}
         // Always drawn, so every header is the same height and the value sits in the same place
         // across the strip; an empty stage reads "—" rather than a zero it has not earned.
-        subtitle={
-          <p className="font-num px-2 text-xs tabular-nums">
-            <span style={{ color: 'var(--text-muted)' }}>Value </span>
-            <span className="font-medium">{openSummary(column.deals).count > 0 ? formatMoney(openSummary(column.deals).value) : '—'}</span>
-          </p>
-        }
+        subtitle={<ColumnValue deals={column.deals} />}
       >
         {column.deals.map((deal) => (
           <DealCard key={deal.opportunityId} deal={deal} canMove={canMove} />

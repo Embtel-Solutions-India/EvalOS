@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useAuth, useMe } from "../../lib/authContext";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import DateFilter from "./DateFilter";
 import { greetingFor } from "./greeting";
 import NotificationBell from "./NotificationBell";
@@ -26,7 +26,7 @@ import NotificationBell from "./NotificationBell";
  * is the follow-up once the last screen is migrated — recorded in the guide rather than left
  * as a surprise.
  */
-export default function TopBar() {
+export default function TopBar({ onMenu }: { onMenu?: () => void }) {
   const { logout } = useAuth();
   const me = useMe();
   const first = me.displayName.trim().split(/\s+/)[0];
@@ -39,14 +39,13 @@ export default function TopBar() {
     <header
       className="sticky top-0 z-20 flex items-center gap-3"
       style={{
-        background: "var(--frame-bg)",
-        backgroundAttachment: "fixed",
+        background: "var(--topbar-bg)",
         minHeight: "var(--header-height)",
         padding: `0 var(--shell-gutter)`,
       }}
     >
-      {/* The canvas's rounded top-left corner, drawn from the frame itself: a square of the same fixed
-          gradient with a quarter circle cut out, hung under the bar's left edge. It stays put while the
+      {/* The canvas's rounded top-left corner: a square of the frame's colour with a quarter circle cut out,
+          hung under the bar's left edge. It stays put while the
           page scrolls beneath it, which a radius on the scrolling content could not. */}
       <span
         aria-hidden
@@ -54,14 +53,27 @@ export default function TopBar() {
         style={{
           width: "var(--frame-radius)",
           height: "var(--frame-radius)",
-          background: "var(--frame-bg)",
-          backgroundAttachment: "fixed",
+          // The bar's left end, which is also the rail's top: the corner sits where the two meet.
+          background: "var(--frame-top)",
           WebkitMaskImage:
             "radial-gradient(circle at 100% 100%, transparent calc(var(--frame-radius) - 0.5px), #000 var(--frame-radius))",
           maskImage:
             "radial-gradient(circle at 100% 100%, transparent calc(var(--frame-radius) - 0.5px), #000 var(--frame-radius))",
         }}
       />
+
+      {/* A phone's only way to the nav, which is a drawer below 768 px (AppShell). */}
+      {onMenu && (
+        <button
+          type="button"
+          onClick={onMenu}
+          aria-label="Open menu"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full md:hidden"
+          style={{ background: "var(--bg-surface)", boxShadow: "var(--shadow-soft)" }}
+        >
+          <Menu className="h-5 w-5" aria-hidden />
+        </button>
+      )}
 
       {/* The Sketch's header opens with a greeting; it goes first and yields to the controls on
           narrow screens rather than pushing them off the bar. */}
@@ -78,7 +90,8 @@ export default function TopBar() {
         <button
           type="button"
           onClick={logout}
-          className="inline-flex h-9 items-center gap-2 px-4 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          aria-label="Sign out"
+          className="inline-flex h-9 items-center gap-2 px-3 text-sm font-medium text-white transition-opacity hover:opacity-90 sm:px-4"
           style={{
             background: "var(--status-red)",
             borderRadius: "999px",
@@ -86,7 +99,8 @@ export default function TopBar() {
           }}
         >
           <LogOut className="h-4 w-4" aria-hidden />
-          Sign out
+          {/* Icon-only on a phone: the label wrapped onto two lines at 390 px. */}
+          <span className="hidden sm:inline">Sign out</span>
         </button>
       </div>
     </header>
@@ -94,10 +108,9 @@ export default function TopBar() {
 }
 
 /**
- * "Good Morning, Alex" — big, black monospace in regular weight, typed out a character at a time.
+ * "Good Morning, Alex" — big bold monospace, typed out a character at a time.
  *
- * <p>Black sits straight on the pale bar (14:1), so there is no pill behind it: the pill existed only to carry
- * white text. The hour is re-read every minute, so a screen left open across noon changes its greeting, and typing
+ * <p>Light text sits straight on the navy bar (2026-10-13), so there is no pill behind it. The hour is re-read every minute, so a screen left open across noon changes its greeting, and typing
  * again only happens when the words change — a minute's tick with the same greeting does not restart it. Under
  * `prefers-reduced-motion` the whole line appears at once.
  */
@@ -129,21 +142,17 @@ function Greeting({ name }: { name: string }) {
   return (
     <p
       aria-label={text}
-      className="hidden shrink-0 items-center text-3xl leading-none font-normal lg:flex"
-      // Black letters with a hairline blue (accent) outline. `paint-order` draws the stroke
-      // first so the fill is not eaten by it: a 1px stroke leaves about 0.5px outside the glyph.
-      style={{
-        color: "#000000",
-        WebkitTextStroke: "1px var(--accent-primary)",
-        paintOrder: "stroke fill",
-      }}
+      className="hidden shrink-0 items-center text-3xl leading-none font-bold lg:flex"
+      // Light, bold letters on the navy bar; no outline.
+      style={{ color: "var(--topbar-text)" }}
     >
       <span aria-hidden>{text.slice(0, typed)}</span>
       {/* The caret rides the typing and goes when the line is written. */}
       {typed < text.length && (
         <span
           aria-hidden
-          className="caret ml-0.5 inline-block h-[1em] w-[0.5ch] bg-black"
+          className="caret ml-0.5 inline-block h-[1em] w-[0.5ch]"
+          style={{ background: "var(--topbar-text)" }}
         />
       )}
       <span aria-hidden className="invisible">

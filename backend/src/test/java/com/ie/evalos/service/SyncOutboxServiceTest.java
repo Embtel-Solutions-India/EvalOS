@@ -205,6 +205,38 @@ class SyncOutboxServiceTest {
 		then(ghl).should(never()).createOpportunity(any(), any(), any(), any(), any(), any(), any(), any());
 	}
 
+	/** A win is sent in its own request: that deal's pending row goes now, without waiting for the drain. */
+	@Test
+	void sendNowPushesThatDealsPendingRowAtOnce() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		given(outbox.findByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(BRAND,
+				SyncEntity.OPPORTUNITY, row.getId())).willReturn(List.of(entry));
+		given(ghl.updateOpportunity(any(), any(), any(), any(), any()))
+				.willReturn(new GhlWriteClient.UpsertedOpportunity("opp-1", "contact-1", "pipe-1", "s1",
+						"won", "Ana", null, false));
+
+		service.sendNow(BRAND, row.getId());
+
+		then(ghl).should().updateOpportunity(eq("opp-1"), eq("pipe-1"), anyString(), any(), any());
+		assertThat(entry.isPending()).isFalse();
+	}
+
+	/** An immediate push GHL refuses is left exactly as the drain would leave it, so the drain retries it. */
+	@Test
+	void aRefusedImmediatePushStaysPendingForTheDrain() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		given(outbox.findByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(BRAND,
+				SyncEntity.OPPORTUNITY, row.getId())).willReturn(List.of(entry));
+		willThrow(new GhlUnavailableException("rate limited", null, GhlFailure.RATE_LIMITED, 429))
+				.given(ghl).updateOpportunity(any(), any(), any(), any(), any());
+
+		service.sendNow(BRAND, row.getId());
+
+		assertThat(entry.isPending()).isTrue();
+	}
+
 	/**
 	 * <strong>A 429 stops the whole drain, not just the row that hit it.</strong>
 	 *
@@ -244,6 +276,44 @@ class SyncOutboxServiceTest {
 		assertThat(result.halted()).isTrue();
 		assertThat(entry.isPending()).isTrue();
 		assertThat(entry.getLastFailure()).isEqualTo(GhlFailure.UNAUTHORIZED);
+	}
+
+	/**
+	 * D83: the Administrator paused GHL writes. Nothing is wrong with the row, so it stays pending — never dead —
+	 * and the drain stops rather than walking the queue to no purpose. It goes out when writes are back on.
+	 */
+	@Test
+	void pausedWritesHaltTheDrainAndKeepEveryRowPending() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		willThrow(new GhlUnavailableException("GHL writes are paused by an administrator", null, GhlFailure.PAUSED, null))
+				.given(ghl).updateOpportunity(any(), any(), any(), any(), any());
+
+		var result = service.drain();
+
+		assertThat(result.halted()).isTrue();
+		assertThat(result.dead()).isZero();
+		assertThat(entry.isPending()).isTrue();
+		// Untouched: no attempt counted, no failure recorded — a pause must not spend the row's retry budget.
+		assertThat(entry.getAttempts()).isZero();
+		assertThat(entry.getLastFailure()).isNull();
+	}
+
+	/** Switched off before the drain starts: GHL is not called at all and every row stays as it was. */
+	@Test
+	void aDrainWhileWritesAreSwitchedOffTouchesNothing() {
+		Opportunity row = local("opp-1");
+		SyncOutboxEntry entry = queued(row);
+		com.ie.evalos.config.AppSettings settings = org.mockito.Mockito.mock(com.ie.evalos.config.AppSettings.class);
+		org.mockito.BDDMockito.given(settings.enabled(com.ie.evalos.config.Setting.GHL_WRITES_ENABLED)).willReturn(false);
+		service.useSettings(settings);
+
+		var result = service.drain();
+
+		assertThat(result.halted()).isTrue();
+		assertThat(result.attempted()).isZero();
+		assertThat(entry.getAttempts()).isZero();
+		org.mockito.Mockito.verifyNoInteractions(ghl);
 	}
 
 	/**

@@ -124,11 +124,11 @@ public class PortalSecurityConfig {
 								"/api/portal/auth/expert/sign-in", "/api/portal/auth/expert/set-password").permitAll()
 						.anyRequest().authenticated())
 				.exceptionHandling(handling -> handling
-						.authenticationEntryPoint((request, response, ex) -> apiErrors.write(
-								response, HttpStatus.UNAUTHORIZED, "PORTAL_LINK_INVALID",
+						.authenticationEntryPoint((request, response, ex) -> apiErrors.refuse(
+								request, response, HttpStatus.UNAUTHORIZED, "PORTAL_LINK_INVALID",
 								"This link is not valid. Please ask whoever sent it for a new one."))
-						.accessDeniedHandler((request, response, ex) -> apiErrors.write(
-								response, HttpStatus.FORBIDDEN, "FORBIDDEN",
+						.accessDeniedHandler((request, response, ex) -> apiErrors.refuse(
+								request, response, HttpStatus.FORBIDDEN, "FORBIDDEN",
 								"This link does not admit you to that")))
 				.addFilterBefore(new PortalTokenFilter(portalAccess, apiErrors, rateLimit),
 						UsernamePasswordAuthenticationFilter.class)

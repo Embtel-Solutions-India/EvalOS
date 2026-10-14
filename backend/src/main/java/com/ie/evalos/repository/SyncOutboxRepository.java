@@ -29,6 +29,10 @@ public interface SyncOutboxRepository
 
 	long countByBrandIdAndSentAtIsNullAndDeadAtIsNull(UUID brandId);
 
+	/** One entity's pending pushes, oldest first — {@code SyncOutboxService.sendNow}'s read. */
+	List<SyncOutboxEntry> findByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(
+			UUID brandId, com.ie.evalos.domain.SyncEntity entityType, UUID entityId);
+
 	/** D56: is a push for this entity still waiting to be sent? */
 	boolean existsByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNull(UUID brandId,
 			com.ie.evalos.domain.SyncEntity entityType, UUID entityId);

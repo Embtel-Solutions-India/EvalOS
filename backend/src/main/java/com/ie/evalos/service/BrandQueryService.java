@@ -4,7 +4,6 @@ import java.util.List;
 
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Brand;
-import com.ie.evalos.domain.Role;
 import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.security.TenantContext;
 

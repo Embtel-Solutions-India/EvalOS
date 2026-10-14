@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useMe } from '../../lib/authContext'
 import type { Role } from '../../lib/session'
-import AdminDashboard from './AdminDashboard'
+import SystemHealthPage from '../admin/SystemHealthPage'
 import CaseManagerDashboard from './CaseManagerDashboard'
 import CoordinatorDashboard from './CoordinatorDashboard'
 import ExpertNetworkDashboard from './ExpertNetworkDashboard'
@@ -32,7 +32,9 @@ import RevenueDashboard from './RevenueDashboard'
  */
 const DASHBOARDS: Record<Role, ReactNode> = {
   GM: <GmDashboard />,
-  ADMIN: <AdminDashboard />,
+  // The Administrator's landing screen is the server's health (2026-10-10). The staff, pipeline, sync and
+  // job figures that used to be here live at the top of the screen that acts on each.
+  ADMIN: <SystemHealthPage />,
   BRAND_MANAGER: <RevenueDashboard />,
   PROJECT_MANAGER: <PmDashboard />,
   PROJECT_COORDINATOR: <CoordinatorDashboard />,

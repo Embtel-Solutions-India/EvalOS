@@ -7,7 +7,6 @@ import {
   type CoordinatorMetrics,
   type CoordinatorWork,
 } from './pmMetricsApi'
-import { QueueTable } from './QueueTable'
 import { StageFunnel } from './StageFunnel'
 import { emptyWhen, useMetrics, warnWhen } from './useMetrics'
 
@@ -39,27 +38,23 @@ export default function CoordinatorDashboard() {
           title="Documents awaiting verification"
           state={workState}
           value={work?.documents.awaitingVerification ?? null}
-          denominator="checklist items uploaded, not yet approved"
         />
         <KpiCard
           title="Missing or incorrect documents"
           state={workState}
           value={work?.documents.blockerItems ?? null}
-          denominator="checklist items"
           tone={work === null ? undefined : work.documents.blockerItems > 0 ? 'bad' : 'good'}
         />
         <KpiCard
           title="Unsent checklists"
           state={workState}
           value={work?.documents.unsentCases ?? null}
-          denominator="cases with an item not yet sent"
           tone={work === null ? undefined : work.documents.unsentCases > 0 ? 'warn' : 'good'}
         />
         <KpiCard
           title="Blocked cases"
           state={workState}
           value={work?.blocked ?? null}
-          denominator="on hold, expert declined, or refund requested"
         />
       </div>
 
@@ -70,9 +65,6 @@ export default function CoordinatorDashboard() {
           state={warnWhen(state, (data?.documents.aging ?? 0) > 0)}
           to="/checklists"
           value={data?.documents.outstanding ?? null}
-          denominator={
-            data ? `${data.documents.aging} past the collection budget` : undefined
-          }
           tone={data === null ? undefined : data.documents.aging > 0 ? 'warn' : 'good'}
           // Decision 6: the same 24-business-hour DOC_COLLECTION budget the board's SLA chip
           // uses. One clock, so this tile and that rail cannot disagree about a case.
@@ -85,7 +77,6 @@ export default function CoordinatorDashboard() {
           state={emptyWhen(state, data?.documents.outstanding === 0, 'No client is collecting documents.')}
           value={data?.documents.medianWaitHours ?? null}
           unit="h"
-          denominator="business hours, open cases"
           note="How long the clients still collecting have been waiting."
         />
 
@@ -93,7 +84,6 @@ export default function CoordinatorDashboard() {
           title="Delivered this week"
           state={state}
           value={data?.delivered.thisWeek ?? null}
-          denominator={data ? `${data.delivered.today} today` : undefined}
           tone="good"
         />
 
@@ -105,6 +95,9 @@ export default function CoordinatorDashboard() {
           note="QC passed, waiting to go out."
         />
 
+        {/* One "With the client" and one "Ready to deliver" (2026-10-14): these summaries, not the case tables
+            that repeated them — the Delivery queue lists the cases, and the counts here say what a table could not
+            (never opened, over 48h). */}
         <Card
           title="With the client"
           wide
@@ -128,35 +121,13 @@ export default function CoordinatorDashboard() {
           )}
         </Card>
 
-        <Card
-          title="Review requests"
-          // `google_review_requested` has no writer anywhere — Handoff C would set it and is
-          // unbuilt. Zero here would read as "we asked nobody", which is a different claim.
-          state={{ kind: 'unavailable', blockedBy: 'Unit 18' }}
-        />
-
         <DocumentsOwed rows={work?.documents.owed} state={workState} />
         <StageFunnel
           stages={work?.stages}
           state={workState}
           title="Your stages"
+          className="xl:col-span-2"
           note="Open cases in the four stages you hold. Age is the median business hours in the stage."
-        />
-        <QueueTable
-          title="With the client"
-          note="Cases out for client review, longest first. Owner is the case manager."
-          rows={work?.clientReview}
-          state={workState}
-          emptyNote="No case is with a client."
-          className="xl:col-span-2"
-        />
-        <QueueTable
-          title="Ready to deliver"
-          note="QC passed and waiting to go out, longest first. Open the delivery queue to hand over."
-          rows={work?.readyToDeliver}
-          state={workState}
-          emptyNote="Nothing is waiting to be delivered."
-          className="xl:col-span-2"
         />
       </div>
 

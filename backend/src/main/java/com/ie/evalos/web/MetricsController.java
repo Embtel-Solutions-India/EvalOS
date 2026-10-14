@@ -168,8 +168,8 @@ public class MetricsController {
 	@PreAuthorize("hasAnyRole('GM', 'ADMIN', 'SALES', 'MARKETING')")
 	public ApiResponse<PipelineJourneyService.Journey> journey(@RequestParam(required = false) Integer year,
 			@RequestParam(required = false) String audience, @RequestParam(required = false) UUID memberId,
-			@RequestParam(required = false) String source) {
-		return ApiResponse.ok(journey.forCaller(year, audience, memberId, source));
+			@RequestParam(required = false) String source, @RequestParam(required = false) String pipelineId) {
+		return ApiResponse.ok(journey.forCaller(year, audience, memberId, source, pipelineId));
 	}
 
 	/** A month's sales target. {@code month} is any day of it; the first is what is stored. */

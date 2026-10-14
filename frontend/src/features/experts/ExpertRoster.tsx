@@ -7,6 +7,7 @@ import AvailabilityBoard from './AvailabilityBoard'
 import ExpertProfile, { Avatar, AvailabilityBadge } from './ExpertProfile'
 import SheetUpload from './SheetUpload'
 import { fetchRoster } from './expertApi'
+import { Pager } from '../../components/ui/pager'
 import {
   AVAILABILITIES,
   FIELD_TAGS,
@@ -43,7 +44,8 @@ type LoadState =
   | { status: 'ready'; page: RosterPage }
   | { status: 'failed'; message: string }
 
-const PAGE_SIZE = 25
+/** What the reader may choose; the roster is paged on the server, so this is the size it is asked for. */
+const PAGE_SIZES = [10, 25, 50, 100]
 
 export default function ExpertRoster() {
   const me = useMe()
@@ -51,6 +53,7 @@ export default function ExpertRoster() {
   const [tab, setTab] = useState<'roster' | 'availability' | 'import'>('roster')
   const [filters, setFilters] = useState<RosterFilters>(NO_FILTERS)
   const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   // Unit 63: `?new=1&fullName=…` opens the create form pre-filled — the hiring pipeline's
   // "Add to expert database". Read once; closing the sheet does not reopen it.
   const [search] = useSearchParams()
@@ -70,8 +73,8 @@ export default function ExpertRoster() {
 
   // Unit 70a phase 2. A new page or filter is a new key, so it shows the loading state, not old rows.
   const query = useQuery({
-    queryKey: ['experts', 'roster', activeBrandId, filters, page],
-    queryFn: ({ signal }) => fetchRoster(activeBrandId, filters, page, PAGE_SIZE, signal),
+    queryKey: ['experts', 'roster', activeBrandId, filters, page, pageSize],
+    queryFn: ({ signal }) => fetchRoster(activeBrandId, filters, page, pageSize, signal),
   })
   const load = () => query.refetch()
   const state: LoadState = query.data
@@ -246,30 +249,22 @@ export default function ExpertRoster() {
                 </table>
               </div>
 
-              <div className="font-num flex items-center gap-3 text-sm tabular-nums">
-                <button
-                  type="button"
-                  disabled={page === 0}
-                  onClick={() => setPage((current) => Math.max(current - 1, 0))}
-                  className="rounded-md px-2.5 py-1 font-medium disabled:opacity-50"
-                  style={{ background: 'var(--bg-raised)' }}
-                >
-                  Previous
-                </button>
-                <span style={{ color: 'var(--text-muted)' }}>
-                  {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, state.page.total)} of{' '}
-                  {state.page.total}
-                </span>
-                <button
-                  type="button"
-                  disabled={(page + 1) * PAGE_SIZE >= state.page.total}
-                  onClick={() => setPage((current) => current + 1)}
-                  className="rounded-md px-2.5 py-1 font-medium disabled:opacity-50"
-                  style={{ background: 'var(--bg-raised)' }}
-                >
-                  Next
-                </button>
-              </div>
+              <Pager
+                noun="experts"
+                paging={{
+                  page,
+                  pages: Math.ceil(state.page.total / pageSize),
+                  total: state.page.total,
+                  size: pageSize,
+                  setPage,
+                }}
+                sizes={PAGE_SIZES}
+                onSizeChange={(size) => {
+                  // A new size starts from the first page: page 4 of 10 rows is not page 4 of 50.
+                  setPageSize(size)
+                  setPage(0)
+                }}
+              />
             </>
           )}
 

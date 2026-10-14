@@ -60,19 +60,31 @@ export type OpportunityBoard = {
    * configuration mistake — which is exactly what happened on 2026-09-17.
    */
   syncConfigured: boolean
+  /** The pipelines the caller may switch between (the one-pipeline read only; empty on the union). */
+  pipelines: readonly PipelineOption[]
+  /** The pipeline drawn by the one-pipeline read; null on the union. */
+  pipelineId: string | null
 }
 
+export type PipelineOption = { id: string; name: string }
+
 /**
- * The caller's board.
+ * The caller's board: the union of their pipelines (the GM's: every SALES pipeline).
  *
- * **There is no argument, and there must never be one.** What a caller sees is decided entirely
- * by their own principal: a `SALES` or `MARKETING` member gets the one pipeline their row names,
- * and the GM gets the union of the selling brand's. A `pipelineId` parameter here would make the
- * whole access model advisory — the server takes none, and the day one is added the server's own
- * test fails first.
+ * **There is no argument, and there must never be one** on this read — dashboards and deal pickers
+ * total it. The board page uses `fetchPipelineBoard`, whose id only narrows within the caller's own.
  */
 export function fetchOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
   return unwrap<OpportunityBoard>(api.get('/opportunities/board', { signal }))
+}
+
+/**
+ * One of the caller's pipelines: the board page's tabs (a desk) and drop-down (the GM). `id` null
+ * = the server's default (a desk's first pipeline, the GM's Master Pipeline); one the caller does
+ * not hold is a 403.
+ */
+export function fetchPipelineBoard(id: string | null, signal?: AbortSignal): Promise<OpportunityBoard> {
+  return unwrap<OpportunityBoard>(api.get('/opportunities/board/pipeline', { params: { id: id ?? undefined }, signal }))
 }
 
 /**
@@ -137,9 +149,14 @@ export function fetchDealContact(
  */
 const REFRESH_TIMEOUT_MS = 120_000
 
-export function refreshOpportunityBoard(signal?: AbortSignal): Promise<OpportunityBoard> {
+/** Refresh for one pipeline: the server syncs that one only. */
+export function refreshPipelineBoard(id: string | null, signal?: AbortSignal): Promise<OpportunityBoard> {
   return unwrap<OpportunityBoard>(
-    api.post('/opportunities/board/refresh', undefined, { signal, timeout: REFRESH_TIMEOUT_MS }),
+    api.post('/opportunities/board/pipeline/refresh', undefined, {
+      params: { id: id ?? undefined },
+      signal,
+      timeout: REFRESH_TIMEOUT_MS,
+    }),
   )
 }
 

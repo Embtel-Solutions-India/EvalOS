@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -96,9 +97,10 @@ class PmOverviewServiceTest {
 
 	@Test
 	void queueIsLongestWaitingFirstAndNamesFormerMembers() {
-		Case older = set(set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(86400 * 3)),
+		// Business hours on the real clock: three days once spanned a weekend plus Columbus Day and tied at zero (CI, 2026-10-13).
+		Case older = set(set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minus(Duration.ofDays(14))),
 				"assignedCm", SARAH);
-		Case newer = set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(3600));
+		Case newer = set(caseAt(Stage.DRAFT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(60));
 		PmOverview result = run(List.of(newer, older));
 		assertThat(result.queues().draftReview()).hasSize(2);
 		assertThat(result.queues().draftReview().get(0).caseId()).isEqualTo(older.getId());
@@ -120,5 +122,16 @@ class PmOverviewServiceTest {
 				set(caseAt(Stage.CLOSED), "deliveryDate", pt(7, 4, 0))));
 		assertThat(stage(result, Stage.DELIVERED).count()).isEqualTo(2);
 		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::delivered).sum()).isEqualTo(2);
+	}
+
+	/** The chart splits each bar: a delivery after its promised date is late, one on time or with no deadline is not. */
+	@Test
+	void eachBarCountsItsLateDeliveries() {
+		Case late = set(set(caseAt(Stage.DELIVERED), "deliveryDate", pt(7, 3, 12)), "deadline", pt(7, 2, 0));
+		Case onTime = set(set(caseAt(Stage.DELIVERED), "deliveryDate", pt(7, 3, 9)), "deadline", pt(7, 4, 0));
+		Case undated = set(caseAt(Stage.DELIVERED), "deliveryDate", pt(7, 3, 10));
+		PmOverview result = run(List.of(late, onTime, undated));
+		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::delivered).sum()).isEqualTo(3);
+		assertThat(result.throughput().stream().mapToInt(PmOverviewService.Throughput::late).sum()).isEqualTo(1);
 	}
 }

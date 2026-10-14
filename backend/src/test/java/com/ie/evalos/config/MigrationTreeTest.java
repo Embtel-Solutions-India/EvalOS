@@ -77,9 +77,12 @@ class MigrationTreeTest {
 		}
 	}
 
-	/** {@code V901__seed_local_webhook_secrets.sql} to {@code 901}; anything unparseable sorts as a migration. */
+	/**
+	 * {@code V901__seed_local_webhook_secrets.sql} to {@code 901}, and a dotted version such as
+	 * {@code V960_1__…} to its major part, {@code 960}; anything unparseable sorts as a migration.
+	 */
 	private static int version(String fileName) {
-		String digits = fileName.replaceFirst("^V(\\d+)__.*$", "$1");
+		String digits = fileName.replaceFirst("^V(\\d+)(?:_\\d+)*__.*$", "$1");
 		return digits.equals(fileName) ? 0 : Integer.parseInt(digits);
 	}
 

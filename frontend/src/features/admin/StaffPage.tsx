@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { stateOf } from "../dashboards/useMetrics";
+import { StaffSummary } from "./adminSummaries";
 import { useState } from "react";
 import { SheetContent, SheetRoot } from "../../components/ui/dialog";
 import { useMe } from "../../lib/authContext";
 import type { Role } from "../../lib/session";
 import {
   ROLE_LABEL,
-  SEGMENTS,
   createStaff,
   fetchBrands,
   fetchGhlUsers,
@@ -14,7 +15,6 @@ import {
   fetchStaff,
   grantPipeline,
   holdsPipelines,
-  isDesk,
   revokePipeline,
   setStaffActive,
   setStaffPassword,
@@ -71,6 +71,8 @@ export default function StaffPage() {
           Add staff
         </button>
       </header>
+
+      <StaffSummary staff={staff.data} state={stateOf(staff)} />
 
       {staff.isError && !staff.data && (
         <p className="text-sm" style={{ color: "var(--status-red)" }}>
@@ -189,7 +191,6 @@ function StaffSheet({
     email: member?.email ?? "",
     role: member?.role ?? "CASE_MANAGER",
     brandId: member?.brandId ?? brands[0]?.id ?? null,
-    segment: member?.segment ?? null,
     ghlUserId: member?.ghlUserId ?? null,
   }));
   const [password, setPassword] = useState("");
@@ -305,29 +306,6 @@ function StaffSheet({
                 {brands.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {isDesk(form.role) && (
-            <label className="text-sm">
-              Segment
-              <select
-                className={INPUT}
-                style={INPUT_STYLE}
-                value={form.segment ?? ""}
-                onChange={(e) =>
-                  set(
-                    "segment",
-                    (e.target.value || null) as StaffForm["segment"],
-                  )
-                }
-              >
-                <option value="">Choose…</option>
-                {SEGMENTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace("_", " ").toLowerCase()}
                   </option>
                 ))}
               </select>

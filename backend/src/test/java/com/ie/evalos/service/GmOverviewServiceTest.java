@@ -14,8 +14,6 @@ import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.ServiceType;
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.domain.TeamMember;
-import com.ie.evalos.integration.GhlPipelineClient;
-import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.repository.TeamMemberRepository;
 
 import org.junit.jupiter.api.Test;
@@ -33,8 +31,8 @@ import static org.mockito.Mockito.verify;
 /**
  * The GM overview, and specifically the three ways it could quietly report a wrong number.
  *
- * <p>A win placed by the wrong timestamp, a monthly goal applied to a window that is not a month,
- * and a GHL outage taken as a month with no business in it.
+ * <p>A win placed by the wrong timestamp, and a monthly goal applied to a window that is not a month.
+ * The pipeline half reads the mirror (2026-10-13), so these fixtures are mirror rows, not GHL replies.
  */
 class GmOverviewServiceTest {
 
@@ -48,7 +46,6 @@ class GmOverviewServiceTest {
 
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final TeamMemberRepository teamMembers = mock(TeamMemberRepository.class);
-	private final GhlPipelineClient ghl = mock(GhlPipelineClient.class);
 	private final OpportunityMirrorService mirror = mock(OpportunityMirrorService.class);
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments =
 			mock(com.ie.evalos.repository.TeamMemberPipelineRepository.class);
@@ -65,7 +62,7 @@ class GmOverviewServiceTest {
 				.when(assignments).ghlIdsFor(any());
 		// A mocked JdbcTemplate answers every query with an empty list: no goal set on the
 		// dashboard, so SALES_MONTHLY_GOAL (`goal`) is the fallback these tests exercise.
-		return new GmOverviewService(lifecycle, teamMembers, ghl, new SellingBrand(BRAND), jdbc,
+		return new GmOverviewService(lifecycle, teamMembers, new SellingBrand(BRAND), jdbc,
 				assignments, mirror, new BigDecimal(goal), 180);
 	}
 
@@ -102,10 +99,9 @@ class GmOverviewServiceTest {
 				.willReturn(List.of(desk(Role.SALES, PIPELINE)));
 		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND))
 				.willReturn(List.of(desk(Role.MARKETING, "pipe-marketing")));
-		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won")))
+		given(mirror.onPipelines(List.of(PIPELINE)))
 				.willReturn(List.of(won("5000", at("2026-09-04"), at("2026-09-01"), "Referral")));
-		given(ghl.opportunitiesIn(eq("pipe-marketing"), any(), any(), eq("won")))
+		given(mirror.onPipelines(List.of("pipe-marketing")))
 				.willReturn(List.of(won("5000", at("2026-09-04"), at("2026-08-01"), "Newsletter")));
 
 		var overview = service("0").forCaller(window("month"), BRAND);
@@ -118,6 +114,30 @@ class GmOverviewServiceTest {
 			assertThat(row.role()).isEqualTo(Role.MARKETING);
 			assertThat(row.wonValue()).isEqualByComparingTo("5000");
 		});
+	}
+
+	/**
+	 * The change compares like with like: Sales wins now against Sales wins in the window before. A Marketing win in
+	 * the earlier window used to be counted too, so a flat month read as a fall (here: −50% instead of 0%).
+	 */
+	@Test
+	void theWonChangeComparesSalesWinsWithSalesWinsAndNamesItsWindow() {
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND))
+				.willReturn(List.of(desk(Role.SALES, PIPELINE)));
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND))
+				.willReturn(List.of(desk(Role.MARKETING, "pipe-marketing")));
+		given(mirror.onPipelines(List.of(PIPELINE))).willReturn(List.of(
+				won("5000", at("2026-09-04"), at("2026-09-01"), "Referral"),
+				won("5000", at("2026-08-20"), at("2026-08-01"), "Referral")));
+		given(mirror.onPipelines(List.of("pipe-marketing")))
+				.willReturn(List.of(won("5000", at("2026-08-20"), at("2026-08-01"), "Newsletter")));
+
+		var sales = service("0").forCaller(window("month"), BRAND).sales();
+
+		assertThat(sales.wonDeltaPct()).isZero();
+		// "This month" to the 15th is compared with the 15 days before it: 17–31 August.
+		assertThat(sales.comparedFrom()).isEqualTo(LocalDate.parse("2026-08-17"));
+		assertThat(sales.comparedTo()).isEqualTo(LocalDate.parse("2026-08-31"));
 	}
 
 	/**
@@ -134,11 +154,9 @@ class GmOverviewServiceTest {
 		HELD.put(revoked.getId(), List.of());
 		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND)).willReturn(List.of(onTwo, revoked));
 		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND)).willReturn(List.of());
-		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
-		given(ghl.opportunitiesIn(any(), any(), any(), eq("won"))).willReturn(List.of());
-		given(ghl.opportunitiesIn(eq("pipe-a"), any(), any(), eq("won")))
+		given(mirror.onPipelines(List.of("pipe-a")))
 				.willReturn(List.of(won("100", at("2026-09-04"), at("2026-09-01"), "Referral")));
-		given(ghl.opportunitiesIn(eq("pipe-b"), any(), any(), eq("won")))
+		given(mirror.onPipelines(List.of("pipe-b")))
 				.willReturn(List.of(won("250", at("2026-09-05"), at("2026-09-02"), "Referral")));
 
 		var overview = service("0").forCaller(window("month"), BRAND);
@@ -147,8 +165,8 @@ class GmOverviewServiceTest {
 			assertThat(row.won()).isEqualTo(2);
 			assertThat(row.wonValue()).isEqualByComparingTo("350");
 		});
-		verify(ghl, never()).opportunitiesIn(eq("legacy-one"), any(), any());
-		verify(ghl, never()).opportunitiesIn(eq("legacy-revoked"), any(), any());
+		verify(mirror, never()).onPipelines(List.of("legacy-one"));
+		verify(mirror, never()).onPipelines(List.of("legacy-revoked"));
 	}
 
 	/**
@@ -158,8 +176,6 @@ class GmOverviewServiceTest {
 	@Test
 	void aDeskReportsWhatItHoldsOpenRightNowWhateverTheRange() {
 		givenOneSalesDesk();
-		given(ghl.opportunitiesIn(any(), any(), any())).willReturn(List.of());
-		given(ghl.opportunitiesIn(any(), any(), any(), eq("won"))).willReturn(List.of());
 		given(mirror.onPipelines(any())).willReturn(List.of(
 				mirrorRow("open", "100"), mirrorRow("open", "50"), mirrorRow("won", "900"), mirrorRow("lost", "30")));
 
@@ -179,11 +195,18 @@ class GmOverviewServiceTest {
 		return row;
 	}
 
-	private static GhlPipelineClient.Opportunity won(String amount, Instant wonAt, Instant createdAt,
+	private static com.ie.evalos.domain.Opportunity won(String amount, Instant wonAt, Instant createdAt,
 			String source) {
-		return new GhlPipelineClient.Opportunity(UUID.randomUUID().toString(), "A deal", "contact-1",
-				PIPELINE, "stage", "won", new BigDecimal(amount), source, null, createdAt, wonAt,
-				wonAt, wonAt);
+		return deal("won", amount, createdAt, wonAt, source);
+	}
+
+	/** A mirrored deal, as `OpportunityMirrorService.onPipelines` hands it back. */
+	private static com.ie.evalos.domain.Opportunity deal(String status, String amount, Instant createdAt,
+			Instant statusChangedAt, String source) {
+		var row = new com.ie.evalos.domain.Opportunity(BRAND, UUID.randomUUID().toString(), UUID.randomUUID());
+		row.syncFromGhl("contact-1", row.getPipelineId(), "stage", "A deal", new BigDecimal(amount), status, source,
+				null, createdAt, statusChangedAt, statusChangedAt, statusChangedAt);
+		return row;
 	}
 
 	/**
@@ -198,12 +221,9 @@ class GmOverviewServiceTest {
 		given(jdbc.query(org.mockito.ArgumentMatchers.contains("ghl_custom_field"),
 				org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<String>>any(), eq(BRAND)))
 				.willReturn(List.of("field-lead-source"));
-		var withField = new GhlPipelineClient.Opportunity("o1", "A deal", "c1", PIPELINE, "stage", "won",
-				new BigDecimal("5000"), null, null, at("2026-09-01"), at("2026-09-04"), at("2026-09-04"),
-				at("2026-09-04"), List.of(new GhlPipelineClient.CustomFieldValue("field-lead-source", "Google Ads")),
-				null, null, null);
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any())).willReturn(List.of());
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won"))).willReturn(List.of(withField,
+		var withField = won("5000", at("2026-09-04"), at("2026-09-01"), null);
+		withField.syncCustomFields(java.util.Map.of("field-lead-source", "Google Ads"));
+		given(mirror.onPipelines(List.of(PIPELINE))).willReturn(List.of(withField,
 				won("1000", at("2026-09-05"), at("2026-09-01"), null)));
 
 		var overview = service("0", jdbc).forCaller(window("month"), BRAND);
@@ -212,24 +232,105 @@ class GmOverviewServiceTest {
 				.containsExactlyInAnyOrder("Google Ads", "Unattributed");
 	}
 
+	/** A desk's own Lead Source beats the contact's source the mirror falls back to. */
+	@Test
+	void theLeadSourceCustomFieldOutranksTheMirroredSource() {
+		givenOneSalesDesk();
+		JdbcTemplate jdbc = mock(JdbcTemplate.class);
+		given(jdbc.query(org.mockito.ArgumentMatchers.contains("ghl_custom_field"),
+				org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<String>>any(), eq(BRAND)))
+				.willReturn(List.of("field-lead-source"));
+		var deal = won("5000", at("2026-09-04"), at("2026-09-01"), "Website");
+		deal.syncCustomFields(java.util.Map.of("field-lead-source", "Referral"));
+		given(mirror.onPipelines(List.of(PIPELINE))).willReturn(List.of(deal));
+
+		var overview = service("0", jdbc).forCaller(window("month"), BRAND);
+
+		assertThat(overview.bySource()).extracting((row) -> row.source()).containsExactly("Referral");
+	}
+
+	/**
+	 * Two sales desks granted the same pipeline each show its deals on their own row, but the totals count
+	 * a deal once — and the pipeline is read once.
+	 */
+	@Test
+	void aPipelineHeldByTwoDesksCountsOnceInTheTotals() {
+		TeamMember first = desk(Role.SALES, PIPELINE);
+		TeamMember second = desk(Role.SALES, PIPELINE);
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.SALES, BRAND)).willReturn(List.of(first, second));
+		given(teamMembers.findByActiveTrueAndRoleAndBrandId(Role.MARKETING, BRAND)).willReturn(List.of());
+		given(mirror.onPipelines(List.of(PIPELINE)))
+				.willReturn(List.of(won("5000", at("2026-09-04"), at("2026-09-02"), "Referral")));
+
+		var overview = service("0").forCaller(window("month"), BRAND);
+
+		assertThat(overview.sales().won()).isEqualTo(1);
+		assertThat(overview.sales().newLeads()).isEqualTo(1);
+		assertThat(overview.headline().won()).isEqualByComparingTo("5000");
+		assertThat(overview.bySource()).singleElement().satisfies((row) -> assertThat(row.deals()).isEqualTo(1));
+		assertThat(overview.desks()).hasSize(2).allSatisfy((row) -> assertThat(row.won()).isEqualTo(1));
+		verify(mirror, org.mockito.Mockito.times(1)).onPipelines(List.of(PIPELINE));
+	}
+
+	/** Today's figures are today's whatever the range: a lead and a win from this morning, one from last week. */
+	@Test
+	void todaysFiguresCountOnlyToday() {
+		givenOneSalesDesk();
+		Instant now = Instant.now();
+		Instant lastWeek = now.minus(java.time.Duration.ofDays(7));
+		given(mirror.onPipelines(List.of(PIPELINE))).willReturn(List.of(
+				deal("open", "300", now, null, "Referral"),
+				won("1200", now, lastWeek, "Website"),
+				deal("open", "50", lastWeek, null, "Referral")));
+
+		var today = service("0").forCaller(window("year"), BRAND).today();
+
+		assertThat(today.salesLeads()).isEqualTo(1);
+		assertThat(today.salesLeadValue()).isEqualByComparingTo("300");
+		assertThat(today.won()).isEqualTo(1);
+		assertThat(today.wonValue()).isEqualByComparingTo("1200");
+		assertThat(today.marketingLeads()).isZero();
+		// Won today is won this month too; the week-old lead was never won.
+		assertThat(today.monthWon()).isEqualTo(1);
+		assertThat(today.monthWonValue()).isEqualByComparingTo("1200");
+		// Opened this month: the morning lead, still open. (The week-old ones count only when the month began earlier.)
+		assertThat(today.monthSalesLeads()).isGreaterThanOrEqualTo(1);
+		assertThat(today.monthOpenLeads()).isGreaterThanOrEqualTo(1);
+		assertThat(today.monthOpenLeads()).isLessThanOrEqualTo(today.monthSalesLeads());
+	}
+
+	/** The arrows compare today with yesterday: two leads today against one yesterday is +100%; none yesterday, none. */
+	@Test
+	void todaysArrowsCompareWithYesterday() {
+		givenOneSalesDesk();
+		Instant now = Instant.now();
+		Instant yesterday = LocalDate.now(BusinessCalendar.clock()).minusDays(1).atStartOfDay(BusinessCalendar.ZONE)
+				.toInstant().plusSeconds(3600);
+		given(mirror.onPipelines(List.of(PIPELINE))).willReturn(List.of(
+				deal("open", "10", now, null, "Referral"),
+				deal("open", "10", now, null, "Referral"),
+				deal("open", "10", yesterday, null, "Referral")));
+
+		var changes = service("0").forCaller(window("year"), BRAND).today().changes();
+
+		assertThat(changes.salesLeads()).isEqualTo(100);
+		assertThat(changes.won()).isNull();
+		assertThat(changes.marketingLeads()).isNull();
+	}
+
 	private static Instant at(String date) {
 		return LocalDate.parse(date).atStartOfDay(BusinessCalendar.ZONE).toInstant();
 	}
 
 	/**
-	 * The figure the whole lookback exists for.
-	 *
-	 * <p>GHL's opportunity search filters on {@code createdAt} and offers no filter on the
-	 * status-change date, so a deal opened in July and won in September is outside every window
-	 * that asks for September's creations. If this service ever bucketed wins by creation date
-	 * instead, this test is what says so — the July deal would vanish and "won this month" would
-	 * be silently low by the length of the sales cycle.
+	 * A win is placed by when it was won. A deal opened in July and won in September is September's;
+	 * if this service ever bucketed wins by creation date instead, this test is what says so — the July
+	 * deal would vanish and "won this month" would be silently low by the length of the sales cycle.
 	 */
 	@Test
 	void countsAWinByWhenItWasWonRatherThanWhenItWasOpened() {
 		givenOneSalesDesk();
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any())).willReturn(List.of());
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won"))).willReturn(List.of(
+		given(mirror.onPipelines(List.of(PIPELINE))).willReturn(List.of(
 				won("5000", at("2026-09-04"), at("2026-07-02"), "Referral"),
 				// Won in the previous window: it feeds the delta and must not feed the total.
 				won("1000", at("2026-08-20"), at("2026-08-01"), "Website")));
@@ -252,11 +353,9 @@ class GmOverviewServiceTest {
 	@Test
 	void cutsThePeriodIntoSlicesAndLinesUpThePreviousPeriod() {
 		givenOneSalesDesk();
-		given(ghl.opportunitiesIn(eq(PIPELINE), eq(LocalDate.parse("2026-09-01")), any()))
-				.willReturn(List.of(won("100", at("2026-09-03"), at("2026-09-03"), "Referral")));
-		given(ghl.opportunitiesIn(eq(PIPELINE), eq(LocalDate.parse("2026-08-17")), any()))
-				.willReturn(List.of(won("100", at("2026-08-18"), at("2026-08-18"), "Referral")));
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won"))).willReturn(List.of(
+		given(mirror.onPipelines(List.of(PIPELINE))).willReturn(List.of(
+				deal("open", "100", at("2026-09-03"), at("2026-09-03"), "Referral"),
+				deal("open", "100", at("2026-08-18"), at("2026-08-18"), "Referral"),
 				won("5000", at("2026-09-04"), at("2026-07-02"), "Referral"),
 				won("1000", at("2026-08-20"), at("2026-08-01"), "Website")));
 
@@ -279,8 +378,7 @@ class GmOverviewServiceTest {
 	@Test
 	void appliesTheMonthlyGoalOnlyToAMonth() {
 		givenOneSalesDesk();
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any())).willReturn(List.of());
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won")))
+		given(mirror.onPipelines(List.of(PIPELINE)))
 				.willReturn(List.of(won("27500", at("2026-09-04"), at("2026-09-01"), null)));
 
 		assertThat(service("55000").forCaller(window("month"), BRAND).headline().pctToGoal()).isEqualTo(50);
@@ -288,31 +386,6 @@ class GmOverviewServiceTest {
 		assertThat(service("55000").forCaller(window("week"), BRAND).headline().goal()).isNull();
 		// No goal configured is not a goal of zero: the tile shows the amount and says so.
 		assertThat(service("0").forCaller(window("month"), BRAND).headline().goal()).isNull();
-	}
-
-	/**
-	 * GHL being unreachable is not a month with no business in it.
-	 *
-	 * <p>The production half is EvalOS's own rows and stays true regardless, so the payload is a
-	 * 200 that names the failure rather than a 502 that takes four working tiles down with the
-	 * four that broke.
-	 */
-	@Test
-	void servesTheProductionHalfWhenGhlIsDown() {
-		givenOneSalesDesk();
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any()))
-				.willThrow(new GhlUnavailableException("GHL did not answer"));
-		Case open = caseOf(ServiceType.EXPERT_OPINION_LETTER, "1200", Stage.DRAFT_IN_PROGRESS);
-		given(lifecycle.list(any(), any(), any())).willReturn(List.of(open));
-
-		var overview = service("55000").forCaller(window("month"), BRAND);
-
-		assertThat(overview.pipelineUnavailable()).isEqualTo("GHL did not answer");
-		assertThat(overview.headline()).isNull();
-		assertThat(overview.sales()).isNull();
-		assertThat(overview.evaluation().openCases()).isEqualTo(1);
-		assertThat(overview.byService()).singleElement()
-				.satisfies((row) -> assertThat(row.openValue()).isEqualByComparingTo("1200"));
 	}
 
 	/**
@@ -325,8 +398,6 @@ class GmOverviewServiceTest {
 	@Test
 	void countsOnlyCasesAlreadyPastTheirPromisedDateAsLate() {
 		givenOneSalesDesk();
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any())).willReturn(List.of());
-		given(ghl.opportunitiesIn(eq(PIPELINE), any(), any(), eq("won"))).willReturn(List.of());
 
 		Case late = caseOf(ServiceType.CREDENTIAL_EVALUATION, "800", Stage.DRAFT_IN_PROGRESS);
 		late.setDeadline(Instant.now().minusSeconds(3600));

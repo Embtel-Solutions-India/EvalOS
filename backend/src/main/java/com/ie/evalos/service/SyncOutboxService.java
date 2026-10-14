@@ -83,8 +83,22 @@ public class SyncOutboxService {
 	private final PipelineRepository pipelines;
 	private final GhlWriteClient ghl;
 	private final GhlPipelineClient ghlReads;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 	private final String correlationFieldId;
+
+	/** Absent only in hand-built tests, which keep the value they were given. */
+	private com.ie.evalos.config.AppSettings settings;
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(com.ie.evalos.config.AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/** The Administrator's value from Settings when saved (D83), else the configured one. */
+	private String correlationFieldId() {
+		return com.ie.evalos.config.AppSettings.or(settings, com.ie.evalos.config.Setting.GHL_CORRELATION_FIELD, this.correlationFieldId);
+	}
+
 	private final OpportunityNoteRepository notes;
 	private final OpportunityNoteGhlLinkRepository noteLinks;
 	private final TeamMemberRepository teamMembers;
@@ -105,7 +119,7 @@ public class SyncOutboxService {
 		this.pipelines = pipelines;
 		this.ghl = ghl;
 		this.ghlReads = ghlReads;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 		this.correlationFieldId = correlationFieldId == null ? "" : correlationFieldId.trim();
 	}
 
@@ -162,58 +176,129 @@ public class SyncOutboxService {
 	 * cannot roll back the sends that already succeeded.
 	 */
 	public DrainResult drain() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return new DrainResult(0, 0, 0, 0, false);
 		}
-		List<SyncOutboxEntry> pending = outbox
-				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrandId,
-						Limit.of(BATCH));
+		// Paused by the Administrator (D83): touch no row. Counting the pause as an attempt would spend the first
+		// row's retry budget for nothing, and one ordinary failure after resuming would then dead-letter it.
+		if (paused()) {
+			return new DrainResult(0, 0, 0, 0, true);
+		}
+		sending.lock();
+		try {
+			List<SyncOutboxEntry> pending = outbox
+					.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(),
+							Limit.of(BATCH));
 
-		int sent = 0;
-		int retrying = 0;
-		int dead = 0;
-		int attempted = 0;
-		for (SyncOutboxEntry entry : pending) {
-			attempted++;
-			try {
-				boolean editedUnderUs = push(entry);
-				record(entry, Outcome.SENT, null, null);
-				sent++;
-				if (editedUnderUs) {
-					// After SENT, never before: the pending-row constraint is what collapses
-					// duplicates, so queueing while this row is still pending would be swallowed
-					// as "already queued" and the newer edit would never travel.
-					enqueue(entry.getBrandId(), entry.getEntityType(), entry.getEntityId(),
-							entry.getIntent());
+			int sent = 0;
+			int retrying = 0;
+			int dead = 0;
+			int attempted = 0;
+			for (SyncOutboxEntry entry : pending) {
+				attempted++;
+				switch (send(entry)) {
+					case SENT -> sent++;
+					case RETRYING -> retrying++;
+					case DEAD -> dead++;
+					// Paused between the check above and this row: left exactly as it was.
+					case PAUSED -> {
+						return new DrainResult(attempted - 1, sent, retrying, dead, true);
+					}
+					case HALTED -> {
+						return new DrainResult(attempted, sent, retrying + 1, dead, true);
+					}
 				}
 			}
-			catch (GhlUnavailableException refused) {
-				if (refused.failure().stopsEverything()) {
-					// Not this row's fault and not this row's problem: every other pending push
-					// would fail identically. Left pending, and the drain stops here.
-					record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
-					log.error("Outbox halted on {}: {}", refused.failure(), refused.getMessage());
-					return new DrainResult(attempted, sent, retrying + 1, dead, true);
+			return new DrainResult(attempted, sent, retrying, dead, false);
+		}
+		finally {
+			sending.unlock();
+		}
+	}
+
+	/**
+	 * Sends one deal's pending pushes now, in the request that queued them — a <strong>won deal</strong>, so
+	 * GHL's {@code opportunity.won} (and the case behind it) does not wait for the next drain.
+	 *
+	 * <p>Called after the caller's transaction commits, because the push reads the row at send time. A
+	 * failure leaves the row exactly where the drain would, under the same retry and dead-letter rules, so
+	 * nothing is lost by trying early. Never throws.
+	 *
+	 * <p>ponytail: skipped while a drain holds the lock (the drain sends it anyway), so the two never push one
+	 * row twice in this JVM. A second backend instance would need a row lock ({@code FOR UPDATE SKIP LOCKED}).
+	 */
+	public void sendNow(UUID brandId, UUID opportunityId) {
+		if (paused() || !sending.tryLock()) {
+			return;
+		}
+		try {
+			for (SyncOutboxEntry entry : outbox
+					.findByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(brandId,
+							SyncEntity.OPPORTUNITY, opportunityId)) {
+				Sent outcome = send(entry);
+				if (outcome == Sent.PAUSED || outcome == Sent.HALTED) {
+					return;
 				}
-				if (!refused.isRetriable() || entry.getAttempts() + 1 >= MAX_ATTEMPTS) {
-					record(entry, Outcome.DEAD, refused.failure(), refused.getMessage());
-					dead++;
-				}
-				else {
-					record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
-					retrying++;
-				}
-			}
-			catch (RuntimeException ourBug) {
-				// An EvalOS defect, not an upstream one. Dead-lettered rather than retried: a
-				// NullPointerException does not become true on the fourth attempt, and looping on
-				// it would hide it behind a queue that never drains.
-				record(entry, Outcome.DEAD, GhlFailure.REFUSED, ourBug.toString());
-				log.error("Outbox row {} failed inside EvalOS and was dead-lettered", entry.getId(), ourBug);
-				dead++;
 			}
 		}
-		return new DrainResult(attempted, sent, retrying, dead, false);
+		catch (RuntimeException unexpected) {
+			log.warn("Immediate push for {} failed; the drain sends it: {}", opportunityId, unexpected.toString());
+		}
+		finally {
+			sending.unlock();
+		}
+	}
+
+	private boolean paused() {
+		return settings != null && !settings.enabled(com.ie.evalos.config.Setting.GHL_WRITES_ENABLED);
+	}
+
+	/** The drain and {@link #sendNow} never send at the same time, so one row is never pushed twice. */
+	private final java.util.concurrent.locks.ReentrantLock sending = new java.util.concurrent.locks.ReentrantLock();
+
+	private enum Sent {
+		SENT, RETRYING, DEAD, PAUSED, HALTED
+	}
+
+	/** One row: push it and record the outcome. */
+	private Sent send(SyncOutboxEntry entry) {
+		try {
+			boolean editedUnderUs = push(entry);
+			record(entry, Outcome.SENT, null, null);
+			if (editedUnderUs) {
+				// After SENT, never before: the pending-row constraint is what collapses
+				// duplicates, so queueing while this row is still pending would be swallowed
+				// as "already queued" and the newer edit would never travel.
+				enqueue(entry.getBrandId(), entry.getEntityType(), entry.getEntityId(), entry.getIntent());
+			}
+			return Sent.SENT;
+		}
+		catch (GhlUnavailableException refused) {
+			if (refused.failure() == GhlFailure.PAUSED) {
+				return Sent.PAUSED;
+			}
+			if (refused.failure().stopsEverything()) {
+				// Not this row's fault and not this row's problem: every other pending push
+				// would fail identically. Left pending, and the drain stops here.
+				record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
+				log.error("Outbox halted on {}: {}", refused.failure(), refused.getMessage());
+				return Sent.HALTED;
+			}
+			if (!refused.isRetriable() || entry.getAttempts() + 1 >= MAX_ATTEMPTS) {
+				record(entry, Outcome.DEAD, refused.failure(), refused.getMessage());
+				return Sent.DEAD;
+			}
+			record(entry, Outcome.RETRY, refused.failure(), refused.getMessage());
+			return Sent.RETRYING;
+		}
+		catch (RuntimeException ourBug) {
+			// An EvalOS defect, not an upstream one. Dead-lettered rather than retried: a
+			// NullPointerException does not become true on the fourth attempt, and looping on
+			// it would hide it behind a queue that never drains.
+			record(entry, Outcome.DEAD, GhlFailure.REFUSED, ourBug.toString());
+			log.error("Outbox row {} failed inside EvalOS and was dead-lettered", entry.getId(), ourBug);
+			return Sent.DEAD;
+		}
 	}
 
 	private enum Outcome {
@@ -331,9 +416,9 @@ public class SyncOutboxService {
 			return;
 		}
 
-		java.util.Map<String, String> fields = correlationFieldId.isEmpty()
+		java.util.Map<String, String> fields = correlationFieldId().isEmpty()
 				? null
-				: java.util.Map.of(correlationFieldId, row.getId().toString());
+				: java.util.Map.of(correlationFieldId(), row.getId().toString());
 		GhlWriteClient.UpsertedOpportunity created = ghl.createOpportunity(ghlPipelineOf(row),
 				row.getGhlContactId(), row.getName(), row.getAmount(), null, null, fields, null);
 		row.linkGhl(created.id());
@@ -342,7 +427,7 @@ public class SyncOutboxService {
 
 	/** The contact's opportunities, matched on the correlation key EvalOS wrote when it created. */
 	private Optional<String> alreadyCreated(Opportunity row) {
-		if (correlationFieldId.isEmpty() || row.getGhlContactId() == null) {
+		if (correlationFieldId().isEmpty() || row.getGhlContactId() == null) {
 			return Optional.empty();
 		}
 		String key = row.getId().toString();
@@ -527,16 +612,16 @@ public class SyncOutboxService {
 	/** How much is waiting and how much never arrived — the status surface's numbers. */
 	@Transactional(readOnly = true)
 	public Backlog backlog() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			return new Backlog(0, 0, null, List.of());
 		}
 		List<SyncOutboxEntry> oldest = outbox
-				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrandId, Limit.of(1));
+				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(), Limit.of(1));
 		return new Backlog(
-				(int) outbox.countByBrandIdAndSentAtIsNullAndDeadAtIsNull(sellingBrandId),
-				(int) outbox.countByBrandIdAndDeadAtIsNotNull(sellingBrandId),
+				(int) outbox.countByBrandIdAndSentAtIsNullAndDeadAtIsNull(sellingBrand.id()),
+				(int) outbox.countByBrandIdAndDeadAtIsNotNull(sellingBrand.id()),
 				oldest.isEmpty() ? null : oldest.getFirst().getQueuedAt(),
-				outbox.findByBrandIdAndDeadAtIsNotNullOrderByDeadAtDesc(sellingBrandId, Limit.of(20)));
+				outbox.findByBrandIdAndDeadAtIsNotNullOrderByDeadAtDesc(sellingBrand.id(), Limit.of(20)));
 	}
 
 	/**

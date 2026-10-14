@@ -539,13 +539,13 @@ public class ClientAccountService {
 						.getId());
 			}
 			catch (RuntimeException couldNotLink) {
-				log.warn("Linked {} to GHL without a CRM row: {}", account.getEmail(),
+				log.warn("Linked {} to GHL without a CRM row: {}", com.ie.evalos.common.LogSafe.email(account.getEmail()),
 						couldNotLink.getMessage());
 			}
 		}
 		catch (RuntimeException ghlRefused) {
 			log.warn("Set a password for {} without a GHL contact: {}. It will be created on their "
-					+ "first request.", account.getEmail(), ghlRefused.getMessage());
+					+ "first request.", com.ie.evalos.common.LogSafe.email(account.getEmail()), ghlRefused.getMessage());
 		}
 		return account.getGhlContactId() != null;
 	}

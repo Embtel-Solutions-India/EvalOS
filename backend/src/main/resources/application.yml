@@ -7,6 +7,12 @@ spring:
     url: ${DB_URL}
     username: ${DB_USER}
     password: ${DB_PASSWORD}
+    hikari:
+      data-source-properties:
+        # PostgreSQL's error `Detail:` line quotes the offending row — `Key (email)=(someone@x.com)
+        # already exists` — and pgjdbc puts it in the exception message, which Hibernate and the
+        # catch-all handler then log. Off, so a failed write logs the constraint, not the client's data.
+        logServerErrorDetail: false
   # **The whole of how EvalOS sends mail, and the whole of how the provider is chosen** (2026-09-18).
   # There is one transport, `smtp`, because every transactional provider speaks it — so switching
   # provider is these four values and a restart, with no build, no new class and no vendor SDK.
@@ -447,12 +453,63 @@ server:
   # where a trusted proxy or load balancer terminates the connection — there it is required, because
   # otherwise every portal client resolves to the proxy's address and shares one rate-limit budget.
   forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:none}
+  tomcat:
+    # Publishes `tomcat.threads.busy` / `tomcat.threads.config.max` — request-thread saturation.
+    mbeanregistry:
+      enabled: true
+
+logging:
+  pattern:
+    # Every line carries the active profile and the request id `RequestIdFilter` puts in the MDC (blank
+    # outside a request: sweeps, startup). Boot's default pattern already gives an ISO-8601 timestamp with
+    # offset, the level, the thread and the logger.
+    correlation: "[${spring.profiles.active:local}] [%X{requestId:-}] "
+  level:
+    root: INFO
 
 management:
   endpoints:
+    # **Every endpoint is OFF unless named below** — not merely unexposed. `env`, `configprops`, `beans`,
+    # `mappings`, `heapdump`, `threaddump` and `loggers` are therefore not reachable even if someone
+    # widens the exposure list, and nothing can change a log level at runtime.
+    access:
+      default: none
     web:
       exposure:
-        include: health
+        include: health,info,metrics
+  endpoint:
+    health:
+      access: read-only
+      # Anonymous callers (the probes) get `{"status":"UP"}` and nothing else; an Admin's bearer token
+      # adds the component detail. `/actuator/health/**` is permitAll in SecurityConfig, everything else
+      # under `/actuator` is Admin-only there and in AdminAllowlist.
+      show-details: when-authorized
+      show-components: when-authorized
+      roles: ADMIN
+      probes:
+        enabled: true
+      group:
+        # **Liveness never includes a dependency.** A database blip must take this instance out of
+        # rotation (readiness), not get it restarted (liveness) — a restart fixes nothing about Postgres
+        # and adds a cold start to the outage. SMTP, S3, GHL, Ably and push are in neither group: each
+        # degrades on its own by design (see their settings above).
+        readiness:
+          include: readinessState,db
+    info:
+      access: read-only
+    metrics:
+      access: read-only
+  info:
+    java:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      # Client-side p95/p99 per (uri template, method, status) — a bounded set, since Spring tags the
+      # TEMPLATE (`/api/cases/{id}`), never the id. Read at /actuator/metrics/http.server.requests.percentile.
+      percentiles:
+        http.server.requests: 0.95,0.99
   health:
     # **Off, because /actuator/health is the only exposed endpoint and it is permitAll.** Mail is
     # blank by default and degrades on purpose (see evalos.mail.from), but Boot's mail indicator

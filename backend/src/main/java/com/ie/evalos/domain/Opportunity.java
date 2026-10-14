@@ -273,6 +273,11 @@ public class Opportunity extends ScopedEntity {
 			edited.add(FieldOwnership.STAGE);
 		}
 		if (status != null && !status.isBlank()) {
+			// Stamped locally so a win counts in the period it was made in before GHL confirms it; the next
+			// sync replaces it with GHL's own timestamp.
+			if (!status.equalsIgnoreCase(this.status)) {
+				this.lastStatusChangeAt = Instant.now();
+			}
 			this.status = status;
 			edited.add(FieldOwnership.STATUS);
 		}

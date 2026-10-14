@@ -46,7 +46,7 @@ public class PipelineAssignmentService {
 	private final TeamMemberPipelineRepository assignments;
 	private final PipelineRepository pipelines;
 	private final AuditService audit;
-	private final UUID salesBrandId;
+	private final SellingBrand sellingBrand;
 
 	PipelineAssignmentService(TeamMemberRepository teamMembers, TeamMemberPipelineRepository assignments,
 			PipelineRepository pipelines, AuditService audit,
@@ -55,7 +55,7 @@ public class PipelineAssignmentService {
 		this.assignments = assignments;
 		this.pipelines = pipelines;
 		this.audit = audit;
-		this.salesBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/** One member's pipelines, as GHL ids — what the GM's screen lists and what a token carries. */
@@ -154,6 +154,7 @@ public class PipelineAssignmentService {
 	 * {@code evalos.ghl.sales-brand} names the one brand whose members may.
 	 */
 	private void requireSellingBrand(TeamMember member) {
+		UUID salesBrandId = sellingBrand.id();
 		if (salesBrandId == null) {
 			throw new InvalidRequestException(
 					"No brand is configured as the selling brand (evalos.ghl.sales-brand), so no member "

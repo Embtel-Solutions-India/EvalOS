@@ -1,5 +1,6 @@
 package com.ie.evalos.service;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -158,9 +159,10 @@ class CoordinatorWorkServiceTest {
 
 	@Test
 	void listsAreLongestWaitFirstAndNameAFormerCaseManager() {
-		Case older = set(set(caseAt(Stage.CLIENT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(86400 * 3)),
+		// Business hours on the real clock: three days once spanned a weekend plus Columbus Day and tied at zero (CI, 2026-10-13).
+		Case older = set(set(caseAt(Stage.CLIENT_REVIEW), "stageEnteredAt", Instant.now().minus(Duration.ofDays(14))),
 				"assignedCm", SARAH);
-		Case newer = set(caseAt(Stage.CLIENT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(3600));
+		Case newer = set(caseAt(Stage.CLIENT_REVIEW), "stageEnteredAt", Instant.now().minusSeconds(60));
 		Case ready = caseAt(Stage.READY_TO_DELIVER);
 		CoordinatorWork work = run(List.of(newer, older, ready), List.of(), Set.of(), List.of());
 		assertThat(work.clientReview()).hasSize(2);
@@ -176,5 +178,17 @@ class CoordinatorWorkServiceTest {
 		Case delivered = caseAt(Stage.DELIVERED);
 		run(List.of(open, delivered), List.of(), Set.of(), List.of());
 		verify(items).findByBrandIdInAndCaseIdIn(Set.of(BRAND), Set.of(open.getId()));
+	}
+
+	/**
+	 * Owners are named from the cases themselves, not from whom the caller may assign: a coordinator cannot assign a
+	 * Case Manager, and asking that question named every owner "Former team member" (2026-10-14).
+	 */
+	@Test
+	void anOwnerIsNamedFromTheCaseEvenWhenTheCallerCannotAssignThem() {
+		given(members.namesOf(anyCollection(), anyCollection())).willReturn(java.util.Map.of(SARAH, "Sarah Case"));
+		Case ready = set(caseAt(Stage.READY_TO_DELIVER), "assignedCm", SARAH);
+		CoordinatorWork work = run(List.of(ready), List.of(), Set.of(), List.of());
+		assertThat(work.readyToDeliver().get(0).ownerName()).isEqualTo("Sarah Case");
 	}
 }

@@ -35,10 +35,6 @@ public enum Role {
 	// Unit 36. Both brand-locked, both scoped by the one GHL pipeline they own
 	// (`team_member.ghl_pipeline_id`), and neither gets a case transition: they act on
 	// opportunities, which are GHL's, and the case does not exist until payment (invariant 8).
-	//
-	// The three business kinds of each — Attorney, Employer/Firm, Individual — are deliberately
-	// NOT roles. They carry identical permissions, so they are `team_member.segment` and nothing
-	// switches on them. See Segment.
 	SALES(Tier.PIPELINE),
 	MARKETING(Tier.PIPELINE);
 

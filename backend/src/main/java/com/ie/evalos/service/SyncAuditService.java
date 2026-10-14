@@ -95,7 +95,7 @@ public class SyncAuditService {
 	private final OpportunityRepository opportunities;
 	private final PipelineRepository pipelines;
 	private final SyncDriftRepository drifts;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	SyncAuditService(GhlPipelineClient ghl, OpportunityRepository opportunities,
 			PipelineRepository pipelines, SyncDriftRepository drifts,
@@ -104,7 +104,7 @@ public class SyncAuditService {
 		this.opportunities = opportunities;
 		this.pipelines = pipelines;
 		this.drifts = drifts;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/**
@@ -115,12 +115,12 @@ public class SyncAuditService {
 	 * exhausted pool, and this read is the longest one EvalOS makes.
 	 */
 	public AuditResult audit() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			log.warn("Sync audit skipped: evalos.ghl.sales-brand is blank, so there is no mirror to audit.");
 			return new AuditResult(0, 0, 0, 0);
 		}
 
-		List<Pipeline> mirrored = pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrandId).stream()
+		List<Pipeline> mirrored = pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrand.id()).stream()
 				.filter(Pipeline::isLive)
 				.toList();
 
@@ -143,7 +143,7 @@ public class SyncAuditService {
 		List<Opportunity> held = pipelineIds.isEmpty() ? List.of()
 				: opportunities.findByPipelineIdIn(pipelineIds);
 
-		List<SyncDrift> open = drifts.findByBrandIdAndEntityTypeAndResolvedAtIsNull(sellingBrandId,
+		List<SyncDrift> open = drifts.findByBrandIdAndEntityTypeAndResolvedAtIsNull(sellingBrand.id(),
 				SyncEntity.OPPORTUNITY);
 		Set<String> confirmed = new HashSet<>();
 		int opened = 0;
@@ -211,15 +211,15 @@ public class SyncAuditService {
 			String localValue, String ghlValue) {
 		Optional<SyncDrift> existing = field == null
 				? drifts.findByBrandIdAndEntityTypeAndGhlIdAndFieldIsNullAndResolvedAtIsNull(
-						sellingBrandId, SyncEntity.OPPORTUNITY, ghlId)
+						sellingBrand.id(), SyncEntity.OPPORTUNITY, ghlId)
 				: drifts.findByBrandIdAndEntityTypeAndGhlIdAndFieldAndResolvedAtIsNull(
-						sellingBrandId, SyncEntity.OPPORTUNITY, ghlId, field);
+						sellingBrand.id(), SyncEntity.OPPORTUNITY, ghlId, field);
 		if (existing.isPresent()) {
 			existing.get().seenAgain(localValue, ghlValue);
 			drifts.save(existing.get());
 			return new Finding(false);
 		}
-		drifts.save(new SyncDrift(sellingBrandId, SyncEntity.OPPORTUNITY, entityId, ghlId, kind, field,
+		drifts.save(new SyncDrift(sellingBrand.id(), SyncEntity.OPPORTUNITY, entityId, ghlId, kind, field,
 				localValue, ghlValue));
 		return new Finding(true);
 	}
@@ -269,8 +269,8 @@ public class SyncAuditService {
 	/** What is wrong right now — the GM's read. */
 	@Transactional(readOnly = true)
 	public List<SyncDrift> open() {
-		return sellingBrandId == null ? List.of()
-				: drifts.findByBrandIdAndResolvedAtIsNullOrderByLastSeenAtDesc(sellingBrandId);
+		return sellingBrand.id() == null ? List.of()
+				: drifts.findByBrandIdAndResolvedAtIsNullOrderByLastSeenAtDesc(sellingBrand.id());
 	}
 
 	/** One open disagreement with the engine's answer attached — Unit 45e. */

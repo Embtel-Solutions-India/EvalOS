@@ -43,6 +43,25 @@ public class OpportunityBoardController {
 	}
 
 	/**
+	 * One of the caller's pipelines — the board page's tabs and the GM's drop-down. {@code id} only
+	 * narrows: a pipeline the caller does not hold is a 403 (see {@code forPipeline}).
+	 */
+	@GetMapping("/board/pipeline")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'ADMIN', 'EXPERT_NETWORK_MANAGER')")
+	public ApiResponse<OpportunityBoardService.Board> pipeline(
+			@org.springframework.web.bind.annotation.RequestParam(required = false) String id) {
+		return ApiResponse.ok(board.forPipeline(id));
+	}
+
+	/** Refresh for one pipeline: syncs that one only. */
+	@PostMapping("/board/pipeline/refresh")
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER')")
+	public ApiResponse<OpportunityBoardService.Board> refreshPipeline(
+			@org.springframework.web.bind.annotation.RequestParam(required = false) String id) {
+		return ApiResponse.ok(board.syncNow(id));
+	}
+
+	/**
 	 * Sync the mirror for this caller's pipelines, then answer with the board.
 	 *
 	 * <p><strong>A reconciliation, not a live read</strong>, and the difference is the point of

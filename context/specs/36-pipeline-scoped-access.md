@@ -1,5 +1,7 @@
 # Unit 36 — Pipeline-scoped access
 
+> **Segment superseded 2026-10-13 (D21 edited):** `team_member.segment` is no longer chosen, stored or returned; the role alone identifies a Sales or Marketing member. `V91` drops the CHECK and leaves the column VESTIGIAL. Read every `segment` below as history.
+
 > **Status: BUILT 2026-09-10** (`V39`, 659 backend tests green, was 611). The first unit of the direction change taken on
 > 2026-09-10: **EvalOS becomes the primary operational system for sales and marketing**, with GHL
 > as the backend data layer. This unit builds the access model that every later one reads, and

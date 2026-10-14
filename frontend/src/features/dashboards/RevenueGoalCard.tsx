@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BarChart3, Pencil } from 'lucide-react'
+import { BarChart3, PartyPopper, Pencil } from 'lucide-react'
 import { Delta, type CardState } from '../../components/ui/card'
 import { formatMoney } from '../../lib/money'
 import { setGmGoal } from './pmMetricsApi'
@@ -35,13 +35,20 @@ export default function RevenueGoalCard({
 }) {
   const [editing, setEditing] = useState(false)
   const hasGoal = goal !== null && goal > 0 && pctToGoal !== null
-  const tone = !hasGoal ? 'bad' : pctToGoal >= 100 ? 'good' : pctToGoal >= 70 ? 'warn' : 'bad'
+  // One solid colour for the bar, the label and the icon: red under half the target, amber on the way, green once
+  // the target is hit.
+  const tone = !hasGoal ? 'bad' : pctToGoal >= 100 ? 'good' : pctToGoal >= 50 ? 'warn' : 'bad'
   const color = TONE[tone]
-  const fill = hasGoal ? Math.min(100, Math.max(0, pctToGoal)) : 0
+  const reached = hasGoal && pctToGoal >= 100
+  // Past the target the track stretches to the figure itself: the bar fills it, and a tick marks where 100% sits,
+  // so how far above the target the month went stays visible instead of stopping at a full bar.
+  const over = hasGoal && pctToGoal > 100
+  const fill = hasGoal ? (over ? 100 : Math.max(0, pctToGoal)) : 0
+  const targetAt = over ? (100 / pctToGoal) * 100 : null
 
   return (
     <section
-      className={`rounded-[1.25rem] p-5 ${className ?? ''}`}
+      className={`relative overflow-hidden rounded-[1.25rem] p-5 ${className ?? ''}`}
       style={{ background: 'var(--bg-surface)', boxShadow: 'var(--shadow-soft)' }}
     >
       <div className="flex items-center gap-3">
@@ -49,8 +56,9 @@ export default function RevenueGoalCard({
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
           style={{ background: `color-mix(in srgb, ${color} 12%, transparent)`, color }}
         >
-          <BarChart3 className="h-5 w-5" aria-hidden />
+          {reached ? <PartyPopper className="h-5 w-5" aria-hidden /> : <BarChart3 className="h-5 w-5" aria-hidden />}
         </span>
+        {state.kind === 'ok' && reached && <Confetti />}
         <h2 className="min-w-0 flex-1 truncate text-base font-medium" style={{ color: 'var(--text-muted)' }}>
           {goalMonth ? 'Monthly revenue' : 'Business won'}
         </h2>
@@ -83,6 +91,14 @@ export default function RevenueGoalCard({
               {formatMoney(Math.round(won))}
             </span>
             {change !== null && <Delta value={change} better="up" />}
+            {reached && (
+              <span
+                className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}
+              >
+                Target hit
+              </span>
+            )}
           </div>
 
           {editing && goalMonth && (
@@ -110,18 +126,20 @@ export default function RevenueGoalCard({
                   role="progressbar"
                   aria-label="Progress to the monthly target"
                   aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={fill}
+                  aria-valuemax={Math.max(100, pctToGoal)}
+                  aria-valuenow={Math.max(0, pctToGoal)}
                   className="relative h-3 w-full overflow-hidden rounded-full"
                   style={{ background: 'var(--bg-raised)' }}
                 >
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${fill}%`,
-                      background: `linear-gradient(90deg, color-mix(in srgb, ${color} 70%, #000), ${color})`,
-                    }}
-                  />
+                  <div className="h-full rounded-full" style={{ width: `${fill}%`, background: color }} />
+                  {targetAt !== null && (
+                    <span
+                      aria-hidden
+                      title="Monthly target"
+                      className="absolute inset-y-0 w-0.5"
+                      style={{ left: `${targetAt}%`, background: 'var(--bg-surface)' }}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -134,10 +152,15 @@ export default function RevenueGoalCard({
                 </div>
                 <div className="border-l pl-4" style={{ borderColor: 'var(--border-default)' }}>
                   <dt className="text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Remaining amount
+                    {won > goal ? 'Above target' : 'Remaining amount'}
                   </dt>
-                  <dd className="font-num mt-0.5 text-2xl font-bold tabular-nums">
-                    {formatMoney(Math.max(0, Math.round(goal - won)))}
+                  <dd
+                    className="font-num mt-0.5 text-2xl font-bold tabular-nums"
+                    style={won > goal ? { color } : undefined}
+                  >
+                    {won > goal
+                      ? `+${formatMoney(Math.round(won - goal))}`
+                      : formatMoney(Math.max(0, Math.round(goal - won)))}
                   </dd>
                 </div>
               </dl>
@@ -152,6 +175,38 @@ export default function RevenueGoalCard({
         </>
       )}
     </section>
+  )
+}
+
+const CONFETTI = ['var(--status-green)', 'var(--status-amber)', 'var(--status-red)', 'var(--accent-primary)']
+
+/**
+ * The party popper going off: a one-shot burst of paper from the icon when the month reaches its target. Plays
+ * when the card first shows the target hit; the reduced-motion rule in `index.css` stills it.
+ */
+function Confetti() {
+  return (
+    <span aria-hidden className="pointer-events-none absolute top-10 left-10">
+      {Array.from({ length: 18 }, (_, i) => {
+        const angle = (i / 18) * Math.PI * 1.2 - Math.PI * 0.1
+        const reach = 70 + (i % 3) * 30
+        return (
+          <span
+            key={i}
+            className="confetti-piece"
+            style={
+              {
+                background: CONFETTI[i % CONFETTI.length],
+                '--dx': `${Math.cos(angle) * reach}px`,
+                '--dy': `${Math.sin(angle) * reach * 0.6 - 10}px`,
+                '--rot': `${(i % 2 ? 1 : -1) * (180 + i * 25)}deg`,
+                animationDelay: `${(i % 4) * 40}ms`,
+              } as React.CSSProperties
+            }
+          />
+        )
+      })}
+    </span>
   )
 }
 

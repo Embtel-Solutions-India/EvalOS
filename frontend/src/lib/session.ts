@@ -42,9 +42,6 @@ export const ROLE_LABELS: Record<Role, string> = {
   PROJECT_COORDINATOR: 'Project Coordinator',
   CASE_MANAGER: 'Case Manager',
   EXPERT_NETWORK_MANAGER: 'Expert Network Manager',
-  // The three business kinds of each — Attorney, Employer/Firm, Individual — are NOT roles and
-  // deliberately do not appear here. They are `team_member.segment`, they carry identical
-  // permissions, and nothing branches on them (see the backend's Segment enum).
   SALES: 'Sales',
   MARKETING: 'Marketing',
 }

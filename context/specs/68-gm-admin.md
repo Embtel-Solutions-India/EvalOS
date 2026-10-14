@@ -1,5 +1,7 @@
 # Unit 68 — GM admin: staff, pipelines, sync health, brands
 
+> **Segment superseded 2026-10-13 (D21 edited):** `team_member.segment` is no longer chosen, stored or returned; the role alone identifies a Sales or Marketing member. `V91` drops the CHECK and leaves the column VESTIGIAL. Read every `segment` below as history.
+
 **Specced and built 2026-10-02** (branch `feature/unit-70-live-screens`). The third UI unit cut from
 Unit 66's gap audit. Inventory from the code on 2026-10-02.
 

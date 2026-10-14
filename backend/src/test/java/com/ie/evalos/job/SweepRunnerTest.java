@@ -5,6 +5,9 @@ import java.util.function.Supplier;
 
 import com.ie.evalos.domain.ScheduledJob;
 
+import io.micrometer.core.instrument.Metrics;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,6 +78,35 @@ class SweepRunnerTest {
 		// sweep for the life of the process — which is the outage nobody notices for a month.
 		assertThat(ran).isTrue();
 		verify(ledger).finish(eq(row), eq(ScheduledJob.Status.FAILED), eq(0), eq(0), any());
+	}
+
+	/** The counters are tagged by job type and outcome only — never by the item — so they stay bounded. */
+	@Test
+	void runsAndFailedItemsAreCountedPerJobType() {
+		SimpleMeterRegistry registry = new SimpleMeterRegistry();
+		Metrics.addRegistry(registry);
+		try {
+			lockIsFree();
+			itemsRunForReal();
+			runner.sweep("COUNTED", () -> List.of("a", "boom"), (item) -> {
+				if (item.equals("boom")) {
+					throw new IllegalStateException("broken");
+				}
+				return true;
+			});
+			runner.sweep("COUNTED", () -> {
+				throw new IllegalStateException("finder");
+			}, (item) -> true);
+
+			assertThat(registry.get("evalos.jobs.runs").tags("job", "COUNTED", "outcome", "ok").counter().count()).isEqualTo(1);
+			assertThat(registry.get("evalos.jobs.runs").tags("job", "COUNTED", "outcome", "failed").counter().count()).isEqualTo(1);
+			assertThat(registry.get("evalos.jobs.items.failed").tags("job", "COUNTED").counter().count()).isEqualTo(1);
+			assertThat(registry.get("evalos.jobs.items.failed").counter().getId().getTags())
+					.extracting(io.micrometer.core.instrument.Tag::getKey).containsExactly("job");
+		}
+		finally {
+			Metrics.removeRegistry(registry);
+		}
 	}
 
 	@Test

@@ -79,7 +79,8 @@ export type QueueRow = {
   /** Null when the case has no stage-entry time — unknown, not zero. */
   waitingBusinessHours: number | null
 }
-export type ThroughputPoint = { bucket: string; delivered: number }
+/** One day or week of deliveries; `late` of them missed the date the client was promised. */
+export type ThroughputPoint = { bucket: string; delivered: number; late: number }
 export type PmOverview = {
   stages: StageCount[]
   active: number
@@ -407,6 +408,36 @@ export type GmOverview = {
   readAt: string
   /** Null when GHL answered. The reason it did not, otherwise. */
   pipelineUnavailable: string | null
+  /** Today in the business's zone, whatever the range filter says. */
+  today: GmToday | null
+}
+
+export type GmToday = {
+  salesLeads: number
+  salesLeadValue: number
+  won: number
+  wonValue: number
+  marketingLeads: number
+  marketingLeadValue: number
+  /** This calendar month so far: sales deals won, sales and marketing leads opened, sales leads opened still open. */
+  monthWon: number
+  monthWonValue: number
+  monthSalesLeads: number
+  monthSalesLeadValue: number
+  monthMarketingLeads: number
+  monthMarketingLeadValue: number
+  monthOpenLeads: number
+  monthOpenLeadValue: number
+  /** Whole-percentage arrows: today vs yesterday, this month vs the same days of last month. Null = no arrow. */
+  changes: {
+    wonValue: number | null
+    won: number | null
+    salesLeads: number | null
+    marketingLeads: number | null
+    monthWon: number | null
+    monthSalesLeads: number | null
+    monthMarketingLeads: number | null
+  }
 }
 
 export async function fetchGmOverview(

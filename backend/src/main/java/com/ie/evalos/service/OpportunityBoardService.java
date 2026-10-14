@@ -8,12 +8,11 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
+import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.config.SellingBrand;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.PipelineStage;
-import com.ie.evalos.domain.Role;
 import com.ie.evalos.security.TenantContext;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -109,7 +108,24 @@ public class OpportunityBoardService {
 	 *                       instead of blaming the sweep
 	 */
 	public record Board(List<BoardColumn> columns, int totalDeals, BigDecimal totalValue,
-			Instant lastSyncedAt, boolean stale, boolean syncConfigured) {
+			Instant lastSyncedAt, boolean stale, boolean syncConfigured,
+			/** The pipelines the caller may switch between; empty on the union board. */
+			List<PipelineOption> pipelines,
+			/** The one pipeline drawn, or null on the union board. */
+			String pipelineId) {
+
+		public Board(List<BoardColumn> columns, int totalDeals, BigDecimal totalValue, Instant lastSyncedAt, boolean stale,
+				boolean syncConfigured) {
+			this(columns, totalDeals, totalValue, lastSyncedAt, stale, syncConfigured, List.of(), null);
+		}
+
+		Board choosing(List<PipelineOption> options, String chosen) {
+			return new Board(columns, totalDeals, totalValue, lastSyncedAt, stale, syncConfigured, options, chosen);
+		}
+	}
+
+	/** A pipeline the board can switch to: GHL's id and its mirrored name. */
+	public record PipelineOption(String id, String name) {
 	}
 
 	/**
@@ -146,7 +162,7 @@ public class OpportunityBoardService {
 	 * could not: a brand <em>slug</em> resolves too, so a shared config file is not right in one
 	 * database and silently wrong in the next.
 	 */
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	/** Where the two card fields are resolved from — one read each per board, never per card. */
 	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields;
@@ -161,7 +177,7 @@ public class OpportunityBoardService {
 		this.assignments = assignments;
 		this.customFields = customFields;
 		this.staleAfter = staleAfter;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/**
@@ -177,12 +193,100 @@ public class OpportunityBoardService {
 			// Fail closed, exactly as ScopePredicate's PIPELINE arm does: a principal with no
 			// pipeline sees an empty board, never somebody else's. One re-login fixes a token
 			// minted before V39, and that is the safe direction to be wrong in.
-			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrandId != null);
+			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrand.id() != null);
 		}
 
 		// Only the GM's board folds same-named stages together: a salesperson drags cards, and a drop onto a
 		// column that stands for several pipelines' stages would have no single stage to move the deal to.
 		return draw(mine, deals.onPipelines(mine), caller.role().hasGmView());
+	}
+
+	/**
+	 * One pipeline of the caller's, for the board page's tabs (a desk) or drop-down (the GM).
+	 *
+	 * <p><strong>The parameter narrows; it never widens.</strong> It must be one of
+	 * {@link #choicesFor}, or this is a 403: a desk's own pipelines, or for the GM and the Admin every
+	 * live mirrored pipeline. None asked for: the GM's Master Pipeline, a desk's first.
+	 */
+	public Board forPipeline(String requested) {
+		return drawn(choose(TenantContext.current(), requested));
+	}
+
+	/** The Refresh button on one pipeline: syncs only that one, checked exactly as a read is, then draws it. */
+	public Board syncNow(String requested) {
+		TenantContext caller = TenantContext.current();
+		// A desk's choices need no mirror (they come from the token), so a pipeline that is not theirs is refused
+		// here, before the structure read below spends any of the location's GHL budget.
+		if (!caller.role().hasGmView()) {
+			choose(caller, requested);
+		}
+		// Same rule as syncNow(): an empty mirror has no pipeline to offer, so read the structure first.
+		if (mirroredPipelines.all().stream().noneMatch(com.ie.evalos.domain.Pipeline::isLive)) {
+			mirroredPipelines.sync();
+		}
+		Choice choice = choose(caller, requested);
+		if (choice.id() != null) {
+			deals.refreshIfStale(choice.id(), MANUAL_SYNC_FLOOR);
+		}
+		return drawn(choice);
+	}
+
+	private Board drawn(Choice choice) {
+		if (choice.id() == null) {
+			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrand.id() != null);
+		}
+		List<String> one = List.of(choice.id());
+		return draw(one, deals.onPipelines(one), false).choosing(choice.options(), choice.id());
+	}
+
+	private record Choice(List<PipelineOption> options, String id) {
+	}
+
+	/** The pipeline to draw: the one asked for if the caller holds it (else 403), or their default. */
+	private Choice choose(TenantContext caller, String requested) {
+		List<PipelineOption> options = choicesFor(caller);
+		if (requested == null || requested.isBlank()) {
+			return new Choice(options, defaultOf(options, caller));
+		}
+		if (options.stream().noneMatch((option) -> option.id().equals(requested))) {
+			throw new ForbiddenException("That pipeline is not one of yours");
+		}
+		return new Choice(options, requested);
+	}
+
+	/** The caller's pipelines in GHL's order; one the mirror has not seen keeps its id as its name. */
+	private List<PipelineOption> choicesFor(TenantContext caller) {
+		List<com.ie.evalos.domain.Pipeline> live = mirroredPipelines.all().stream()
+				.filter(com.ie.evalos.domain.Pipeline::isLive)
+				.toList();
+		if (caller.role().hasGmView()) {
+			return live.stream().map((p) -> new PipelineOption(p.getGhlId(), p.getName())).toList();
+		}
+		List<String> mine = pipelinesFor(caller);
+		List<PipelineOption> options = new ArrayList<>(live.stream()
+				.filter((p) -> mine.contains(p.getGhlId()))
+				.map((p) -> new PipelineOption(p.getGhlId(), p.getName()))
+				.toList());
+		mine.stream().filter((id) -> options.stream().noneMatch((o) -> o.id().equals(id)))
+				.forEach((id) -> options.add(new PipelineOption(id, id)));
+		return options;
+	}
+
+	/** "Master" as a whole word, any case: "Master Pipeline" matches, "Mastery Leads" does not. */
+	private static final java.util.regex.Pattern MASTER =
+			java.util.regex.Pattern.compile("\\bmaster\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+	// ponytail: the Master Pipeline is found by name, because GHL marks it no other way. A purpose tag on
+	// the Pipelines screen is the upgrade if it is ever renamed.
+	private static String defaultOf(List<PipelineOption> options, TenantContext caller) {
+		if (options.isEmpty()) {
+			return null;
+		}
+		if (caller.role().hasGmView()) {
+			return options.stream().filter((o) -> o.name() != null && MASTER.matcher(o.name()).find())
+					.map(PipelineOption::id).findFirst().orElse(options.get(0).id());
+		}
+		return options.get(0).id();
 	}
 
 	/**
@@ -286,10 +390,10 @@ public class OpportunityBoardService {
 			// The GM's (and the Admin's read-only) board is the SALES pipelines only (D19e, amended 2026-10-08): marketing funnels,
 			// Case Delivery, hiring and the Master Pipeline have their own screens. Still gated on the
 			// mirror, so a pipeline GHL stopped returning is not offered.
-			if (sellingBrandId == null) {
+			if (sellingBrand.id() == null) {
 				return List.of();
 			}
-			java.util.Set<String> sales = new java.util.HashSet<>(assignments.salesGhlIds(sellingBrandId));
+			java.util.Set<String> sales = new java.util.HashSet<>(assignments.salesGhlIds(sellingBrand.id()));
 			return mirroredPipelines.all().stream()
 					.filter(com.ie.evalos.domain.Pipeline::isLive)
 					.map(com.ie.evalos.domain.Pipeline::getGhlId)
@@ -353,8 +457,8 @@ public class OpportunityBoardService {
 		// keyed by GHL field *id*, so the two keys are turned into ids first. The read is
 		// brand-scoped to the selling brand, the only one a board draws.
 		Map<String, String> fieldIds = new java.util.HashMap<>();
-		if (sellingBrandId != null && !rows.isEmpty()) {
-			customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrandId,
+		if (sellingBrand.id() != null && !rows.isEmpty()) {
+			customFields.findByBrandIdAndModelOrderByNameAsc(sellingBrand.id(),
 					ReferenceMirrorService.OPPORTUNITY_MODEL)
 					.forEach((field) -> {
 						if (field.getFieldKey() != null) fieldIds.put(field.getFieldKey(), field.getGhlId());
@@ -414,7 +518,7 @@ public class OpportunityBoardService {
 		return new Board(columns, open.size(), sum(open), lastSynced,
 				lastSynced == null
 						|| Duration.between(lastSynced, Instant.now()).compareTo(staleAfter) >= 0,
-				sellingBrandId != null);
+				sellingBrand.id() != null);
 	}
 
 	/** Maps every stage id to the id of the column that draws it; see {@link #draw}. Static so a test can pin it. */

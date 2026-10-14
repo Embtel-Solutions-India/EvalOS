@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * {@link AdminAllowlist} opens four areas to the Admin by prefix, so a new endpoint under one is reachable
+ * {@link AdminAllowlist} opens six areas to the Admin by prefix, so a new endpoint under one is reachable
  * by the Admin whatever the controller does. The only thing standing between it and the Admin is the
  * handler's own {@code @PreAuthorize}; this fails the build for a handler under those areas that has none,
  * on the method or on its class.

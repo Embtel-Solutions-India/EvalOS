@@ -176,6 +176,17 @@ evalos:
     # the whole read.
     timeout: ${GHL_TIMEOUT:10s}
 
+logging:
+  level:
+    root: INFO
+    com.ie.evalos: INFO
+    # Never TRACE here: it prints every bound SQL parameter, which is client data.
+    org.hibernate.orm.jdbc.bind: INFO
+
+# `management.*` is deliberately absent: production takes the base profile's Actuator rules unchanged
+# (health/info/metrics only, details Admin-only). `MonitoringConfigTest` fails the build if this file
+# starts widening them.
+
 server:
   # MUST be `framework` if anything terminates the connection in front of the app — a
   # load balancer, an ingress, a reverse proxy. Left unset, Spring does not resolve

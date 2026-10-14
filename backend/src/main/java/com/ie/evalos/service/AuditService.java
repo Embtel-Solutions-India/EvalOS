@@ -11,6 +11,8 @@ import com.ie.evalos.domain.PortalAudience;
 import com.ie.evalos.repository.AuditEventRepository;
 import com.ie.evalos.security.TenantContext;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +28,8 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class AuditService {
+
+	private static final Logger log = LoggerFactory.getLogger(AuditService.class);
 
 	private final AuditEventRepository auditEvents;
 	private final ObjectMapper objectMapper;
@@ -54,8 +58,8 @@ public class AuditService {
 		// states and CaseTimelineService applies (a null actor_id reads as SYSTEM). On an append-only
 		// table that row could never be corrected, so the two fields agree at the point of writing.
 		ActorType actorType = actorId == null ? ActorType.SYSTEM : ActorType.STAFF;
-		return auditEvents.save(new AuditEvent(
-				brandId, objectType, objectId, action, actorId, actorType, asJson(before), asJson(after)));
+		return auditEvents.save(logged(new AuditEvent(
+				brandId, objectType, objectId, action, actorId, actorType, asJson(before), asJson(after))));
 	}
 
 	/**
@@ -71,8 +75,8 @@ public class AuditService {
 	@Transactional
 	public AuditEvent recordSystemEvent(UUID brandId, String objectType, UUID objectId, AuditAction action,
 			Object before, Object after) {
-		return auditEvents.save(new AuditEvent(
-				brandId, objectType, objectId, action, null, ActorType.SYSTEM, asJson(before), asJson(after)));
+		return auditEvents.save(logged(new AuditEvent(
+				brandId, objectType, objectId, action, null, ActorType.SYSTEM, asJson(before), asJson(after))));
 	}
 
 	/**
@@ -93,8 +97,20 @@ public class AuditService {
 	@Transactional
 	public AuditEvent recordPortalEvent(UUID brandId, PortalAudience audience, String objectType, UUID objectId,
 			AuditAction action, Object before, Object after) {
-		return auditEvents.save(new AuditEvent(brandId, objectType, objectId, action, null,
-				audience.actorType(), asJson(before), asJson(after)));
+		return auditEvents.save(logged(new AuditEvent(brandId, objectType, objectId, action, null,
+				audience.actorType(), asJson(before), asJson(after))));
+	}
+
+	/**
+	 * Every business and admin event, once, in the log as well as the table — so a request's lines show
+	 * what it changed. Ids and the action only: the snapshots hold client data and stay in the table.
+	 * Logged inside the transaction, so a line can name an event a later rollback undid; the table is
+	 * the record, this is the trace.
+	 */
+	private AuditEvent logged(AuditEvent event) {
+		log.info("Audit {} {} {} by {} {} (brand {})", event.getAction(), event.getObjectType(), event.getObjectId(),
+				event.getActorType(), event.getActorId(), event.getBrandId());
+		return event;
 	}
 
 	private String asJson(Object snapshot) {

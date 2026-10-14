@@ -65,7 +65,7 @@ class OpportunityRepositoryScopeTest {
 
 	/**
 	 * The scan has to be able to fail, or it is decoration — the same rule
-	 * {@code SegmentIsNotAnAccessKeyTest} and {@code GhlHttpTest} apply to theirs.
+	 * {@code GhlHttpTest} applies to theirs.
 	 *
 	 * <p>Reflection needs {@code -parameters} to see real parameter names; without it they are
 	 * {@code arg0}, every method looks unscoped, and the test above would pass only because it

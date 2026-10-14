@@ -266,6 +266,27 @@ input[type='file']:hover::file-selector-button {
   display: none;
 }
 
+/* The revenue card's party popper: paper thrown out from the icon once, when the month hits its target
+   (`RevenueGoalCard`). The reduced-motion block above stops it. */
+.confetti-piece {
+  position: absolute;
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: confetti-burst 1.6s ease-out forwards;
+}
+@keyframes confetti-burst {
+  0% {
+    transform: translate(0, 0) rotate(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) rotate(var(--rot));
+    opacity: 0;
+  }
+}
+
 /* The greeting's caret: a block that blinks. The reduced-motion block above stops it. */
 .caret {
   animation: caret-blink 1s steps(1) infinite;

@@ -25,9 +25,6 @@ export default function NewDealPage() {
     <section className="max-w-3xl space-y-4">
       <header>
         <h1 className="text-xl font-semibold text-slate-900">Add opportunity</h1>
-        <p className="text-sm text-slate-500">
-          Opens the deal in GoHighLevel, on your own pipeline.
-        </p>
       </header>
 
       <Card title="" state={state}>

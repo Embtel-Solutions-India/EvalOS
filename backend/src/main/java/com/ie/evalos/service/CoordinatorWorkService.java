@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -20,9 +19,7 @@ import com.ie.evalos.domain.ChecklistItemStatus;
 import com.ie.evalos.domain.DeadlineRisk;
 import com.ie.evalos.domain.DocumentChecklistItem;
 import com.ie.evalos.domain.ExceptionState;
-import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.Stage;
-import com.ie.evalos.domain.TeamMember;
 import com.ie.evalos.repository.AuditEventRepository;
 import com.ie.evalos.repository.DocumentChecklistItemRepository;
 import com.ie.evalos.service.PmOverviewService.QueueRow;
@@ -91,7 +88,9 @@ public class CoordinatorWorkService {
 		if (open.isEmpty()) {
 			return new CoordinatorWork(stages, 0, new Documents(0, 0, 0, List.of()), List.of(), List.of());
 		}
-		Map<UUID, String> cmNames = cmNames();
+		Map<UUID, String> cmNames = members.namesOf(
+				open.stream().map(Case::getAssignedCm).filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet()),
+				open.stream().map(Case::getBrandId).collect(java.util.stream.Collectors.toSet()));
 		return new CoordinatorWork(
 				stages,
 				(int) open.stream().filter(c -> c.getExceptionState() != ExceptionState.NONE).count(),
@@ -200,11 +199,4 @@ public class CoordinatorWorkService {
 		return subject.getAssignedCm() == null ? null : PmMetricsService.name(cmNames, subject.getAssignedCm());
 	}
 
-	private Map<UUID, String> cmNames() {
-		Map<UUID, String> names = new HashMap<>();
-		for (TeamMember member : members.assignable(Role.CASE_MANAGER)) {
-			names.put(member.getId(), member.getDisplayName());
-		}
-		return names;
-	}
 }

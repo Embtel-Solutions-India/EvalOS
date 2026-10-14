@@ -6,6 +6,9 @@ import { useFilters } from '../shell/filtersContext'
 import { INBOX_VIEWS, inboxQueue, isInboxView, riskColor, riskLabel } from './queueRules'
 import RowActions from './RowActions'
 import AssignPopover from './AssignPopover'
+import ViewToggle from './ViewToggle'
+import { useViewMode } from './useViewMode'
+import { stageColor } from '../board/stageColors'
 
 /**
  * The cases inbox: the queue a Project Manager *works*, as opposed to the board they *watch*.
@@ -37,6 +40,8 @@ export default function InboxPage() {
 
   const raw = params.get('view')
   const view = isInboxView(raw) ? raw : 'all'
+  // Cards or the table, like the other queues; remembered per browser.
+  const [mode, setMode] = useViewMode('inbox')
 
 
   // `?stage=` is how a dashboard funnel row opens exactly the cases it counted. Unknown values are ignored.
@@ -46,11 +51,14 @@ export default function InboxPage() {
 
   return (
     <section>
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Cases inbox</h1>
-        <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-          {data ? `${rows.length} of ${inboxQueue(data, 'all', new Date(), stage).length}` : ''}
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Cases inbox</h1>
+          <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
+            {data ? `${rows.length} of ${inboxQueue(data, 'all', new Date(), stage).length}` : ''}
+          </p>
+        </div>
+        <ViewToggle mode={mode} onChange={setMode} />
       </header>
 
       {stage && (
@@ -116,7 +124,15 @@ export default function InboxPage() {
         </p>
       )}
 
-      {data && rows.length > 0 && (
+      {data && rows.length > 0 && mode === 'cards' && (
+        <ul className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {rows.map((card) => (
+            <InboxCard key={card.id} card={card} onAssigned={load} />
+          ))}
+        </ul>
+      )}
+
+      {data && rows.length > 0 && mode === 'list' && (
         <div
           className="scroll-slim mt-4 overflow-x-auto rounded-lg border"
           style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
@@ -219,6 +235,51 @@ function Row({ card, onAssigned }: { card: BoardCard; onAssigned: () => void }) 
         </span>
       </td>
     </tr>
+  )
+}
+
+/**
+ * One case as a card: the same facts and the same controls as its table row — assignment, the row's actions,
+ * Open — with a top edge in the stage's colour, as the board's cards have.
+ */
+function InboxCard({ card, onAssigned }: { card: BoardCard; onAssigned: () => void }) {
+  const hue = stageColor(STAGE_ORDER.indexOf(card.currentStage))
+  return (
+    <li
+      className="flex flex-col gap-3 rounded-lg border p-4"
+      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)', borderTop: `3px solid ${hue}` }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link to={`/cases/${card.id}`} className="font-mono text-xs font-medium">
+            {card.caseCode}
+          </Link>
+          <p className="truncate text-sm font-medium">{card.clientName ?? 'Unnamed contact'}</p>
+          <p className="truncate text-xs" style={{ color: 'var(--text-muted)' }}>
+            {readable(card.serviceType)}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-white" style={{ background: hue }}>
+          {STAGE_SHORT[card.currentStage]}
+        </span>
+      </div>
+      <p className="inline-flex items-center gap-1.5 text-xs">
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: riskColor(card.deadlineRisk) }} aria-hidden />
+        <span className="font-num tabular-nums">
+          due {card.deadline ? new Date(card.deadline).toLocaleDateString() : 'not set'}
+        </span>
+        <span className="sr-only">{riskLabel(card.deadlineRisk)}</span>
+      </p>
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t pt-3" style={{ borderColor: 'var(--border-default)' }}>
+        <AssignPopover card={card} onAssigned={onAssigned} />
+        <span className="inline-flex items-center gap-3">
+          <RowActions card={card} />
+          <Link to={`/cases/${card.id}`} className="text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>
+            Open
+          </Link>
+        </span>
+      </div>
+    </li>
   )
 }
 

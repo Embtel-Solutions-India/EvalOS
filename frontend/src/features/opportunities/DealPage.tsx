@@ -21,6 +21,7 @@ import type { ReactNode } from 'react'
 
 import { Panel, Surface } from '../../components/ui/panel'
 import { useMe } from '../../lib/authContext'
+import { stageColor } from '../board/stageColors'
 import { formatMoney } from '../../lib/money'
 import { daysSince } from '../dashboards/dealAge'
 import { useMetrics } from '../dashboards/useMetrics'
@@ -56,6 +57,11 @@ import {
  * showing a verdict nobody reached is worse than a screen missing a column. Each omission is noted
  * where the column would have been.
  *
+ * <p><strong>Coloured by the deal's stage (2026-10-13)</strong> — the header's tint and top edge, the stage chip, the
+ * initials and the action panels wear the stage colour its board column wears; facts and notes wear the accent.
+ * A deal in a Won or Lost stage therefore reads green or rose here, exactly as its board column does
+ * (`stageColors.ts` BY_NAME): the stage's outcome colour, never a status of its own.
+ *
  * <p><strong>No status colour anywhere on this screen, and that is the rule rather than an
  * oversight.</strong> `ui-context.md`: red / amber / green are reserved for status — deadlines,
  * SLA, capacity — and never for decoration. A won deal drawn green and a lost one drawn red is
@@ -76,7 +82,10 @@ export default function DealPage() {
   // board itself draws from, so the two cannot disagree about which stages are "mine".
   const { data: board } = useMetrics((signal) => fetchOpportunityBoard(signal), [opportunityId])
   const stages = (board?.columns ?? []).map((c) => ({ stageId: c.stageId, stageName: c.stageName }))
-  const column = board?.columns.find((c) => c.deals.some((d) => d.opportunityId === opportunityId))
+  const columnIndex = board?.columns.findIndex((c) => c.deals.some((d) => d.opportunityId === opportunityId)) ?? -1
+  const column = columnIndex >= 0 ? board?.columns[columnIndex] : undefined
+  // The deal's stage colour, the same one its board column wears; the accent until the board has answered.
+  const hue = column ? stageColor(columnIndex, column.stageName) : 'var(--accent-primary)'
   const deal = column?.deals.find((d) => d.opportunityId === opportunityId)
 
   const name = deal?.name ?? contact?.name ?? 'Opportunity'
@@ -100,22 +109,36 @@ export default function DealPage() {
 
         <div className="min-w-0 space-y-4">
 
-          <Surface>
+          <Surface
+            style={{
+              background: `linear-gradient(135deg, color-mix(in srgb, ${hue} 16%, var(--bg-surface)) 0%, var(--bg-surface) 55%)`,
+              borderTop: `4px solid ${hue}`,
+            }}
+          >
             <div className="flex flex-wrap items-start gap-4">
-              <Initials name={name} />
+              <Initials name={name} hue={hue} />
 
               <div className="min-w-0 flex-1 space-y-2">
                 <h1 className="text-xl font-semibold tracking-tight">{name}</h1>
 
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {column && <span className="chip chip-accent">{column.stageName}</span>}
+                  {column && (
+                    <span className="chip" style={{ background: hue, color: '#fff', borderColor: hue }}>
+                      {column.stageName}
+                    </span>
+                  )}
                   {/* Money only when there is money: a deal with no value shows no chip rather
                       than `$0`, which is a figure somebody would act on.
 
                       There is no "Hot" chip beside it. The design had one; nothing in EvalOS or
                       the GHL mirror scores a lead, so it would be a badge with no input. */}
                   {deal?.amount !== null && deal?.amount !== undefined && (
-                    <span className="chip font-num">{formatMoney(deal.amount)}</span>
+                    <span
+                      className="chip font-num"
+                      style={{ background: 'var(--accent-soft)', color: 'var(--accent-primary)' }}
+                    >
+                      {formatMoney(deal.amount)}
+                    </span>
                   )}
                   {/* Uppercased for the same reason the board does it: `won` is GHL's own
                       vocabulary and reads as a label rather than as a sentence. `open` is the
@@ -125,14 +148,6 @@ export default function DealPage() {
                   )}
                   <span className="chip">{age(deal?.updatedAt ?? null)}</span>
                 </div>
-
-                <p
-                  className="flex items-center gap-1.5 text-sm"
-                  style={{ color: 'var(--text-muted)' }}
-                >
-                  <Signpost className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  In GoHighLevel. EvalOS shows it; GHL owns it.
-                </p>
               </div>
 
               {/* Only the desk that owns the deal may edit it, so only they are offered the
@@ -167,7 +182,7 @@ export default function DealPage() {
               act on — email, phone, company — are in the header. This replaced a sidebar
               "Contact details" card that split one record across two places.
               No "Last activity" row: the header's "Updated Xd ago" chip is the same fact. */}
-          <Panel title="Opportunity details" icon={<ClipboardList />}>
+          <Panel title="Opportunity details" icon={<ClipboardList />} tint="var(--accent-primary)">
             {contactState.kind === 'error' ? (
               <p className="text-sm" style={{ color: 'var(--status-red)' }}>
                 {contactState.note}
@@ -192,7 +207,7 @@ export default function DealPage() {
 
         <div className="space-y-4 xl:sticky xl:top-4">
           {hiring && deal && (
-            <Panel title="Candidate" icon={<Zap />}>
+            <Panel title="Candidate" icon={<Zap />} tint={hue}>
               <HiringActions
                 opportunityId={opportunityId}
                 stages={stages}
@@ -203,7 +218,7 @@ export default function DealPage() {
           )}
 
           {role === 'SALES' && deal && (
-            <Panel title="Actions" icon={<Zap />}>
+            <Panel title="Actions" icon={<Zap />} tint={hue}>
               <DealActions
                 opportunityId={opportunityId}
                 contactId={deal.contactId}
@@ -213,7 +228,7 @@ export default function DealPage() {
             </Panel>
           )}
 
-          <Panel title="Notes" icon={<StickyNote />}>
+          <Panel title="Notes" icon={<StickyNote />} tint="var(--accent-primary)">
             <DealNotes opportunityId={opportunityId} />
           </Panel>
         </div>
@@ -241,10 +256,10 @@ export default function DealPage() {
 /**
  * The person's initials, as the one piece of identity on the screen that is not text.
  *
- * Accent-soft rather than a generated per-person colour: a colour derived from a name is
+ * In the deal's stage colour rather than a generated per-person one: a colour derived from a name is
  * categorical colour by the back door, which `ui-context.md` settled against on the GM dashboard.
  */
-function Initials({ name }: { name: string }) {
+function Initials({ name, hue }: { name: string; hue: string }) {
   const letters = name
     .split(/\s+/)
     .filter(Boolean)
@@ -255,7 +270,7 @@ function Initials({ name }: { name: string }) {
   return (
     <div
       className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg text-base font-semibold"
-      style={{ background: 'var(--accent-soft)', color: 'var(--accent-primary)' }}
+      style={{ background: hue, color: '#fff' }}
       aria-hidden
     >
       {letters || '—'}
@@ -278,8 +293,8 @@ function Field({
   return (
     <div className="flex min-w-0 gap-2.5">
       <span
-        className="mt-0.5 shrink-0 [&>svg]:h-4 [&>svg]:w-4"
-        style={{ color: 'var(--text-muted)' }}
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg [&>svg]:h-4 [&>svg]:w-4"
+        style={{ background: 'var(--accent-soft)', color: 'var(--accent-primary)' }}
         aria-hidden
       >
         {icon}

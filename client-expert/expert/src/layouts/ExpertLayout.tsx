@@ -1,7 +1,7 @@
 import { TermsGate } from '@shared/legal/TermsGate'
 import { LiveInvalidate } from '@shared/components/common/LiveInvalidate'
 import { useQuery } from '@tanstack/react-query'
-import { ChatProvider, ChatToast, PushRefresh, UnreadBadge, useChat } from '@evalos/chat'
+import { ChatProvider, ChatToast, PushPrompt, PushRefresh, UnreadBadge, useChat } from '@evalos/chat'
 import '@evalos/chat/chat.css'
 import { Bell, BriefcaseBusiness, ChevronDown, Inbox, LayoutDashboard, LifeBuoy, LogOut, MessagesSquare, Wallet } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -38,6 +38,7 @@ export function ExpertLayout() {
     <TermsGate audience="expert" onSignOut={() => void signOut('/')}>
     <ChatProvider client={chat}>
       <PushRefresh workerUrl="/sw.js" />
+      <PushPrompt workerUrl="/sw.js" />
       <LiveInvalidate prefix="expert-portal" />
       <div className="min-h-dvh bg-muted/40 lg:grid lg:grid-cols-[16rem_1fr]">
         <aside className="hidden lg:block">

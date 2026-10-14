@@ -82,7 +82,7 @@ public class PipelineMirrorService {
 	private final PipelineStageRepository stages;
 	/** Unit 44b's join table, so a mirrored pipeline can resolve a desk still on the old column. */
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments;
-	private final UUID sellingBrandId;
+	private final SellingBrand sellingBrand;
 
 	PipelineMirrorService(GhlPipelineClient ghl, PipelineRepository pipelines, PipelineStageRepository stages,
 			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
@@ -91,12 +91,12 @@ public class PipelineMirrorService {
 		this.pipelines = pipelines;
 		this.stages = stages;
 		this.assignments = assignments;
-		this.sellingBrandId = sellingBrand.id();
+		this.sellingBrand = sellingBrand;
 	}
 
 	/** Whether this deployment knows which brand owns the configured GHL location. */
 	public boolean isConfigured() {
-		return sellingBrandId != null;
+		return sellingBrand.id() != null;
 	}
 
 	/**
@@ -109,7 +109,7 @@ public class PipelineMirrorService {
 	 */
 	@Transactional
 	public MirrorResult sync() {
-		if (sellingBrandId == null) {
+		if (sellingBrand.id() == null) {
 			log.warn("Pipeline mirror skipped: evalos.ghl.sales-brand is blank, so no brand owns "
 					+ "the configured GHL location and there is nothing to mirror into.");
 			return new MirrorResult(0, 0, 0, 0, 0, 0);
@@ -135,7 +135,7 @@ public class PipelineMirrorService {
 		}
 
 		// Absence, which is the half a delta read can never see.
-		for (Pipeline held : pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrandId)) {
+		for (Pipeline held : pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrand.id())) {
 			if (!seenPipelineIds.contains(held.getGhlId()) && held.isLive()) {
 				held.markMissing(now);
 				pipelines.save(held);
@@ -178,10 +178,10 @@ public class PipelineMirrorService {
 	 */
 	private Pipeline upsertPipeline(GhlPipelineClient.Pipeline row, int position, Counters counters) {
 		String name = nameOf(row.name(), row.id());
-		Optional<Pipeline> existing = pipelines.findByBrandIdAndGhlId(sellingBrandId, row.id());
+		Optional<Pipeline> existing = pipelines.findByBrandIdAndGhlId(sellingBrand.id(), row.id());
 		if (existing.isEmpty()) {
 			counters.created++;
-			return pipelines.saveAndFlush(new Pipeline(sellingBrandId, row.id(), name, position));
+			return pipelines.saveAndFlush(new Pipeline(sellingBrand.id(), row.id(), name, position));
 		}
 		Pipeline held = existing.get();
 		boolean changed = !name.equals(held.getName()) || position != held.getPosition() || !held.isLive();
@@ -216,7 +216,7 @@ public class PipelineMirrorService {
 				continue;
 			}
 
-			Optional<PipelineStage> byId = stages.findByBrandIdAndGhlId(sellingBrandId, incoming.id());
+			Optional<PipelineStage> byId = stages.findByBrandIdAndGhlId(sellingBrand.id(), incoming.id());
 			if (byId.isPresent()) {
 				PipelineStage stage = byId.get();
 				boolean changed = !incoming.name().equals(stage.getName())
@@ -255,7 +255,7 @@ public class PipelineMirrorService {
 				counters.ambiguous++;
 			}
 
-			PipelineStage created = stages.saveAndFlush(new PipelineStage(sellingBrandId, pipeline.getId(),
+			PipelineStage created = stages.saveAndFlush(new PipelineStage(sellingBrand.id(), pipeline.getId(),
 					incoming.id(), incoming.name(), incoming.position()));
 			matched.add(created.getId());
 			counters.created++;
@@ -291,8 +291,8 @@ public class PipelineMirrorService {
 	 */
 	@Transactional(readOnly = true)
 	public List<Pipeline> all() {
-		return sellingBrandId == null ? List.of()
-				: pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrandId);
+		return sellingBrand.id() == null ? List.of()
+				: pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrand.id());
 	}
 
 	/** One pipeline's stages in GHL's own display order. */
@@ -312,7 +312,7 @@ public class PipelineMirrorService {
 	@Transactional
 	public Pipeline setPurpose(UUID pipelineId, PipelinePurpose purpose) {
 		Pipeline pipeline = pipelines.findById(pipelineId)
-				.filter((row) -> row.getBrandId().equals(sellingBrandId))
+				.filter((row) -> row.getBrandId().equals(sellingBrand.id()))
 				.orElseThrow(() -> new com.ie.evalos.common.InvalidRequestException(
 						"No such mirrored pipeline. Run the PIPELINE_MIRROR sweep if this is a new one."));
 		pipeline.setPurpose(purpose);

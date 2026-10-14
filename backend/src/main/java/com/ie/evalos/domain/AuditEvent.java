@@ -117,6 +117,10 @@ public class AuditEvent {
 		return brandId;
 	}
 
+	public String getObjectType() {
+		return objectType;
+	}
+
 	public UUID getObjectId() {
 		return objectId;
 	}

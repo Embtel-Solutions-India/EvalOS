@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ChatProvider, ChatToast } from '@evalos/chat'
 import '@evalos/chat/chat.css'
 import { chatsFor, createStaffChat } from '../../lib/chat'
@@ -25,16 +25,37 @@ import TopBar from './TopBar'
  * template fixes it and then pays for that with a `margin-top` on the content.
  */
 export default function AppShell() {
+  // A phone's nav is a drawer (tokens.css, below 768 px). Closed on every navigation and on Escape;
+  // on a wider screen the flag does nothing, because the rail is always shown there.
+  const [navOpen, setNavOpen] = useState(false)
+  const { pathname } = useLocation()
+  useEffect(() => setNavOpen(false), [pathname])
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setNavOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [navOpen])
+
   return (
     <Chat>
     <FiltersProvider>
       <div className="min-h-svh" style={{ background: 'var(--bg-base)' }}>
-        <LeftNav />
+        <LeftNav open={navOpen} />
+        {navOpen && (
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setNavOpen(false)}
+            className="fixed inset-0 z-20 md:hidden"
+            style={{ background: 'rgb(17 24 39 / 0.35)' }}
+          />
+        )}
         <div
           className="flex min-h-svh min-w-0 flex-col"
           style={{ paddingLeft: 'var(--sidebar-width)' }}
         >
-          <TopBar />
+          <TopBar onMenu={() => setNavOpen(true)} />
           <main
             className="min-w-0 flex-1"
             style={{ padding: `var(--shell-gutter)` }}

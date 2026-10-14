@@ -48,27 +48,23 @@ export default function CaseManagerDashboard() {
           title="Returned by PM"
           state={workState}
           value={work?.drafts.returned ?? null}
-          denominator="cases"
           tone={work === null ? undefined : work.drafts.returned > 0 ? 'warn' : 'good'}
         />
         <KpiCard
           title="Checklist blockers"
           state={workState}
           value={work?.checklist.blockerItems ?? null}
-          denominator={work ? `items missing or incorrect, on ${work.checklist.blockerCases} cases` : undefined}
           tone={work === null ? undefined : work.checklist.blockerItems > 0 ? 'bad' : 'good'}
         />
         <KpiCard
           title="Open expert offers"
           state={workState}
           value={work?.offers.open ?? null}
-          denominator="offers waiting for an answer"
         />
         <KpiCard
           title="Rematch needed"
           state={workState}
           value={work?.offers.rematch ?? null}
-          denominator="cases whose expert declined"
           tone={work === null ? undefined : work.offers.rematch > 0 ? 'bad' : 'good'}
         />
       </div>
@@ -78,7 +74,6 @@ export default function CaseManagerDashboard() {
           title="Due now"
           state={state}
           value={data?.critical ?? null}
-          denominator={data ? `${data.atRisk} more inside 48h · ${data.active} active` : undefined}
           tone={data === null ? undefined : data.critical > 0 ? 'bad' : data.atRisk > 0 ? 'warn' : 'good'}
           note="Red deadline band: past the date or inside 24 business hours. Zero critical is the daily goal."
         />
@@ -88,7 +83,6 @@ export default function CaseManagerDashboard() {
           state={state}
           value={data?.deliveredOnTimePct ?? null}
           unit="%"
-          denominator={data ? `of ${data.delivered} delivered` : undefined}
           tone={
             data === null || data.delivered === 0
               ? undefined
@@ -105,7 +99,6 @@ export default function CaseManagerDashboard() {
           state={state}
           value={data?.revisionRatePct ?? null}
           unit="%"
-          denominator={data?.comparable ? 'flagged above 30%' : 'too few cases to compare'}
           // The spec's own threshold, and only ever coloured once the sample supports it: an
           // amber number over four cases is a judgement the data cannot carry.
           tone={data === null || !data.comparable ? undefined : data.revisionRateFlagged ? 'warn' : 'good'}
@@ -117,7 +110,6 @@ export default function CaseManagerDashboard() {
           state={state}
           value={data?.clientRevisionRatePct ?? null}
           unit="%"
-          denominator={data?.comparable ? 'of your cases' : 'too few cases to compare'}
           note="Cases the client came back on. Counted from when this became its own audit action."
         />
 

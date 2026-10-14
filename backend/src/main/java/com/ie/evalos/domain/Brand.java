@@ -88,4 +88,14 @@ public class Brand {
 	public Instant getCreatedAt() {
 		return createdAt;
 	}
+
+	/**
+	 * The Administrator's edit (D83): what the brand is called and how it is paid. Never the slug (the selling
+	 * brand and seeds name it) and never the webhook token or secret, which stay migration-only.
+	 */
+	public void update(String name, String currency, int payoutTermDays) {
+		this.name = name;
+		this.currency = currency;
+		this.payoutTermDays = payoutTermDays;
+	}
 }

@@ -47,6 +47,7 @@ import BrandsPage from './features/admin/BrandsPage'
 import PipelinesPage from './features/admin/PipelinesPage'
 import StaffPage from './features/admin/StaffPage'
 import SyncHealthPage from './features/admin/SyncHealthPage'
+import SettingsPage from './features/admin/SettingsPage'
 import NotFound from './pages/NotFound'
 
 /**
@@ -78,6 +79,7 @@ const SCREENS: Record<string, React.ReactNode> = {
   '/admin/staff': <StaffPage />,
   '/admin/pipelines': <PipelinesPage />,
   '/admin/sync': <SyncHealthPage />,
+  '/admin/settings': <SettingsPage />,
   '/brands': <BrandsPage />,
   // The diary. Its own screen rather than a panel on the board: a meeting booked from a deal card
   // was invisible the moment the card scrolled away, and EvalOS kept no record of it at all until

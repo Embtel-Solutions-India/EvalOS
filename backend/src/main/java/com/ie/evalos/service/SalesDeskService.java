@@ -159,7 +159,26 @@ public class SalesDeskService {
 						"That deal is not in the mirror yet, so it cannot be edited here. It arrives "
 								+ "with the next sync — run the MIRROR_DELTA job to pull it now."));
 		outbox.enqueue(row.getBrandId(), row.getId(), intent);
+		// A win goes to GHL as soon as this commits rather than on the next drain: `opportunity.won` is what
+		// opens the case. Still queued first, so a failed push stays pending for the drain and nothing is lost.
+		if ("won".equalsIgnoreCase(status)) {
+			pushOnCommit(row.getBrandId(), row.getId());
+		}
 		return asDeal(row);
+	}
+
+	private void pushOnCommit(java.util.UUID brandId, java.util.UUID rowId) {
+		if (!org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+			outbox.sendNow(brandId, rowId);
+			return;
+		}
+		org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+				new org.springframework.transaction.support.TransactionSynchronization() {
+					@Override
+					public void afterCommit() {
+						outbox.sendNow(brandId, rowId);
+					}
+				});
 	}
 
 	/** The mirror row as the desk's own shape. */
@@ -285,10 +304,10 @@ public class SalesDeskService {
 	 * GHL and waits for the webhook. The caller should show a pending state rather than looking
 	 * for a case that has not arrived yet.
 	 *
-	 * <p><strong>And that pending state got longer at Unit 46.</strong> The status now reaches GHL
-	 * on the next drain rather than inside this request, so {@code opportunity.won} — and the case
-	 * behind it — arrives up to a couple of minutes later. Taken deliberately: what it buys is that
-	 * a win is no longer lost when GHL is unreachable, which is the more expensive failure by far.
+	 * <p><strong>A win is pushed as soon as the request commits</strong> (2026-10-13), not on the next
+	 * drain. It is still queued first, so a win is not lost when GHL is unreachable (the drain retries
+	 * it), but when GHL answers, {@code opportunity.won} and the case behind it arrive at once. Lost and
+	 * abandoned still wait for the drain.
 	 */
 	@org.springframework.transaction.annotation.Transactional
 	public Deal close(String opportunityId, String status, String note) {
