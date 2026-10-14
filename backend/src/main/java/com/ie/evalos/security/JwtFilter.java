@@ -36,11 +36,14 @@ public class JwtFilter extends OncePerRequestFilter {
 	 * expires. A provider because web-slice tests build no JPA layer; there, the check is skipped.
 	 */
 	private final org.springframework.beans.factory.ObjectProvider<com.ie.evalos.repository.TeamMemberRepository> members;
+	private final org.springframework.beans.factory.ObjectProvider<com.ie.evalos.repository.TeamMemberPipelineRepository> pipelines;
 
 	JwtFilter(JwtService jwtService,
-			org.springframework.beans.factory.ObjectProvider<com.ie.evalos.repository.TeamMemberRepository> members) {
+			org.springframework.beans.factory.ObjectProvider<com.ie.evalos.repository.TeamMemberRepository> members,
+			org.springframework.beans.factory.ObjectProvider<com.ie.evalos.repository.TeamMemberPipelineRepository> pipelines) {
 		this.jwtService = jwtService;
 		this.members = members;
+		this.pipelines = pipelines;
 	}
 
 	@Override
@@ -57,6 +60,14 @@ public class JwtFilter extends OncePerRequestFilter {
 					// Deactivated (or removed) since the token was signed: stay anonymous, 401.
 					chain.doFilter(request, response);
 					return;
+				}
+				// The pipelines as granted now, not as at sign-in (D19b, edited 2026-10-14): a desk given a second
+				// pipeline saw no tabs on its board until it signed in again, and a revoked one stayed readable.
+				var assignments = pipelines.getIfAvailable();
+				if (assignments != null) {
+					principal = new StaffPrincipal(principal.memberId(), principal.email(), principal.displayName(),
+							principal.role(), principal.brandId(), principal.teamId(),
+							assignments.ghlIdsFor(principal.memberId()), principal.passwordHash(), principal.active());
 				}
 				var authentication = new UsernamePasswordAuthenticationToken(
 						principal, null, principal.getAuthorities());

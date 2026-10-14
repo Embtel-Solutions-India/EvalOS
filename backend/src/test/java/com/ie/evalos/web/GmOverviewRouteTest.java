@@ -180,7 +180,7 @@ class GmOverviewRouteTest {
 		mockMvc.perform(get("/api/metrics/journey").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(allowed ? status().isOk() : status().isForbidden());
 
-		then(journey).should(allowed ? org.mockito.Mockito.times(1) : never()).forCaller(any(), any(), any(), any());
+		then(journey).should(allowed ? org.mockito.Mockito.times(1) : never()).forCaller(any(), any(), any(), any(), any());
 	}
 
 	@Test

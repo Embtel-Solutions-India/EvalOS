@@ -26,13 +26,15 @@ import { useMetrics } from './useMetrics'
  */
 export default function PipelineDashboard({ audience }: { audience: Audience }) {
   const role = useMe().role
-  // The GM and the read-only Administrator both see the whole team and may drill down; only the GM sets targets.
-  const isGm = role === 'GM' || role === 'ADMIN'
+  // Only the GM sees the whole team and may drill down.
+  const isGm = role === 'GM'
   const [params, setParams] = useSearchParams()
   const thisYear = new Date().getFullYear()
   const year = Number(params.get('year')) || thisYear
   const source = params.get('source')
   const memberId = isGm ? params.get('member') : null
+  // A desk holding two or more pipelines reads one at a time, as on the board; the server picks the first by default.
+  const pipelineId = params.get('pipeline')
   const [metric, setMetric] = useState<'leads' | 'value'>('leads')
   const [compare, setCompare] = useState(false)
 
@@ -45,8 +47,8 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
     }, { replace: true })
 
   const { data, state, reload } = useMetrics(
-    (signal) => fetchJourney({ year, audience, memberId, source }, signal),
-    [year, audience, memberId, source],
+    (signal) => fetchJourney({ year, audience, memberId, source, pipelineId }, signal),
+    [year, audience, memberId, source, pipelineId],
     { key: 'PipelineDashboard:0', refreshEvery: 60_000 })
   const cardState = state.kind === 'error' ? { ...state, onRetry: reload } : state
 
@@ -62,7 +64,12 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
           {isGm && memberId && (
             <button
               type="button"
-              onClick={() => set('member', null)}
+              onClick={() => setParams((previous) => {
+                const next = new URLSearchParams(previous)
+                next.delete('member')
+                next.delete('pipeline')
+                return next
+              }, { replace: true })}
               className="mb-1 inline-flex items-center gap-1 text-sm font-medium"
               style={{ color: 'var(--accent-primary)' }}
             >
@@ -82,6 +89,33 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
           </PillSelect>
         </div>
       </header>
+
+      {(data?.pipelines?.length ?? 0) > 1 && (
+        <div className="mt-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Pipelines">
+          {data!.pipelines.map((option) => {
+            const selected = option.id === data!.pipelineId
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => set('pipeline', option.id)}
+                className="h-9 px-3 text-sm"
+                style={{
+                  borderRadius: 'var(--radius-md)',
+                  background: selected ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                  border: `1px solid ${selected ? 'var(--accent-primary)' : 'var(--border-default)'}`,
+                  color: selected ? 'var(--accent-primary)' : 'var(--text-primary)',
+                  fontWeight: selected ? 500 : 400,
+                }}
+              >
+                {option.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       {/* The Sketch's grid: a main column and a 255px rail. Questions run down the main column in the order
           a manager asks them; the rail answers "who" and "where from". */}

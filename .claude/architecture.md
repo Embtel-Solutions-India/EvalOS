@@ -25,7 +25,7 @@ are logged by `ApiErrors.refuse` (401 INFO, 403 WARN; method, path, member id â€
 
 **A staff token is re-checked on every request** (Unit 68): `JwtFilter` refuses a member whose
 `team_member.active` is false, so a GM's deactivation bites at once rather than at the 8 h expiry.
-Role and brand still travel in the token and change on the next sign-in.
+Role and brand still travel in the token and change on the next sign-in; a desk's pipelines are re-read per request (D19b, 2026-10-14).
 
 ## Multi-tenancy
 

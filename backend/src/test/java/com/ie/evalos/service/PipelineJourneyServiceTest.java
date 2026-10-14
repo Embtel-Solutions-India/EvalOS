@@ -52,8 +52,12 @@ class PipelineJourneyServiceTest {
 	}
 
 	@Test
-	void stagesCountOnlyOpenDeals() {
-		var deals = List.of(deal("2026-04-02T12:00:00Z", "lost", "10", "x", "s1", "2026-04-05T12:00:00Z"));
-		assertThat(PipelineJourneyService.aggregate(deals, 2026, ZONE, null).stageCounts()).isEmpty();
+	void stagesCountEveryDealInThemButOpenCountsOnlyOpenOnes() {
+		var deals = List.of(deal("2026-04-02T12:00:00Z", "won", "10", "x", "won-stage", "2026-04-05T12:00:00Z"),
+				deal("2026-04-03T12:00:00Z", "open", "20", "x", "s1", null));
+		var result = PipelineJourneyService.aggregate(deals, 2026, ZONE, null);
+		assertThat(result.stageCounts().get("won-stage")[0]).isEqualTo(1);
+		assertThat(result.stageCounts().get("s1")[0]).isEqualTo(1);
+		assertThat(result.open()).isEqualTo(1);
 	}
 }

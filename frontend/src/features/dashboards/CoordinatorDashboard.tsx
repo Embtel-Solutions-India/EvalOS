@@ -121,13 +121,6 @@ export default function CoordinatorDashboard() {
           )}
         </Card>
 
-        <Card
-          title="Review requests"
-          // `google_review_requested` has no writer anywhere — Handoff C would set it and is
-          // unbuilt. Zero here would read as "we asked nobody", which is a different claim.
-          state={{ kind: 'unavailable', blockedBy: 'Unit 18' }}
-        />
-
         <DocumentsOwed rows={work?.documents.owed} state={workState} />
         <StageFunnel
           stages={work?.stages}

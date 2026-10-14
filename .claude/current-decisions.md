@@ -324,8 +324,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D19b.** A SALES/MARKETING member holds a **set** of GHL pipelines (`team_member_pipeline`,
   Unit 44b), not one. The one-owner rule is retired: Case Delivery is a pipeline nobody owns.
   Assignment is by **mirror id**, never a pasted GHL string — that is `00d` C4 closed structurally.
-  The set is read at sign-in and carried in the token, so a reassignment takes effect on next
-  sign-in; unchanged in kind from the single-claim model it replaced.
+  The set is carried in the token but **re-read on every request** (`JwtFilter`, edited 2026-10-14):
+  a grant or revoke takes effect at once, so a desk given a second pipeline gets its board tabs
+  without signing in again, and a revoked pipeline stops being readable immediately.
 - **D19c.** **Sales reads their own pipelines and nothing else, and their world ends at won.**
   A SALES member reads the opportunities on the pipelines they hold (D19b) and **no
   case at all**. `ScopePredicate`'s PIPELINE arm matching no `evalos_case` row is therefore
@@ -589,15 +590,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   sit. Do it in the change that rebaselines the seed tree. `contact_snapshot` **is** the mirror's
   contact table until then, and nothing about that is wrong except its name.
 
-- **D76.** **The Sales and Marketing dashboards read the mirror, and only the GM drills down** (2026-10-08). `GET /api/metrics/journey` answers a year of leads by month and source, open deals by stage and this month's target from the local `opportunity` mirror — never GHL live, so a dashboard left open spends no rate budget. A SALES or MARKETING member reads their own pipelines only; asking for another member is a 403 (D19c). The GM reads one audience's desks or one desk of it; there is no sales-manager role, so nobody else is offered the picker. A lead is counted in the month GHL created it, a win in the month its status last changed. Date filters beyond year and source are not offered until a read can serve them.
+- **D76.** **The Sales and Marketing dashboards read the mirror, and only the GM drills down** (2026-10-08). `GET /api/metrics/journey` answers a year of leads by month and source, deals by the stage they stand in (any status, so Won and Lost stages count too — edited 2026-10-14) and this month; a desk holding two or more pipelines reads one at a time by tab (`pipelineId`, narrows only, 403 otherwise; default the first, as the board — 2026-10-14)'s target from the local `opportunity` mirror — never GHL live, so a dashboard left open spends no rate budget. A SALES or MARKETING member reads their own pipelines only; asking for another member is a 403 (D19c). The GM reads one audience's desks or one desk of it; there is no sales-manager role, so nobody else is offered the picker. A lead is counted in the month GHL created it, a win in the month its status last changed. Date filters beyond year and source are not offered until a read can serve them.
 
 - **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. Mapping GHL's Service Requested values onto the types is a follow-up.
 - **D78.** **A separate Administrator account owns the admin functions; the GM no longer does** (2026-10-08, spec 78).
   `Role.ADMIN` (cross-brand, `Tier.ALL`, NULL brand, `V88`) owns staff create/edit/deactivate/password, pipeline
   assignment and purpose, background jobs, sync health, and reads brands. The GM keeps business views, targets
-  and refunds, and reads brands, but loses the Admin nav group. The Admin also reads, read-only: the Sales and
-  Marketing performance screens and the sales board (`/api/metrics/gm`, `/journey`, `/api/opportunities/board`)
-  and the production board (`/api/cases/board`, client names withheld — `seesCaseContent()` is false for it).
+  and refunds, and reads brands, but loses the Admin nav group. **The Admin has no Sales or Pipeline screens**
+  (2026-10-14, on the business's instruction): Sales performance, Marketing performance, My pipeline and the
+  production board left its nav, and so its routes (one table, `navigation.ts`). `AdminAllowlist` still lets it read
+  `/api/metrics/gm`, `/journey`, `/api/opportunities/board` and `/api/cases/board` (client names withheld) — no screen calls them.
   **The boundary is default-deny in one class**, `AdminAllowlist`, wired as a request matcher before
   `anyRequest().authenticated()`: an Admin request not on the list is 403 whatever the controller's
   `@PreAuthorize` says. This is not optional — many staff endpoints (case list/read/documents, timeline, chat)
