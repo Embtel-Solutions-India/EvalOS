@@ -154,7 +154,6 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 | `MonitoringConfigTest` | Actuator is off but for health/info/metrics; prod and testprod never widen it or log at DEBUG/TRACE |
 | `ActuatorEndpointsTest`, `ActuatorDatabaseDownTest` (DB) | anonymous probes see a status only; info/metrics Admin-only; dump/env/loggers absent; readiness DOWN and liveness UP when the DB is down |
 | `LoggingHygieneTest` | request id on every line of a request; no password, hash, token or email in the log |
-| `AdminSeedTest` (DB) | prod Admin seed preserves an existing Admin exactly, creates a missing one once, refuses ambiguity |
 | `navigation.test.ts` (frontend) | every GHL-location screen is GM-only; case detail is not in nav |
 
 ## Configuration
@@ -181,8 +180,8 @@ expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`
 **CI (2026-10-10):** tests also run on pull requests to `main`; the deploy job runs only on a push to `main`, and
 after `docker compose up -d` it **waits up to 3 minutes for `/actuator/health/readiness` = UP** (through the frontend
 container's `wget`) and fails with the backend's log otherwise — before this, a backend that died on boot reported a
-successful deploy. The backend now receives `ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH` (required by the prod profile on every boot; it
-failed on the unresolved placeholder without them). **nginx proxies only `/api/`**, so `/actuator` is reachable
+successful deploy. The Admin, webhook tokens and testprod seed hash are not deploy variables (2026-10-14): they
+live in the database, entered by hand; `DESK_PASSWORD_HASH` is the one seed placeholder prod still passes. **nginx proxies only `/api/`**, so `/actuator` is reachable
 only on the compose network (`backend:8080`) — a probe or scraper runs there, not through the public host.
 CI (`.github/workflows/ci.yml`) runs on push to **`main` only**: backend tests, frontend
 test/build/lint, then deploy to EC2. `client-expert/` is in neither compose nor CI — **and that is

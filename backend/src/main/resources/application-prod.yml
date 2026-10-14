@@ -43,7 +43,7 @@ spring:
       #
       # **The cost, stated because it is permanent**: this is required on every prod boot, not only
       # the one that applies V960 — Spring resolves the placeholder map at startup regardless of
-      # whether Flyway has anything left to run. Same shape as testprod's `seed-password-hash`.
+      # whether Flyway has anything left to run.
       #
       # Generate with `new BCryptPasswordEncoder().encode("…")`. **Rotate with an UPDATE, never by
       # editing V960** — an applied migration's checksum is fixed, and changing it refuses the boot.
@@ -51,10 +51,11 @@ spring:
       # until somebody changes it; treat it as a credential handed over once and rotated on first
       # sign-in.
       desk-password-hash: ${DESK_PASSWORD_HASH}
-      # The first Admin (V961, spec 78). Same rules as the desk hash: NO DEFAULT, required on every
-      # prod boot, rotate with an UPDATE. The email is the sign-in until an Admin edits it under Staff.
-      admin-password-hash: ${ADMIN_PASSWORD_HASH}
-      admin-email: ${ADMIN_EMAIL}
+      # The Admin (V961), the webhook tokens (V950) and the testprod seed hash (V954) are NOT placeholders any
+      # more (2026-10-14): those migrations are applied and the values live in the database, entered by hand.
+      # Flyway validates an applied migration without its placeholder values; only a pending one needs them.
+      # A fresh database built from the prod/testprod seed trees must pass them itself
+      # (SPRING_FLYWAY_PLACEHOLDERS_ADMIN_EMAIL, …) — and FlywayPlaceholderGuard stops it if it does not.
 
 evalos:
   mail:
