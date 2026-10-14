@@ -608,13 +608,13 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   may see a deal value. **It is System health** (2026-10-10, D82, spec 84); the staff, pipeline, sync and job
   figures the old `AdminDashboard` carried sit at the top of the Staff, Pipelines, Sync health and Background
   jobs screens (`adminSummaries.tsx`), and `AdminDashboard` is deleted. Only an Admin creates an Admin; the first
-  comes from the seed (`V916` local, `V954` testprod; prod: `V960_1` then `V961`, from the `admin-password-hash` /
-  `admin-email` placeholders, i.e. `ADMIN_PASSWORD_HASH` / `ADMIN_EMAIL`, no defaults). **Prod must hold an Admin
-  before this ships**, or nobody can add staff. **The prod seed never changes an existing account** (2026-10-10):
-  the Administrator at `ADMIN_EMAIL` is left exactly as stored (hash, active flag, everything), it is created only
-  when no Administrator exists at all, and an `ADMIN_EMAIL` that belongs to a non-admin, differs from an existing
-  row only in case or spacing, or comes with a non-BCrypt "hash" **stops the migration** with the reason rather
-  than promoting, duplicating or storing a password. Pinned by `AdminSeedTest`.
+  comes from the seed (`V916` local, `V954` testprod, `V961` prod — all applied). **Production's Admin, the brands'
+  webhook tokens and the testprod seed hash are entered in the database by hand** (2026-10-14, on the business's
+  instruction): `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH`, `SEED_PASSWORD_HASH`, `IE_WEBHOOK_TOKEN` and `XP_WEBHOOK_TOKEN`
+  are no longer Flyway placeholders or deploy variables, and the never-deployed `V960_1` guard and its
+  `AdminSeedTest` are deleted. Flyway validates an applied migration without its placeholder values (checked
+  against Postgres); a fresh database built from the prod/testprod seed trees must pass them itself, and
+  `FlywayPlaceholderGuard` stops it if not. Rotate any of them with an `UPDATE`.
 
 - **D79.** **A "blocked" case is one whose `exception_state` is not `NONE`** (2026-10-09, spec 79, was Q20). On hold
   awaiting client, expert declined / rematching, refund requested — the only recorded off-path states. Missing

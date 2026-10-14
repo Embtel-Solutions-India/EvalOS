@@ -24,7 +24,7 @@ The screen shows each value's source (Set in app / From environment / Not set).
 ## Never editable in the app
 
 `JWT_SECRET`, `EVALOS_FIELD_KEY`, DB credentials (needed before the database can be read);
-`ADMIN_EMAIL`/`ADMIN_PASSWORD_HASH` (seed); `EVALOS_GHL_WRITE_MODE` (stub is a boot-time bean); S3, Ably, VAPID,
+`EVALOS_GHL_WRITE_MODE` (stub is a boot-time bean); S3, Ably, VAPID,
 portal origins and brands, job intervals. A brand's webhook token and signing secret stay hidden and
 migration-only. Still **one GHL location per deployment** — per-brand GHL is Unit 25.
 
