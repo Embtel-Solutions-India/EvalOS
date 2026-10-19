@@ -477,7 +477,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   {
     path: "/admin/pipelines",
     label: "Pipelines",
-    roles: ["ADMIN"],
+    roles: ["ADMIN", "GM"],
     becomes: "GHL pipelines and their purpose",
     group: "Admin",
     readsGhlLocation: true,

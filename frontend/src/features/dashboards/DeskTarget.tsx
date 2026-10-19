@@ -1,36 +1,31 @@
 import { useState } from 'react'
-import { formatMoney } from '../../lib/money'
-import { setMemberTarget, type GmDeskRow } from './pmMetricsApi'
-import { progressPct, targetInput, targetState } from './targetProgress'
+import { Goal, Pencil } from 'lucide-react'
+import { setMemberTarget } from './pmMetricsApi'
+import { targetInput } from './targetProgress'
 
 /**
- * One desk's monthly target on the GM's "By desk" row (D75): the target, how far the desk is, and an
- * inline field to change it. A Sales desk is held to won value and a Marketing desk to new leads, so
- * the unit follows the role and the GM only ever types a number.
+ * The GM's control for one member's monthly target (D75), on that member's own dashboard: "Set target" when
+ * there is none, a pen when there is one, and an inline field either way. A Sales member is held to won value
+ * and a Marketing member to new leads, so the unit follows the role and the GM only ever types a number.
  */
 export function DeskTarget({
-  row,
+  memberId,
+  name,
+  role,
   target,
-  known,
   month,
   onSaved,
 }: {
-  row: GmDeskRow
-  /** Null when nobody has set one — shown as "Not set", never as 0. */
+  memberId: string
+  name: string
+  role: 'SALES' | 'MARKETING'
+  /** Null when nobody has set one. */
   target: number | null
-  /** False while the targets are loading or failed to load: then nothing is claimed about this desk. */
-  known: boolean
-  /** The overview's month, `YYYY-MM-01`. */
+  /** The target's month, `YYYY-MM-01`. */
   month: string
   onSaved(): void
 }) {
-  const money = row.role === 'SALES'
-  const progress = money ? row.wonValue : row.newLeads
-  const pct = progressPct(progress, target)
-  const state = targetState(target, known)
-  const input = targetInput(row.role, target)
-  const show = (n: number) => (money ? formatMoney(Math.round(n)) : String(Math.round(n)))
-
+  const input = targetInput(role, target)
   const [editing, setEditing] = useState(false)
   const [amount, setAmount] = useState('')
   const [saving, setSaving] = useState(false)
@@ -40,7 +35,7 @@ export function DeskTarget({
     setSaving(true)
     setRefusal(null)
     try {
-      await setMemberTarget(row.memberId, month, Number(amount))
+      await setMemberTarget(memberId, month, Number(amount))
       setEditing(false)
       onSaved()
     } catch (error: unknown) {
@@ -65,7 +60,7 @@ export function DeskTarget({
           step={input.step}
           required
           autoFocus
-          aria-label={`Monthly target for ${row.name}`}
+          aria-label={`Monthly target for ${name}`}
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
           className="font-num w-24 rounded-md border px-2 py-0.5 text-sm tabular-nums"
@@ -91,36 +86,30 @@ export function DeskTarget({
     )
   }
 
-  if (state === 'unknown') {
-    return (
-      <span className="font-num" style={{ color: 'var(--text-muted)' }} title="The targets are not loaded">
-        …
-      </span>
-    )
+  const edit = () => {
+    setAmount(input.initial)
+    setEditing(true)
   }
 
-  return (
+  return target === null ? (
     <button
       type="button"
-      onClick={() => {
-        setAmount(input.initial)
-        setEditing(true)
-      }}
-      className="font-num text-right tabular-nums"
-      title="Set this month's target"
+      onClick={edit}
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3 py-1.5 text-sm font-medium hover:opacity-80"
+      style={{ background: 'var(--accent-soft)', color: 'var(--accent-primary)' }}
     >
-      {state === 'unset' || target === null ? (
-        <span style={{ color: 'var(--text-muted)' }}>Not set</span>
-      ) : (
-        <>
-          {show(progress)} / {show(target)}
-          {pct !== null && (
-            <span className="ml-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-              {pct}%
-            </span>
-          )}
-        </>
-      )}
+      <Goal className="h-4 w-4" aria-hidden />
+      Set target
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={edit}
+      className="rounded p-1 hover:bg-(--bg-raised)"
+      aria-label={`Edit the monthly target for ${name}`}
+      title="Edit target"
+    >
+      <Pencil className="h-3.5 w-3.5" style={{ color: 'var(--text-muted)' }} aria-hidden />
     </button>
   )
 }

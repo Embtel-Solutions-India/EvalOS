@@ -398,19 +398,18 @@ public class GhlWriteClient {
 	 * real and the screen shows it as pending — a "helpful" local case creation here would be a
 	 * second intake path racing the webhook, and {@code DomainInvariantsTest} refuses the shape.
 	 */
-	public UpsertedOpportunity setStatus(String opportunityId, String pipelineId, String status) {
+	public void setStatus(String opportunityId, String pipelineId, String status) {
 		Map<String, Object> body = Map.of("status", status);
 
-		OpportunityEnvelope response = http.put(OpportunityEnvelope.class,
+		// GHL answers this endpoint with {"success": true}, not the opportunity. Demanding an
+		// opportunity here dead-lettered every close GHL had in fact applied.
+		SuccessEnvelope response = http.put(SuccessEnvelope.class,
 				(uri) -> uri.path("/opportunities/{id}/status").build(opportunityId), body);
-		OpportunityRow row = require(response == null ? null : response.opportunity(), "opportunity");
+		require(response == null || !Boolean.TRUE.equals(response.success()) ? null : response, "success flag");
 
 		audit.recordEvent("GHL_OPPORTUNITY", auditKey("GHL_OPPORTUNITY", opportunityId),
 				AuditAction.STAGE_CHANGED, actor(), null,
 				Map.of("ghlOpportunityId", opportunityId, "ghlPipelineId", pipelineId, "status", status));
-
-		return new UpsertedOpportunity(row.id(), row.contactId(), pipelineId, row.pipelineStageId(),
-				row.status(), row.name(), row.monetaryValue(), false);
 	}
 
 	/**
@@ -587,6 +586,9 @@ public class GhlWriteClient {
 
 	record OpportunityRow(String id, String name, String contactId, String pipelineStageId, String status,
 			BigDecimal monetaryValue) {
+	}
+
+	record SuccessEnvelope(Boolean success) {
 	}
 
 	record TaskEnvelope(TaskRow task) {

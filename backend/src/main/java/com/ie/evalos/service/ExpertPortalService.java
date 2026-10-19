@@ -399,21 +399,35 @@ public class ExpertPortalService {
 		if (!principal.isPartyScoped()) {
 			throw new ForbiddenException("This link admits you to one case, not a list");
 		}
-		Set<UUID> open = offers.openOfferCaseIds(principal.brandId(), principal.expertId());
-		String currency = currency(principal.brandId());
-		return partyCases(principal).stream().map(subject -> {
+		UUID brandId = principal.brandId();
+		UUID expertId = principal.expertId();
+		Set<UUID> open = offers.openOfferCaseIds(brandId, expertId);
+		String currency = currency(brandId);
+		List<Case> roster = partyCases(principal);
+		List<UUID> caseIds = roster.stream().map(Case::getId).toList();
+		// One document read and one offer read for the whole roster, not one of each per case. Both
+		// keep the semantics of signedLetter and currentOffer: the highest version, the newest offer.
+		Map<UUID, CaseDocument> letters = caseIds.isEmpty() ? Map.of()
+				: documents.findByBrandIdAndCaseIdInAndKind(brandId, caseIds, DocumentKind.SIGNED_LETTER).stream()
+						.collect(java.util.stream.Collectors.toMap(CaseDocument::getCaseId, (d) -> d,
+								java.util.function.BinaryOperator.maxBy(
+										java.util.Comparator.comparingInt(CaseDocument::getVersion))));
+		Map<UUID, ExpertCaseOffer> current = caseIds.isEmpty() || expertId == null ? Map.of()
+				: offers.findByBrandIdInAndCaseIdIn(Set.of(brandId), caseIds).stream()
+						.filter(o -> o.getExpertId().equals(expertId)
+								&& (o.getOutcome() == OfferOutcome.OFFERED || o.getOutcome() == OfferOutcome.ACCEPTED))
+						.collect(java.util.stream.Collectors.toMap(ExpertCaseOffer::getCaseId, (o) -> o,
+								java.util.function.BinaryOperator.maxBy(
+										java.util.Comparator.comparing(ExpertCaseOffer::getOfferedAt))));
+		return roster.stream().map(subject -> {
 			PortalStageProjection.PortalStep step = PortalStageProjection.forExpert(subject.getCurrentStage());
-			Optional<ExpertCaseOffer> offer = currentOffer(subject.getId(), principal.expertId());
+			Optional<ExpertCaseOffer> offer = Optional.ofNullable(current.get(subject.getId()));
 			return new ExpertCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
 					subject.getExpertSignStatus(),
 					step == null ? null : step.label(),
 					step != null && step.actionRequired(),
 					open.contains(subject.getId()),
-					// ponytail: one document read per case; an expert holds a handful. Batch by case
-					// ids if a roster ever carries hundreds per expert.
-					signedLetter(subject).map(CaseDocument::getUploadedAt).orElse(null),
-					// ponytail: one offer read per case, like signedLetter; batch by case ids if a roster
-					// ever carries hundreds per expert.
+					Optional.ofNullable(letters.get(subject.getId())).map(CaseDocument::getUploadedAt).orElse(null),
 					offer.map(ExpertCaseOffer::getFee).orElse(null), currency,
 					offer.map(ExpertCaseOffer::getNote).orElse(null));
 		}).toList();

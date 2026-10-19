@@ -35,6 +35,8 @@ import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import com.ie.evalos.config.RecentLogProblems;
+
 /**
  * The Admin's System health page in one read (D82): the same health indicators and Micrometer meters
  * Actuator serves, plus four live database facts, shaped for a screen instead of for a scraper.
@@ -103,7 +105,7 @@ public class SystemHealthService {
 			long clientErrors, long serverErrors) {
 	}
 
-	public record Logs(Map<String, Double> byLevel) {
+	public record Logs(Map<String, Double> byLevel, List<RecentLogProblems.Line> recent) {
 	}
 
 	public record Auth(Double signInsOk, Double signInsRefused) {
@@ -120,12 +122,14 @@ public class SystemHealthService {
 	private final JdbcTemplate jdbc;
 	private final Environment environment;
 	private final ObjectProvider<BuildProperties> build;
+	private final RecentLogProblems recentProblems;
 
 	/** Boot's own rule for combining statuses — the one /actuator/health uses — so the two never disagree. */
 	private final StatusAggregator aggregator;
 
 	SystemHealthService(MeterRegistry registry, HealthContributorRegistry health, ApplicationAvailability availability,
-			JdbcTemplate jdbc, Environment environment, ObjectProvider<BuildProperties> build, HealthEndpointGroups groups) {
+			JdbcTemplate jdbc, Environment environment, ObjectProvider<BuildProperties> build, HealthEndpointGroups groups,
+			RecentLogProblems recentProblems) {
 		this.aggregator = groups.getPrimary().getStatusAggregator();
 		this.registry = registry;
 		this.health = health;
@@ -133,6 +137,7 @@ public class SystemHealthService {
 		this.jdbc = jdbc;
 		this.environment = environment;
 		this.build = build;
+		this.recentProblems = recentProblems;
 	}
 
 	public Report report() {
@@ -232,16 +237,42 @@ public class SystemHealthService {
 	/**
 	 * The database's size, re-read at most once a minute. Every other figure here is a few milliseconds,
 	 * and the page polls every five seconds — this one alone would make the read most of a second.
-	 * ponytail: one racy volatile; two pollers in the same minute may both re-read, which is harmless.
+	 *
+	 * <p>Single-flight: one poller re-reads while the others answer with the value they already have, so
+	 * nobody waits on it — except on the very first read, when there is no value yet to answer with.
 	 */
 	private Long databaseSize() {
 		long[] cached = sizeCache;
-		long now = System.currentTimeMillis();
-		if (cached == null || now - cached[1] > 60_000) {
-			Long size = jdbc.queryForObject("select pg_database_size(current_database())", Long.class);
-			cached = new long[] { size == null ? -1 : size, now };
-			sizeCache = cached;
+		if (cached != null && !stale(cached)) {
+			return size(cached);
 		}
+		if (cached != null && !sizeRead.tryLock()) {
+			return size(cached);
+		}
+		if (cached == null) {
+			sizeRead.lock();
+		}
+		try {
+			cached = sizeCache;
+			if (cached == null || stale(cached)) {
+				Long size = jdbc.queryForObject("select pg_database_size(current_database())", Long.class);
+				cached = new long[] { size == null ? -1 : size, System.currentTimeMillis() };
+				sizeCache = cached;
+			}
+			return size(cached);
+		}
+		finally {
+			sizeRead.unlock();
+		}
+	}
+
+	private final java.util.concurrent.locks.ReentrantLock sizeRead = new java.util.concurrent.locks.ReentrantLock();
+
+	private static boolean stale(long[] cached) {
+		return System.currentTimeMillis() - cached[1] > 60_000;
+	}
+
+	private static Long size(long[] cached) {
 		return cached[0] < 0 ? null : cached[0];
 	}
 
@@ -357,7 +388,7 @@ public class SystemHealthService {
 				byLevel.put(level, value);
 			}
 		}
-		return new Logs(byLevel);
+		return new Logs(byLevel, recentProblems.newestFirst());
 	}
 
 	private Auth auth() {

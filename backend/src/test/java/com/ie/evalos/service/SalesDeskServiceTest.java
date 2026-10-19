@@ -87,13 +87,14 @@ class SalesDeskServiceTest {
 		givenStage(ghlStageId, pipeline, live, "Stage");
 	}
 
-	private void givenStage(String ghlStageId, UUID pipeline, boolean live, String name) {
+	private com.ie.evalos.domain.PipelineStage givenStage(String ghlStageId, UUID pipeline, boolean live, String name) {
 		com.ie.evalos.domain.PipelineStage stage =
 				new com.ie.evalos.domain.PipelineStage(BRAND, pipeline, ghlStageId, name, 2);
 		if (!live) {
 			stage.markMissing(java.time.Instant.now());
 		}
 		when(stages.findByBrandIdAndGhlId(BRAND, ghlStageId)).thenReturn(java.util.Optional.of(stage));
+		return stage;
 	}
 
 	private void givenTheMirrorHasIt() {
@@ -333,6 +334,34 @@ class SalesDeskServiceTest {
 		verify(deals).editLocally(OPPORTUNITY, null, null, null, "won");
 		// The win is pushed now, not on the next drain (no transaction here, so straight away).
 		verify(outbox).sendNow(eq(BRAND), any());
+	}
+
+	/** V94: the stage's won flag decides, not its name — a renamed won stage still wins. */
+	@Test
+	void aStageMarkedWonWinsWhateverItIsCalled() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+		givenStage("s_closed", PIPELINE_ROW, true, "Closed won").setWon(true);
+
+		desk.moveToStage(OPPORTUNITY, "s_closed", "Rush: RFE due 10 Oct");
+
+		verify(notes).addHandoff(OPPORTUNITY, "Rush: RFE due 10 Oct");
+		verify(outbox).enqueue(eq(BRAND), any(), eq(SyncOutboxEntry.Intent.CLOSE));
+	}
+
+	/** ...and a stage called "Won" that an Admin unmarked is a plain move. */
+	@Test
+	void aStageCalledWonButUnmarkedIsAPlainMove() {
+		authenticateAsSales(MINE);
+		givenItIsMine();
+		givenTheMirrorHasIt();
+		givenStage("s_won", PIPELINE_ROW, true, "Won").setWon(false);
+
+		desk.moveToStage(OPPORTUNITY, "s_won", null);
+
+		org.mockito.Mockito.verifyNoInteractions(notes);
+		verify(outbox, never()).enqueue(any(), any(), eq(SyncOutboxEntry.Intent.CLOSE));
 	}
 
 	@Test

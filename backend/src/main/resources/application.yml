@@ -135,17 +135,6 @@ evalos:
     # of nothing. That is also why the percentage is suppressed on any window that is not a
     # calendar month: a monthly target against a week is arithmetic dressed as a business figure.
     monthly-goal: ${SALES_MONTHLY_GOAL:0}
-    # How far back "won this month" looks for deals to bucket.
-    #
-    # **This is not a tuning knob, it is a correctness bound.** GHL's opportunity search filters
-    # on `createdAt` and offers no filter on `lastStatusChangeAt`, so the only way to find a deal
-    # WON in September that was OPENED in July is to read the wins over a window wide enough to
-    # contain the sales cycle and bucket them in EvalOS. Set this shorter than the real sales
-    # cycle and the won figure is silently low; set it much longer and the read gets slower for
-    # nothing. 180 days is a comfortable multiple of a credential-evaluation sale.
-    #
-    # ponytail: goes away at Unit 44 — a mirrored `opportunity` table makes this one WHERE clause.
-    won-lookback-days: ${SALES_WON_LOOKBACK_DAYS:180}
   roster:
     # How many experts the network aims to onboard each month. The denominator behind the ENM's
     # "onboarded vs target" tile. One number per brand for the same reason cases-per-cm is
@@ -347,6 +336,10 @@ evalos:
     #
     # It replaced `board-cache-ttl`, which was the TTL of a refill-on-read that Unit 46 deleted.
     board-stale-after: ${GHL_BOARD_STALE_AFTER:5m}
+    # How recently a pipeline may have been read for a board's Refresh to skip it, in seconds. The
+    # button gets clicked twice and GHL's budget is per location, so a double-click costs one read.
+    # An Administrator setting (MANUAL_SYNC_FLOOR_SECONDS) overrides it.
+    manual-sync-floor-seconds: ${GHL_MANUAL_SYNC_FLOOR_SECONDS:30}
     # How stale a pipeline nobody is looking at may get before the MIRROR_DELTA sweep re-reads it
     # (Unit 45d). Deliberately SHORTER than that sweep's interval: the TTL is the freshness
     # promised, the interval is how often it is checked, and a TTL equal to the interval would
@@ -422,6 +415,9 @@ evalos:
       # outage; every minute it sits is a minute a salesperson does not know the lead exists. An
       # hour, like the pipeline mirror's, would make the queue itself the outage.
       SYNC_OUTBOX: ${JOBS_SYNC_OUTBOX_INTERVAL:2m}
+      # Web push retries (V92). **One minute**: the backoff's first wait is 30s, and a chat push is
+      # time-sensitive, but a 30s tick would double the ledger rows to land a retry a few seconds sooner.
+      PUSH_OUTBOX: ${JOBS_PUSH_OUTBOX_INTERVAL:1m}
       # The mirror delta sweep (Unit 45d). **15 minutes, and it is nearly free at that rate**:
       # refreshIfStale is a no-op for any pipeline a desk has read inside `ghl.delta-ttl`, so the
       # cost is one paged list per pipeline NOBODY is looking at. Those are the rows whose

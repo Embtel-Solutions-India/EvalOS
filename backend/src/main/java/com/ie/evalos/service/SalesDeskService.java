@@ -263,7 +263,7 @@ public class SalesDeskService {
 	 * a live mirrored stage of the row's pipeline; anything else, including a stage the mirror has
 	 * not seen yet, is refused rather than pushed.
 	 *
-	 * <p><strong>A stage named "Won" is winning the deal</strong> (D70): the move needs the
+	 * <p><strong>A stage marked won is winning the deal</strong> (D70, V94): the move needs the
 	 * production team's note, and closes the deal won with it — otherwise a drag onto the Won
 	 * column would leave an open deal in a Won stage and a case with no word from Sales.
 	 */
@@ -275,18 +275,12 @@ public class SalesDeskService {
 		}
 		// A deal the mirror does not hold falls through to `queue`, whose refusal says so.
 		boolean wins = deals.byGhlId(opportunityId).map((row) -> requireStageOf(row, stageId))
-				.map(SalesDeskService::isWonStage).orElse(false);
+				.map(com.ie.evalos.domain.PipelineStage::isWon).orElse(false);
 		if (wins) {
 			notes.addHandoff(opportunityId, note);
 		}
 		Deal moved = queue(opportunityId, null, null, stageId, null, SyncOutboxEntry.Intent.UPSERT);
 		return wins ? queue(opportunityId, null, null, null, "won", SyncOutboxEntry.Intent.CLOSE) : moved;
-	}
-
-	// ponytail: matched by name — every GHL pipeline here has a stage called "Won". A renamed one
-	// ("Closed won") slips through as a plain move; mark stages explicitly if that ever happens.
-	private static boolean isWonStage(com.ie.evalos.domain.PipelineStage stage) {
-		return "won".equalsIgnoreCase(stage.getName().strip());
 	}
 
 	private com.ie.evalos.domain.PipelineStage requireStageOf(Opportunity row, String stageId) {

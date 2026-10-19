@@ -81,7 +81,7 @@ export default function DealPage() {
   // The board is read for its stage list, which the actions need to offer a move. Same payload the
   // board itself draws from, so the two cannot disagree about which stages are "mine".
   const { data: board } = useMetrics((signal) => fetchOpportunityBoard(signal), [opportunityId])
-  const stages = (board?.columns ?? []).map((c) => ({ stageId: c.stageId, stageName: c.stageName }))
+  const stages = (board?.columns ?? []).map((c) => ({ stageId: c.stageId, stageName: c.stageName, won: c.won }))
   const columnIndex = board?.columns.findIndex((c) => c.deals.some((d) => d.opportunityId === opportunityId)) ?? -1
   const column = columnIndex >= 0 ? board?.columns[columnIndex] : undefined
   // The deal's stage colour, the same one its board column wears; the accent until the board has answered.

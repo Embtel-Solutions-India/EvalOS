@@ -38,6 +38,13 @@ public enum PipelinePurpose {
 	EXPERT_HIRING,
 
 	/**
+	 * The location's Master Pipeline: where the GM's pipeline drop-down starts. At most one per brand
+	 * ({@code PipelineMirrorService.setPurpose}, backed by V93's unique index). It was found by the
+	 * word "Master" in its name, which a rename in GHL would have silently broken.
+	 */
+	MASTER,
+
+	/**
 	 * GHL has this pipeline and EvalOS has not been told what it is for.
 	 *
 	 * <p>The default, and the safe one: a pipeline that appears in GHL tomorrow arrives meaning

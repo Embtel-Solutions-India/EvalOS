@@ -169,7 +169,7 @@ export default function SystemHealthPage() {
           value={fmt(report?.logs.byLevel.error ?? 0)}
           tone={(report?.logs.byLevel.error ?? 0) > 0 ? "warn" : "good"}
           sub={`${fmt(report?.logs.byLevel.warn ?? 0)} warnings since start`}
-          note="ERROR lines written since the server started. Find one in the container log by its request id."
+          note="ERROR lines written since the server started. The newest are listed under Recent warnings and errors."
         />
         <Stat
           title="Refused sign-ins"
@@ -321,6 +321,7 @@ export default function SystemHealthPage() {
         <Components report={report} state={state} />
         <Routes report={report} state={state} sortBy={sortBy} onSort={setSortBy} />
         <Jobs report={report} state={state} />
+        <RecentProblems report={report} state={state} />
       </div>
 
       {report && (
@@ -838,6 +839,55 @@ function Jobs({ report, state }: { report?: SystemHealthReport; state: CardState
           );
         })}
       </div>
+    </Card>
+  );
+}
+
+function RecentProblems({ report, state }: { report?: SystemHealthReport; state: CardState }) {
+  const lines = report?.logs.recent ?? [];
+  const [level, setLevel] = useState<"ALL" | "ERROR" | "WARN">("ALL");
+  const shown = level === "ALL" ? lines : lines.filter((l) => l.level === level);
+  return (
+    <Card
+      title="Recent warnings and errors"
+      note="The newest 50 WARN and ERROR lines, newest first, held in memory, so a restart empties the list. It and the count above start at slightly different points in startup, so a few startup lines may be in one and not the other. The container log has everything."
+      state={
+        report && !report.logs.recent
+          ? { kind: "empty", note: "Not available from the server yet. Restart the backend." }
+          : state.kind === "ok" && shown.length === 0
+            ? { kind: "empty", note: "Nothing logged at this level since the server started." }
+            : state
+      }
+      className="col-span-12"
+      action={
+        <PillToggle
+          value={level}
+          onChange={setLevel}
+          label="Log level"
+          options={[
+            ["ALL", `All ${lines.length}`],
+            ["ERROR", `Errors ${lines.filter((l) => l.level === "ERROR").length}`],
+            ["WARN", `Warnings ${lines.filter((l) => l.level === "WARN").length}`],
+          ]}
+        />
+      }
+    >
+      <ul className="max-h-[28rem] divide-y overflow-y-auto text-sm" style={{ borderColor: "var(--border-default)" }}>
+        {shown.map((l, i) => (
+          <li key={`${l.at}-${i}`} className="py-2" style={{ borderColor: "var(--border-default)" }}>
+            <div className="flex flex-wrap items-baseline gap-x-2 text-xs" style={MUTED}>
+              <span className="font-semibold" style={{ color: l.level === "ERROR" ? "var(--status-red)" : "var(--status-amber)" }}>
+                {l.level}
+              </span>
+              <span className="font-num tabular-nums">{new Date(l.at).toLocaleString()}</span>
+              <span className="truncate" title={l.logger}>{l.logger.split(".").pop()}</span>
+              <span className="truncate">· {l.thread}</span>
+            </div>
+            <p className="mt-0.5 break-words">{l.message ?? "—"}</p>
+            {l.exception && <p className="font-num mt-0.5 break-words text-xs" style={{ color: "var(--status-red)" }}>{l.exception}</p>}
+          </li>
+        ))}
+      </ul>
     </Card>
   );
 }

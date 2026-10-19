@@ -481,10 +481,11 @@ class CaseIntakeServiceTest {
 	 * the two customData fields are independently optional, so a workflow can name the
 	 * opportunity without the amount or the reverse. Writing the pair off either half alone
 	 * blanks the other — the amount that feeds revenue recognition, or the id Unit 18 closes
-	 * the opportunity on — from a delivery that never claimed anything about that half.
+	 * the opportunity on — and a lone half overwriting a different value would put one deal's
+	 * money under another's id. Both halves already held, so neither moves.
 	 */
 	@Test
-	void aDeliveryCarryingHalfTheDealLeavesBothHalvesAlone() {
+	void aHalfCarriedDealNeverOverwritesADifferentValue() {
 		Case inFlight = openCaseWorthNineHundred();
 		inFlight.setGhlOpportunityId("opp-first");
 
@@ -503,6 +504,66 @@ class CaseIntakeServiceTest {
 				.as("an amount with no id must not blank the id")
 				.isEqualTo("opp-first");
 		assertThat(amountOnly.getDealValue()).isEqualByComparingTo("900.00");
+	}
+
+	/**
+	 * A workflow that sends the amount and the opportunity id in separate deliveries: each half
+	 * fills what the case is missing, so the two deliveries together carry the whole deal — and
+	 * each fill is noted on the trail without the figure.
+	 */
+	@Test
+	void halvesArrivingInSeparateDeliveriesAreMergedIntoTheCase() {
+		Case inFlight = openCaseWorthNineHundred();
+		inFlight.setDealValue(null);
+
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, null, "opp-4711"));
+		Case merged = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1450.00"), null));
+
+		assertThat(merged.getGhlOpportunityId()).isEqualTo("opp-4711");
+		assertThat(merged.getDealValue()).isEqualByComparingTo("1450.00");
+		ArgumentCaptor<CaseLifecycleService.CaseSnapshot> after =
+				ArgumentCaptor.forClass(CaseLifecycleService.CaseSnapshot.class);
+		verify(audit, org.mockito.Mockito.times(2)).recordSystemEvent(eq(BRAND), eq("CASE"), any(),
+				eq(AuditAction.UPDATED), any(), after.capture());
+		assertThat(after.getAllValues().get(0).note()).contains("opportunity recorded");
+		assertThat(after.getAllValues().get(1).note()).contains("deal value recorded")
+				.doesNotContain("1450.00");
+	}
+
+	/** A replayed half matches what the case holds: nothing changes and the trail claims nothing. */
+	@Test
+	void aReplayedHalfIsANoOp() {
+		Case inFlight = openCaseWorthNineHundred();
+		inFlight.setGhlOpportunityId("opp-4711");
+
+		Case result = intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("900.00"), null));
+
+		assertThat(result.getDealValue()).isEqualByComparingTo("900.00");
+		assertThat(result.getGhlOpportunityId()).isEqualTo("opp-4711");
+		ArgumentCaptor<CaseLifecycleService.CaseSnapshot> after =
+				ArgumentCaptor.forClass(CaseLifecycleService.CaseSnapshot.class);
+		verify(audit).recordSystemEvent(eq(BRAND), eq("CASE"), any(), eq(AuditAction.UPDATED),
+				any(), after.capture());
+		assertThat(after.getValue().note()).isEqualTo("refreshed from GHL won opportunity");
+	}
+
+	/** A conflicting lone half is kept out and flagged, never thrown: GHL would redeliver it forever. */
+	@Test
+	void aConflictingHalfIsFlaggedOnTheTrail() {
+		Case inFlight = openCaseWorthNineHundred();
+		inFlight.setGhlOpportunityId("opp-first");
+
+		intake.intake(brand, wonDeal("ghl-c-1", "anita@raolaw.example",
+				ServiceType.EXPERT_OPINION_LETTER, new BigDecimal("1725.50"), null));
+
+		ArgumentCaptor<CaseLifecycleService.CaseSnapshot> after =
+				ArgumentCaptor.forClass(CaseLifecycleService.CaseSnapshot.class);
+		verify(audit).recordSystemEvent(eq(BRAND), eq("CASE"), any(), eq(AuditAction.UPDATED),
+				any(), after.capture());
+		assertThat(after.getValue().note()).contains("not applied").doesNotContain("1725.50", "900.00");
 	}
 
 	/**

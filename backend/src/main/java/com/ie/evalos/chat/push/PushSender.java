@@ -1,9 +1,8 @@
 package com.ie.evalos.chat.push;
 
 import java.security.Security;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.time.Instant;
+import java.util.UUID;
 
 import nl.martijndwars.webpush.Notification;
 import nl.martijndwars.webpush.PushService;
@@ -21,20 +20,22 @@ public class PushSender {
 
 	public enum Outcome { SENT, GONE, FAILED, RETRY }
 
-	/** Waits before each retry of a push the push service could not take right now (network, 429, 5xx). */
-	private static final long[] RETRY_SECONDS = { 30, 120, 600 };
+	/**
+	 * Waits before each retry of a push the push service could not take right now (network, 429, 5xx),
+	 * then gives up. Held as {@code push_outbox} rows (V92) and sent by the {@code PUSH_OUTBOX} sweep, so
+	 * a restart during a push outage delays them rather than losing them.
+	 */
+	static final long[] RETRY_SECONDS = { 30, 120, 600 };
 
 	private static final Logger log = LoggerFactory.getLogger(PushSender.class);
 
 	private final PushService service;
-	// ponytail: in-memory retries are lost on a restart; move to a DB outbox if restarts during a push outage matter.
-	private final ScheduledExecutorService retries = Executors.newSingleThreadScheduledExecutor((r) -> {
-		Thread t = new Thread(r, "push-retry");
-		t.setDaemon(true);
-		return t;
-	});
+	private final PushOutboxRepository outbox;
+	private final PushSubscriptionRepository subscriptions;
 
-	PushSender(PushSettings settings) {
+	PushSender(PushSettings settings, PushOutboxRepository outbox, PushSubscriptionRepository subscriptions) {
+		this.outbox = outbox;
+		this.subscriptions = subscriptions;
 		if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
 			Security.addProvider(new BouncyCastleProvider());
 		}
@@ -57,25 +58,56 @@ public class PushSender {
 	 */
 	public static void deliver(PushSender sender, PushSubscriptionRepository subscriptions, PushSubscription to,
 			String json) {
-		deliver(sender, subscriptions, to, json, 0);
+		Outcome outcome = sender.send(to, json);
+		if (outcome == Outcome.RETRY) {
+			sender.queueRetry(to, json);
+		}
+		else {
+			settle(subscriptions, to, outcome);
+		}
 	}
 
-	private static void deliver(PushSender sender, PushSubscriptionRepository subscriptions, PushSubscription to,
-			String json, int attempt) {
-		switch (sender.send(to, json)) {
+	/** The first retry of a push, as a row the sweep will send when it falls due. */
+	void queueRetry(PushSubscription to, String json) {
+		outbox.save(new PushRetry(to, json, Instant.now().plusSeconds(RETRY_SECONDS[0])));
+	}
+
+	/**
+	 * Sends one owed push, in the {@code PUSH_OUTBOX} sweep's per-row transaction. The row goes when the
+	 * push settles either way, and on another miss it waits for the next step of the backoff until there
+	 * is none.
+	 *
+	 * @return true if it sent, false if the row was already gone or the push did not get through
+	 */
+	public boolean retry(UUID id) {
+		PushRetry owed = outbox.findById(id).orElse(null);
+		if (owed == null) {
+			return false;
+		}
+		PushSubscription to = subscriptions.findById(owed.getSubscriptionId()).orElse(null);
+		Outcome outcome = to == null ? Outcome.GONE : send(to, owed.getPayload());
+		int next = owed.getRetries() + 1;
+		if (outcome == Outcome.RETRY && next < RETRY_SECONDS.length) {
+			owed.spendOne(Instant.now().plusSeconds(RETRY_SECONDS[next]));
+			outbox.save(owed);
+			return false;
+		}
+		outbox.delete(owed);
+		if (to != null) {
+			settle(subscriptions, to, outcome);
+		}
+		return outcome == Outcome.SENT;
+	}
+
+	private static void settle(PushSubscriptionRepository subscriptions, PushSubscription to, Outcome outcome) {
+		switch (outcome) {
 			case SENT -> {
-				to.markSent(java.time.Instant.now());
+				to.markSent(Instant.now());
 				subscriptions.save(to);
 			}
 			case GONE -> subscriptions.delete(to);
-			case RETRY -> {
-				if (attempt < RETRY_SECONDS.length) {
-					sender.retries.schedule(() -> deliver(sender, subscriptions, to, json, attempt + 1),
-							RETRY_SECONDS[attempt], TimeUnit.SECONDS);
-				}
-			}
-			case FAILED -> {
-				// Logged by the sender; retrying would not change a refusal.
+			case FAILED, RETRY -> {
+				// FAILED is logged by the sender, and retrying would not change a refusal; RETRY here is out of retries.
 			}
 		}
 	}
@@ -104,7 +136,7 @@ public class PushSender {
 			return Outcome.SENT;
 		}
 		catch (Exception failed) {
-			log.warn("Web push to {} failed; will retry", to.getEndpoint(), failed);
+			log.warn("Web push to {} failed (retryable)", to.getEndpoint(), failed);
 			return Outcome.RETRY;
 		}
 	}

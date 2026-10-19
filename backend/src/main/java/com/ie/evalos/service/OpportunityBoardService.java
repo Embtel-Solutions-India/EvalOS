@@ -57,7 +57,7 @@ public class OpportunityBoardService {
 	 * GHL shows renamed, and renaming changes nobody's access, because access is keyed on the
 	 * pipeline id (Unit 36 §4).
 	 */
-	public record BoardColumn(String stageId, String stageName, int position, List<Deal> deals,
+	public record BoardColumn(String stageId, String stageName, int position, boolean won, List<Deal> deals,
 			BigDecimal total) {
 	}
 
@@ -167,17 +167,42 @@ public class OpportunityBoardService {
 	/** Where the two card fields are resolved from — one read each per board, never per card. */
 	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields;
 
+	/** The configured MANUAL_SYNC_FLOOR_SECONDS; an Administrator's saved value wins (see {@link #manualSyncFloor}). */
+	private final int manualSyncFloorSeconds;
+
+	/** Absent only in hand-built tests, which keep the value they were given. */
+	private com.ie.evalos.config.AppSettings settings;
+
 	OpportunityBoardService(OpportunityMirrorService deals, PipelineMirrorService mirroredPipelines,
 			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
 			@Value("${evalos.ghl.board-stale-after}") Duration staleAfter,
 			SellingBrand sellingBrand,
-			com.ie.evalos.repository.GhlCustomFieldRepository customFields) {
+			com.ie.evalos.repository.GhlCustomFieldRepository customFields,
+			@Value("${evalos.ghl.manual-sync-floor-seconds}") int manualSyncFloorSeconds) {
 		this.deals = deals;
 		this.mirroredPipelines = mirroredPipelines;
 		this.assignments = assignments;
 		this.customFields = customFields;
 		this.staleAfter = staleAfter;
 		this.sellingBrand = sellingBrand;
+		this.manualSyncFloorSeconds = manualSyncFloorSeconds;
+	}
+
+	@org.springframework.beans.factory.annotation.Autowired(required = false)
+	void useSettings(com.ie.evalos.config.AppSettings settings) {
+		this.settings = settings;
+	}
+
+	/**
+	 * How recently a pipeline may already have been read for a Refresh to skip it.
+	 *
+	 * <p>A floor rather than an unconditional read: this is a button, and buttons get clicked twice. GHL's
+	 * budget is per location and shared with every desk, so a double-click must cost one read. The
+	 * Administrator's value from Settings when saved (D83), else {@code evalos.ghl.manual-sync-floor-seconds}.
+	 */
+	private Duration manualSyncFloor() {
+		return Duration.ofSeconds(com.ie.evalos.config.AppSettings.intOr(settings,
+				com.ie.evalos.config.Setting.MANUAL_SYNC_FLOOR_SECONDS, manualSyncFloorSeconds));
 	}
 
 	/**
@@ -220,13 +245,11 @@ public class OpportunityBoardService {
 		if (!caller.role().hasGmView()) {
 			choose(caller, requested);
 		}
-		// Same rule as syncNow(): an empty mirror has no pipeline to offer, so read the structure first.
-		if (mirroredPipelines.all().stream().noneMatch(com.ie.evalos.domain.Pipeline::isLive)) {
-			mirroredPipelines.sync();
-		}
+		// An empty mirror has no pipeline to offer, so read the structure first.
+		syncStructureIfEmpty();
 		Choice choice = choose(caller, requested);
 		if (choice.id() != null) {
-			deals.refreshIfStale(choice.id(), MANUAL_SYNC_FLOOR);
+			deals.refreshIfStale(choice.id(), manualSyncFloor());
 		}
 		return drawn(choice);
 	}
@@ -244,9 +267,10 @@ public class OpportunityBoardService {
 
 	/** The pipeline to draw: the one asked for if the caller holds it (else 403), or their default. */
 	private Choice choose(TenantContext caller, String requested) {
-		List<PipelineOption> options = choicesFor(caller);
+		List<com.ie.evalos.domain.Pipeline> live = livePipelines();
+		List<PipelineOption> options = choicesFor(caller, live);
 		if (requested == null || requested.isBlank()) {
-			return new Choice(options, defaultOf(options, caller));
+			return new Choice(options, defaultOf(options, live, caller));
 		}
 		if (options.stream().noneMatch((option) -> option.id().equals(requested))) {
 			throw new ForbiddenException("That pipeline is not one of yours");
@@ -255,10 +279,7 @@ public class OpportunityBoardService {
 	}
 
 	/** The caller's pipelines in GHL's order; one the mirror has not seen keeps its id as its name. */
-	private List<PipelineOption> choicesFor(TenantContext caller) {
-		List<com.ie.evalos.domain.Pipeline> live = mirroredPipelines.all().stream()
-				.filter(com.ie.evalos.domain.Pipeline::isLive)
-				.toList();
+	private List<PipelineOption> choicesFor(TenantContext caller, List<com.ie.evalos.domain.Pipeline> live) {
 		if (caller.role().hasGmView()) {
 			return live.stream().map((p) -> new PipelineOption(p.getGhlId(), p.getName())).toList();
 		}
@@ -272,77 +293,49 @@ public class OpportunityBoardService {
 		return options;
 	}
 
+	private List<com.ie.evalos.domain.Pipeline> livePipelines() {
+		return mirroredPipelines.all().stream().filter(com.ie.evalos.domain.Pipeline::isLive).toList();
+	}
+
 	/** "Master" as a whole word, any case: "Master Pipeline" matches, "Mastery Leads" does not. */
 	private static final java.util.regex.Pattern MASTER =
 			java.util.regex.Pattern.compile("\\bmaster\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
 
-	// ponytail: the Master Pipeline is found by name, because GHL marks it no other way. A purpose tag on
-	// the Pipelines screen is the upgrade if it is ever renamed.
-	private static String defaultOf(List<PipelineOption> options, TenantContext caller) {
+	/**
+	 * A desk starts on its first pipeline; the GM on the live pipeline tagged {@code MASTER} on the Pipelines
+	 * screen. <strong>The name is a fallback only while no live pipeline is tagged</strong> — V93 tags the one it
+	 * matched, but leaves a pipeline a GM had already given another purpose alone, so a brand can arrive here
+	 * untagged. Once tagged, a rename in GHL moves nothing.
+	 */
+	private static String defaultOf(List<PipelineOption> options, List<com.ie.evalos.domain.Pipeline> live,
+			TenantContext caller) {
 		if (options.isEmpty()) {
 			return null;
 		}
 		if (caller.role().hasGmView()) {
-			return options.stream().filter((o) -> o.name() != null && MASTER.matcher(o.name()).find())
-					.map(PipelineOption::id).findFirst().orElse(options.get(0).id());
+			return live.stream().filter((p) -> p.getPurpose() == com.ie.evalos.domain.PipelinePurpose.MASTER)
+					.findFirst()
+					.or(() -> live.stream().filter((p) -> p.getName() != null && MASTER.matcher(p.getName()).find())
+							.findFirst())
+					.map(com.ie.evalos.domain.Pipeline::getGhlId)
+					.orElse(options.get(0).id());
 		}
 		return options.get(0).id();
 	}
 
 	/**
-	 * Sync this caller's own pipelines now, then draw — <strong>the Refresh button</strong>.
+	 * Pipelines first, but only when the mirror knows of none.
 	 *
-	 * <p><strong>It reconciles the mirror; it is not a live board read.</strong> The distinction is
-	 * the whole of Unit 46: the board is drawn from EvalOS rows either way, and what this does is
-	 * bring those rows forward rather than bypass them. Nothing here reaches GHL on the reader's
-	 * behalf — {@code refreshIfStale} writes the mirror, and the draw below reads it, exactly as an
-	 * ordinary load does.
-	 *
-	 * <p><strong>A 30-second floor rather than an unconditional read.</strong> This is a button, and
-	 * buttons get clicked twice; GHL's budget is per location and shared with every other desk, so
-	 * a room of people refreshing must not become a room of paged list reads. Thirty seconds is
-	 * short enough that a human pressing it after waiting still gets a real sync, and long enough
-	 * that a double-click costs one.
-	 *
-	 * <p>Only the caller's own pipelines, so a salesperson's refresh cannot spend the budget on
-	 * pipelines they cannot see. The background sweep is what covers the rest.
+	 * <p>Refresh used to refresh only opportunities — so in the one state a reader would actually press it
+	 * in, an empty mirror with nothing on the board, it could do nothing at all. Gating on "the mirror knows of
+	 * no live pipeline" keeps that case and drops the paged structure read every other press would spend on a
+	 * location whose pipelines change a few times a year (the hourly PIPELINE_MIRROR sweep keeps it current).
 	 */
-	public Board syncNow() {
-		// **Pipelines first, and this is the correction that makes the button worth having.** It
-		// used to refresh only opportunities — so in the one state a reader would actually press it
-		// in, an empty mirror with nothing on the board, it could do nothing at all: there were no
-		// mirrored pipelines to refresh deals *for*, and the only fix was a GM running a job by
-		// hand. A button that cannot fix the problem it is offered for is worse than no button.
-		//
-		// **But only in that state, which the floor below could not express.** MANUAL_SYNC_FLOOR
-		// guards the deal reads and not this one, so every press spent a paged GHL structure read
-		// as well — on a location whose pipelines and stages change a few times a year and which
-		// the hourly PIPELINE_MIRROR sweep already keeps current. Gating on "the mirror knows of no
-		// live pipeline" keeps exactly the case the button was added for and drops the rest.
+	private void syncStructureIfEmpty() {
 		if (mirroredPipelines.all().stream().noneMatch(com.ie.evalos.domain.Pipeline::isLive)) {
 			mirroredPipelines.sync();
 		}
-
-		TenantContext caller = TenantContext.current();
-		List<String> mine = pipelinesFor(caller);
-		// ponytail: a GM's board is every live pipeline, so their press fans a live read over all of
-		// them in the request thread, Master Pipeline included. MANUAL_SYNC_FLOOR bounds the repeat
-		// cost, not the first one. If that press becomes slow enough to notice, the upgrade is to
-		// hand it to the job runner and answer 202 rather than to cap the fan-out, because a
-		// Refresh that silently syncs some of the board is worse than one that takes a moment.
-		mine.forEach((pipelineId) -> deals.refreshIfStale(pipelineId, MANUAL_SYNC_FLOOR));
-		return forCaller();
 	}
-
-	/**
-	 * How recently a manual sync may already have happened for the button to be a no-op.
-	 *
-	 * <pre>
-	 * ponytail: a constant, not a setting. It exists to absorb a double-click, and nobody is going
-	 * to tune it — the number a deployment would actually want to change is the sweep interval.
-	 * </pre>
-	 */
-	private static final Duration MANUAL_SYNC_FLOOR = Duration.ofSeconds(30);
 
 	/**
 	 * Which pipelines this caller may read.
@@ -387,18 +380,7 @@ public class OpportunityBoardService {
 	 */
 	private List<String> pipelinesFor(TenantContext caller) {
 		if (caller.role().hasGmView()) {
-			// The GM's (and the Admin's read-only) board is the SALES pipelines only (D19e, amended 2026-10-08): marketing funnels,
-			// Case Delivery, hiring and the Master Pipeline have their own screens. Still gated on the
-			// mirror, so a pipeline GHL stopped returning is not offered.
-			if (sellingBrand.id() == null) {
-				return List.of();
-			}
-			java.util.Set<String> sales = new java.util.HashSet<>(assignments.salesGhlIds(sellingBrand.id()));
-			return mirroredPipelines.all().stream()
-					.filter(com.ie.evalos.domain.Pipeline::isLive)
-					.map(com.ie.evalos.domain.Pipeline::getGhlId)
-					.filter(sales::contains)
-					.toList();
+			return salesPipelines();
 		}
 		List<String> fromToken = caller.ghlPipelineIds();
 		if (!fromToken.isEmpty()) {
@@ -416,6 +398,22 @@ public class OpportunityBoardService {
 		// removes the trap. It widens nothing: it is the same member's own row, read by their own
 		// id, and a member with no assignment still gets an empty list.
 		return assignments.ghlIdsFor(caller.memberId());
+	}
+
+	/**
+	 * The GM's (and the Admin's read-only) board: the SALES pipelines only (D19e, amended 2026-10-08).
+	 * Marketing funnels, Case Delivery, hiring and the Master Pipeline have their own screens. Still gated on
+	 * the mirror, so a pipeline GHL stopped returning is not offered.
+	 */
+	private List<String> salesPipelines() {
+		if (sellingBrand.id() == null) {
+			return List.of();
+		}
+		java.util.Set<String> sales = new java.util.HashSet<>(assignments.salesGhlIds(sellingBrand.id()));
+		return livePipelines().stream()
+				.map(com.ie.evalos.domain.Pipeline::getGhlId)
+				.filter(sales::contains)
+				.toList();
 	}
 
 	/**
@@ -444,7 +442,7 @@ public class OpportunityBoardService {
 		Map<String, String> columnOf = foldedColumns(live, foldSameNames);
 		Map<String, MirroredStage> stages = new LinkedHashMap<>();
 		live.forEach((stage) -> stages.putIfAbsent(columnOf.get(stage.getGhlId()),
-				new MirroredStage(stage.getName(), stage.getPosition())));
+				new MirroredStage(stage.getName(), stage.getPosition(), stage.isWon())));
 
 		Map<String, List<Opportunity>> byStage = new LinkedHashMap<>();
 		stages.keySet().forEach((stageId) -> byStage.put(stageId, new ArrayList<>()));
@@ -483,6 +481,8 @@ public class OpportunityBoardService {
 							// it: a card that vanishes is a card somebody goes looking for.
 							stage == null ? entry.getKey() : stage.name(),
 							stage == null ? Integer.MAX_VALUE : stage.position(),
+							// pipeline_stage.won (V94), the same flag SalesDeskService wins a deal by.
+							stage != null && stage.won(),
 							// Open deals only, like the board total: a column's value is what is still in play.
 							deals, sum(entry.getValue().stream().filter(OpportunityBoardService::isOpen).toList()));
 				})
@@ -536,7 +536,7 @@ public class OpportunityBoardService {
 	}
 
 	/** Just the two fields a column header needs, so the board does not carry a whole entity. */
-	private record MirroredStage(String name, int position) {
+	private record MirroredStage(String name, int position, boolean won) {
 	}
 
 	/** The first value that says something; a blank one is treated as absent. */

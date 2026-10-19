@@ -31,7 +31,7 @@ function Change({ pct, label }: { pct: number | null; label: string }) {
  * Won (or leads) this month with its change, the target with the percentage achieved, then the
  * year's leads and their combined value. Target and remaining ride on the target tile.
  */
-export function KpiRow({ data, state, audience, canSetTarget, source }: { data: Journey | null; state: CardState; audience: Audience; canSetTarget: boolean; source: string | null }) {
+export function KpiRow({ data, state, audience, canSetTarget, source, targetAction }: { data: Journey | null; state: CardState; audience: Audience; canSetTarget: boolean; source: string | null; /** The GM's Set target / edit control, on one member's dashboard. */ targetAction?: ReactNode }) {
   const money = audience === 'sales'
   const show = (n: number) => (money ? formatMoney(Math.round(n)) : formatCount(Math.round(n)))
   const monthName = data ? new Date(`${data.target.month}T00:00:00Z`).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' }) : ''
@@ -52,7 +52,7 @@ export function KpiRow({ data, state, audience, canSetTarget, source }: { data: 
         {current && <p className="mt-1.5"><Change pct={changePct(progress, was)} label="vs last month" /></p>}
       </Card>
 
-      <Card variant="tile" title={`Target · ${monthName || 'this month'}`} state={state}>
+      <Card variant="tile" title={`Target · ${monthName || 'this month'}`} state={state} action={targetAction}>
         {hasTarget ? (
           <>
             <Figure>{show(target)}</Figure>
@@ -74,7 +74,7 @@ export function KpiRow({ data, state, audience, canSetTarget, source }: { data: 
         ) : (
           <>
             <Figure>Not set</Figure>
-            <p className="mt-1.5 text-xs" style={MUTED}>{canSetTarget ? 'Set one under By desk on the main dashboard.' : `No target for ${monthName}.`}</p>
+            <p className="mt-1.5 text-xs" style={MUTED}>{canSetTarget ? 'Open a team member to set theirs.' : `No target for ${monthName}.`}</p>
           </>
         )}
       </Card>
@@ -185,7 +185,7 @@ function Bar({ share, color = 'var(--accent-primary)' }: { share: number; color?
   )
 }
 
-/** Every deal by the stage it stands in (won and lost too, as the board shows them), in GHL's order. The ring shows each stage's share; the list keeps every stage with its count and value. */
+/** Every deal by the stage it stands in (won and lost too, as the board shows them), in GHL's order. The ring shows each stage's share; beside it a Total tile, then a tile per stage with its count, share and value. */
 export function StageCard({ data, state, to }: { data: Journey | null; state: CardState; to?: string }) {
   // Pipelines that share stage names (Lead, Warm, Hot, Cold, Lost) read as duplicates, so they add up by name, in first-seen order.
   const byName = new Map<string, { name: string; deals: number; value: number }>()
@@ -196,7 +196,6 @@ export function StageCard({ data, state, to }: { data: Journey | null; state: Ca
     byName.set(s.name.toLowerCase(), row)
   }
   const stages = [...byName.values()]
-  const max = Math.max(1, ...stages.map((s) => s.deals))
   const total = stages.reduce((n, s) => n + s.deals, 0)
   const value = stages.reduce((n, s) => n + s.value, 0)
   // Five colours, then grey: more than five categorical hues stops being readable (tokens.css).
@@ -211,36 +210,36 @@ export function StageCard({ data, state, to }: { data: Journey | null; state: Ca
       state={state.kind === 'ok' && stages.length === 0 ? { kind: 'empty', note: 'This pipeline has no stages yet.' } : state}
       to={to}
     >
+      {/* The tiles are the ring's legend: Total first, then each stage in GHL's order with its count, share and
+          value, edged in its slice's colour (grey = folded into "Other stages" on the ring). */}
       <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
         <Donut slices={slices} centre={formatCount(total)} caption="deals" />
-        <div className="min-w-0 max-w-sm flex-1">
-          <p className="text-sm" style={MUTED}>{formatMoney(Math.round(value))} across every stage</p>
-          <ul className="mt-2 space-y-1.5 text-sm">
-            {slices.filter((s) => s.value > 0).map((s) => (
-              <li key={s.name} className="flex items-center gap-2">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
-                <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                <span className="font-num tabular-nums">{formatCount(s.value)}</span>
-                <span className="font-num w-9 text-right text-xs tabular-nums" style={MUTED}>{total ? Math.round((s.value / total) * 100) : 0}%</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {/* Two rows from a tablet up: as many columns as half the tiles. A phone keeps two columns. */}
+        <ul
+          className="grid min-w-0 flex-1 basis-[28rem] grid-cols-2 gap-3 sm:[grid-template-columns:repeat(var(--cols),minmax(0,1fr))]"
+          style={{ '--cols': Math.ceil((stages.length + 1) / 2) } as CSSProperties}
+        >
+          <StageTile name="Total" deals={total} value={value} color="var(--text-primary)" />
+          {stages.map((s) => {
+            const at = ranked.indexOf(s)
+            return <StageTile key={s.name} name={s.name} deals={s.deals} value={s.value} share={total ? Math.round((s.deals / total) * 100) : 0} color={at < SERIES.length ? SERIES[at] : 'var(--text-muted)'} />
+          })}
+        </ul>
       </div>
-      <ul className="mt-5 grid gap-x-8 gap-y-3 border-t pt-4 sm:grid-cols-2" style={{ borderColor: 'var(--border-default)' }}>
-        {stages.map((s) => (
-          <li key={s.name}>
-            <div className="flex items-baseline justify-between gap-3 text-sm">
-              <span className="truncate">{s.name}</span>
-              <span className="font-num shrink-0 tabular-nums">
-                {formatCount(s.deals)} <span className="ml-1 text-xs" style={MUTED}>{formatMoney(Math.round(s.value))}</span>
-              </span>
-            </div>
-            <div className="mt-1"><Bar share={(s.deals / max) * 100} /></div>
-          </li>
-        ))}
-      </ul>
     </Card>
+  )
+}
+
+function StageTile({ name, deals, value, share, color }: { name: string; deals: number; value: number; share?: number; color: string }) {
+  return (
+    <li className="rounded-xl border-t-4 p-3" style={{ background: 'var(--bg-raised)', borderColor: color }}>
+      <p className="truncate text-xs font-medium" style={MUTED} title={name}>{name}</p>
+      <p className="font-num mt-1 flex items-baseline gap-1.5 tabular-nums">
+        <span className="text-2xl font-semibold leading-none">{formatCount(deals)}</span>
+        {share !== undefined && <span className="text-xs" style={MUTED}>{share}%</span>}
+      </p>
+      <p className="font-num mt-1 text-sm tabular-nums" style={MUTED}>{formatMoney(Math.round(value))}</p>
+    </li>
   )
 }
 

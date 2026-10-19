@@ -11,10 +11,13 @@ import com.ie.evalos.domain.ClientAccount;
 import com.ie.evalos.domain.ClientCredentialToken;
 import com.ie.evalos.domain.CredentialPurpose;
 import com.ie.evalos.domain.PortalAudience;
+import com.ie.evalos.domain.SyncEntity;
+import com.ie.evalos.domain.SyncOutboxEntry;
 import com.ie.evalos.integration.GhlWriteClient;
 import com.ie.evalos.integration.MailTransport;
 import com.ie.evalos.repository.ClientAccountRepository;
 import com.ie.evalos.repository.ClientCredentialTokenRepository;
+import com.ie.evalos.repository.SyncOutboxRepository;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -76,13 +79,14 @@ public class ClientAccountService {
 	private final ClientMailer mailer;
 
 	/**
-	 * GHL's contact door, for {@link #ensureCrmIdentity} and nothing else on this class.
+	 * GHL's contact door, for {@link #ensureCrmIdentity} and {@link #linkCrmIdentity} and nothing
+	 * else on this class.
 	 *
 	 * <p>Invariant 7: GHL owns contact identity, so EvalOS asks it whether this email is somebody
 	 * it already has rather than deciding for itself. One call covers both branches.
 	 *
-	 * <p><strong>Never reached from an unauthenticated route</strong> (D3a): set-password and
-	 * sign-in only.
+	 * <p><strong>Never reached from an unauthenticated route</strong> (D3a): set-password, and the
+	 * outbox drain for a sign-in's queued repair.
 	 */
 	private final GhlWriteClient ghlContacts;
 
@@ -100,6 +104,13 @@ public class ClientAccountService {
 	private final PortalAccessService links;
 
 	private final AuditService audit;
+
+	/**
+	 * Where sign-in leaves the contact link it cannot wait for (Unit 45's outbox). Written in the
+	 * sign-in's own transaction: the row commits with the sign-in or not at all, and the drain's
+	 * {@link #linkCrmIdentity} does the GHL call later, outside any request.
+	 */
+	private final SyncOutboxRepository outbox;
 
 	private final PasswordEncoder encoder;
 
@@ -127,7 +138,7 @@ public class ClientAccountService {
 
 	ClientAccountService(ClientAccountRepository accounts, ClientCredentialTokenRepository credentials,
 			ClientMailer mailer, GhlWriteClient ghlContacts, ContactSnapshotService contacts,
-			PortalAccessService links, AuditService audit,
+			PortalAccessService links, AuditService audit, SyncOutboxRepository outbox,
 			PasswordEncoder encoder,
 			@Value("${evalos.portal.client-brand}") UUID brandId,
 			@Value("${evalos.portal.credential-ttl}") Duration credentialTtl,
@@ -139,6 +150,7 @@ public class ClientAccountService {
 		this.contacts = contacts;
 		this.links = links;
 		this.audit = audit;
+		this.outbox = outbox;
 		this.encoder = encoder;
 		this.brandId = brandId;
 		this.credentialTtl = credentialTtl;
@@ -411,18 +423,17 @@ public class ClientAccountService {
 		}
 
 		account.recordSignIn(Instant.now());
-		// ponytail: a synchronous GHL call inside this transaction, so an account with no contact
-		// pays a full client timeout on every sign-in during a GHL outage, holding a Hikari
-		// connection while it does. The common path is a no-op — a client with a password came
-		// through setPassword, which linked them — and `identify` now repairs the pathological case
-		// before sign-in is ever reached. Move this behind the Unit 45 outbox if it ever bites.
-		//
 		// **"Login verify and update if something missing."** A client whose CRM link never got
 		// written — GHL was down when they set their password, or their row was seeded by V45 from
-		// a snapshot that carried no id — repairs it here, on the one route every returning client
-		// passes through. Idempotent and silent: an account that already has a contact makes no
-		// call, and a GHL outage leaves the sign-in alone, exactly as it does at set-password.
-		ensureCrmIdentity(account);
+		// a snapshot that carried no id — repairs it on the one route every returning client passes
+		// through. **Queued, never called from here:** sign-in makes no GHL call and holds no
+		// connection across one, so a GHL outage costs it nothing. The drain links the account via
+		// {@link #linkCrmIdentity}. Idempotent twice over: a linked account queues nothing, and a
+		// second sign-in before the drain collapses onto the pending row.
+		if (account.getGhlContactId() == null) {
+			outbox.enqueueIfAbsent(account.getBrandId(), SyncEntity.CLIENT_ACCOUNT.name(), account.getId(),
+					SyncOutboxEntry.Intent.UPSERT.name());
+		}
 		audit.recordPortalEvent(account.getBrandId(), PortalAudience.CLIENT, "CLIENT_ACCOUNT",
 				account.getId(), AuditAction.CLIENT_SIGNED_IN, null,
 				"signed in as " + account.getEmail());
@@ -498,10 +509,10 @@ public class ClientAccountService {
 	/**
 	 * Gives this client a GHL contact, now that they have proved they can read their own mail.
 	 *
-	 * <p><strong>Called from two places, neither unauthenticated, and idempotent so that it can
-	 * be.</strong> Set-password (the mailbox is proved) and sign-in — the repair D3c describes, for
-	 * an account whose set-password met a GHL outage or whose row was seeded by {@code V45} from a
-	 * snapshot carrying no id. An account opened for a case ({@link #openForCase}) is born linked.
+	 * <p><strong>Called from set-password only</strong> (the mailbox is proved). Sign-in's repair —
+	 * D3c, for an account whose set-password met a GHL outage or whose row was seeded by {@code V45}
+	 * from a snapshot carrying no id — is queued instead and runs as {@link #linkCrmIdentity}. An
+	 * account opened for a case ({@link #openForCase}) is born linked.
 	 *
 	 * <p><strong>Idempotent on {@code ghl_contact_id}, which is what makes it safe here.</strong>
 	 * A seeded {@code V45} client resetting a forgotten password already has an id, and re-upserting
@@ -513,41 +524,60 @@ public class ClientAccountService {
 	 * (D3c).
 	 *
 	 * @return whether a contact was linked <em>by this call</em> — false when one was already
-	 *         there and false when GHL refused. Every caller is transactional, so the link is
+	 *         there and false when GHL refused. The caller is transactional, so the link is
 	 *         written by dirty checking rather than an explicit save.
 	 *
 	 * <p>Inside the caller's transaction, on GHL's bounded timeout. {@code identify}'s
 	 * no-transaction rule is about SMTP on an unauthenticated flood surface and does not reach
 	 * here.
 	 */
-	public boolean ensureCrmIdentity(ClientAccount account) {
+	private boolean ensureCrmIdentity(ClientAccount account) {
 		if (account.getGhlContactId() != null) {
 			return false;
 		}
 		try {
-			GhlWriteClient.UpsertedContact contact = ghlContacts.upsertContact(account.getFirstName(),
-					account.getLastName(), account.getEmail(), account.getPhone(),
-					GhlWriteClient.SOURCE_CLIENT_PORTAL);
-			account.linkGhlContact(contact.id());
-			// The CRM mirror, found or created — Unit 44c. Nested rather than beside the upsert:
-			// a snapshot keyed on a contact id needs the contact to have answered first.
-			try {
-				account.linkContact(contacts.findOrCreate(account.getBrandId(),
-						ContactSnapshotService.Details.fromSignUp(contact.id(),
-								fullNameOf(account.getFirstName(), account.getLastName()),
-								account.getEmail(), account.getPhone()))
-						.getId());
-			}
-			catch (RuntimeException couldNotLink) {
-				log.warn("Linked {} to GHL without a CRM row: {}", com.ie.evalos.common.LogSafe.email(account.getEmail()),
-						couldNotLink.getMessage());
-			}
+			link(account);
 		}
 		catch (RuntimeException ghlRefused) {
 			log.warn("Set a password for {} without a GHL contact: {}. It will be created on their "
 					+ "first request.", com.ie.evalos.common.LogSafe.email(account.getEmail()), ghlRefused.getMessage());
 		}
 		return account.getGhlContactId() != null;
+	}
+
+	/**
+	 * The outbox's half of sign-in's repair: links the account the drain names, <strong>and lets a
+	 * GHL failure through</strong> so the drain retries or dead-letters it under its own rules.
+	 *
+	 * <p>Reached by id, so brand-checked against the outbox row's brand. A missing, foreign or
+	 * already-linked account is done: nothing to send.
+	 */
+	@Transactional
+	public void linkCrmIdentity(UUID brandId, UUID accountId) {
+		accounts.findById(accountId)
+				.filter((account) -> brandId.equals(account.getBrandId()) && account.getGhlContactId() == null)
+				.ifPresent(this::link);
+	}
+
+	/** GHL's contact first, then the CRM mirror. Throws only if GHL does; written by dirty checking. */
+	private void link(ClientAccount account) {
+		GhlWriteClient.UpsertedContact contact = ghlContacts.upsertContact(account.getFirstName(),
+				account.getLastName(), account.getEmail(), account.getPhone(),
+				GhlWriteClient.SOURCE_CLIENT_PORTAL);
+		account.linkGhlContact(contact.id());
+		// The CRM mirror, found or created — Unit 44c. Nested rather than beside the upsert:
+		// a snapshot keyed on a contact id needs the contact to have answered first.
+		try {
+			account.linkContact(contacts.findOrCreate(account.getBrandId(),
+					ContactSnapshotService.Details.fromSignUp(contact.id(),
+							fullNameOf(account.getFirstName(), account.getLastName()),
+							account.getEmail(), account.getPhone()))
+					.getId());
+		}
+		catch (RuntimeException couldNotLink) {
+			log.warn("Linked {} to GHL without a CRM row: {}", com.ie.evalos.common.LogSafe.email(account.getEmail()),
+					couldNotLink.getMessage());
+		}
 	}
 
 	private static InvalidRequestException refused() {

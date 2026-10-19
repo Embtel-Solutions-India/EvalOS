@@ -24,12 +24,13 @@ public enum Setting {
 	GHL_CORRELATION_FIELD(Group.GHL, Kind.TEXT, "evalos.ghl.opportunity-correlation-field", false),
 	/** Off pauses every write to GHL; the outbox keeps its rows and drains when writes are back on. */
 	GHL_WRITES_ENABLED(Group.GHL, Kind.BOOL, null, false),
+	/** Seconds a board's Refresh treats a pipeline as just read and skips it: absorbs a double-click. */
+	MANUAL_SYNC_FLOOR_SECONDS(Group.GHL, Kind.COUNT, "evalos.ghl.manual-sync-floor-seconds", false),
 
 	SALES_BRAND(Group.BRAND, Kind.BRAND, "evalos.ghl.sales-brand", false),
 
 	CASES_PER_CM(Group.TARGETS, Kind.COUNT, "evalos.workload.cases-per-cm", false),
-	ONBOARDING_TARGET(Group.TARGETS, Kind.COUNT, "evalos.roster.monthly-onboarding-target", false),
-	WON_LOOKBACK_DAYS(Group.TARGETS, Kind.COUNT, "evalos.sales.won-lookback-days", false);
+	ONBOARDING_TARGET(Group.TARGETS, Kind.COUNT, "evalos.roster.monthly-onboarding-target", false);
 
 	public enum Group { MAIL, GHL, BRAND, TARGETS }
 

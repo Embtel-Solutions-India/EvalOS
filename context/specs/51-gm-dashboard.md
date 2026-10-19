@@ -65,7 +65,10 @@ shape that is correct:
 > read the **wins** (`status=won`) over a created-window wide enough to contain the sales cycle,
 > and bucket them in EvalOS by `lastStatusChangeAt`.
 
-That is `evalos.sales.won-lookback-days` (default **180**). It is a correctness bound, not a
+**Retired 2026-10-14:** the overview reads the Unit 44 mirror, which dates a win by its status
+change directly, so the lookback below is gone (see the end of this section).
+
+That was `evalos.sales.won-lookback-days` (default **180**). It is a correctness bound, not a
 tuning knob: set it shorter than the real sales cycle and the won figure is **silently low**.
 `status=won` is what keeps the read small — six months of *wins* is a fraction of six months of
 *leads*.

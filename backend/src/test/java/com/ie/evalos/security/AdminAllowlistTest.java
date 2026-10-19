@@ -56,7 +56,7 @@ class AdminAllowlistTest {
 	@Test
 	void businessWritesAndTheGmsOwnControlsAreRefused() {
 		assertThat(AdminAllowlist.allows("PUT", "/api/metrics/gm/goal")).isFalse();
-		assertThat(AdminAllowlist.allows("POST", "/api/opportunities/board/refresh")).isFalse();
+		assertThat(AdminAllowlist.allows("POST", "/api/opportunities/board/pipeline/refresh")).isFalse();
 		assertThat(AdminAllowlist.allows("POST", "/api/cases/123/refund/approve")).isFalse();
 		assertThat(AdminAllowlist.allows("PUT", "/api/member-targets")).isFalse();
 	}

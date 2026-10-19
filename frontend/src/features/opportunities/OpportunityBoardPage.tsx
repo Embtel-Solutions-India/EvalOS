@@ -8,7 +8,7 @@ import StageColumn from '../board/StageColumn'
 import { stageColor } from '../board/stageColors'
 import { cardDate } from '../board/boardRules'
 import { CalendarDays } from 'lucide-react'
-import { isWonStage, moveDeal } from './boardMove'
+import { moveDeal } from './boardMove'
 import { openSummary } from './dealOpen'
 import MyTarget from './MyTarget'
 import WinNote from './WinNote'
@@ -189,7 +189,7 @@ export default function OpportunityBoardPage() {
     endDrag()
     if (!drag || !to || to === drag.from) return
     const target = columns?.find((column) => column.stageId === to)
-    if (target && isWonStage(target.stageName)) setPendingWin({ id: drag.id, from: drag.from, to })
+    if (target?.won) setPendingWin({ id: drag.id, from: drag.from, to })
     else void move(drag.id, drag.from, to)
   }
 

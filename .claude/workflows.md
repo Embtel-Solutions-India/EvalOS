@@ -43,8 +43,10 @@ POST /api/portal/auth/set-password     → spend token, set hash
                                       → ensureCrmIdentity (idempotent; repairs an outage)
                                       → mint token, sign in
 
-POST /api/portal/auth/sign-in         → verify, then ensureCrmIdentity — "login verify and update
-                                        if something missing". Idempotent and silent.
+POST /api/portal/auth/sign-in         → verify; an account with no contact link queues one
+                                        (sync_outbox CLIENT_ACCOUNT UPSERT, enqueueIfAbsent, same tx)
+                                        — no GHL call on sign-in since 2026-10-15
+SYNC_OUTBOX drain                     → linkCrmIdentity: upsert contact, link; GHL failure retries/dead-letters
 ```
 
 `ClientAccountService`, `ClientAuthController`, `CasePortalAccountListener`.
@@ -54,8 +56,8 @@ with "your portal account opens when your first case starts". An account opened 
 linked to its contact, so no GHL call is needed there.
 
 **A GHL outage never refuses anything here.** `identify` answers `MAIL_UNAVAILABLE` when the
-transport cannot reach someone, and `ensureCrmIdentity` repairs a missing contact link at the next
-sign-in (D3c). Same repair covers `V45` accounts seeded without an id.
+transport cannot reach someone, and a missing contact link is repaired from the next sign-in — queued, then
+linked by the outbox drain (D3c). Same repair covers `V45` accounts seeded without an id.
 
 **This already matches the target identity model.** All three states are supported; the upsert
 reuses an existing GHL contact and never duplicates it; sign-in creates nothing.

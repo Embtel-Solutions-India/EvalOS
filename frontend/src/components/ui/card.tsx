@@ -61,6 +61,8 @@ type CardProps = {
   variant?: "panel" | "tile";
   /** Grid placement, e.g. `col-span-12 xl:col-span-8` — the 12-column dashboards size cards by question, not equally. */
   className?: string;
+  /** Fill the height it is given and scroll the body inside it, so a long list never sets the row's height. */
+  fill?: boolean;
   children?: ReactNode;
 };
 
@@ -73,6 +75,7 @@ export function Card({
   action,
   variant = "panel",
   className: place = "",
+  fill,
   children,
 }: CardProps) {
   const interactive = to !== undefined && state.kind !== "loading";
@@ -111,13 +114,13 @@ export function Card({
         </div>
       </div>
 
-      <div className={tile ? "px-5 pt-2 pb-4" : "px-5 pt-3 pb-5"}>
+      <div className={`${tile ? "px-5 pt-2 pb-4" : "px-5 pt-3 pb-5"} ${fill ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
         {renderState(state, children)}
       </div>
     </>
   );
 
-  const className = `group block rounded-[1.25rem] text-left ${wide ? "md:col-span-2" : ""} ${place}`;
+  const className = `group rounded-[1.25rem] text-left ${fill ? "flex flex-col" : "block"} ${wide ? "md:col-span-2" : ""} ${place}`;
   const style = {
     background: "var(--bg-surface)",
     // Borderless: the shadow lifts the card. Only a warning draws an edge, because that edge is a status.

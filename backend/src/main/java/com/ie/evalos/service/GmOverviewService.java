@@ -87,21 +87,6 @@ public class GmOverviewService {
 	private final TeamMemberRepository teamMembers;
 	private final SellingBrand sellingBrand;
 	private final BigDecimal monthlyGoal;
-	private final int wonLookbackDays;
-
-	/** Absent only in hand-built tests, which keep the value they were given. */
-	private com.ie.evalos.config.AppSettings settings;
-
-	@org.springframework.beans.factory.annotation.Autowired(required = false)
-	void useSettings(com.ie.evalos.config.AppSettings settings) {
-		this.settings = settings;
-	}
-
-	/** The Administrator's value from Settings when saved (D83), else the configured one. */
-	private int wonLookbackDays() {
-		return com.ie.evalos.config.AppSettings.intOr(settings, com.ie.evalos.config.Setting.WON_LOOKBACK_DAYS, this.wonLookbackDays);
-	}
-
 	private final JdbcTemplate jdbc;
 	private final TeamMemberPipelineRepository assignments;
 	private final OpportunityMirrorService mirror;
@@ -109,15 +94,13 @@ public class GmOverviewService {
 	GmOverviewService(CaseLifecycleService lifecycle, TeamMemberRepository teamMembers,
 			SellingBrand sellingBrand, JdbcTemplate jdbc, TeamMemberPipelineRepository assignments,
 			OpportunityMirrorService mirror,
-			@Value("${evalos.sales.monthly-goal}") BigDecimal monthlyGoal,
-			@Value("${evalos.sales.won-lookback-days}") int wonLookbackDays) {
+			@Value("${evalos.sales.monthly-goal}") BigDecimal monthlyGoal) {
 		this.lifecycle = lifecycle;
 		this.jdbc = jdbc;
 		this.assignments = assignments;
 		this.mirror = mirror;
 		this.teamMembers = teamMembers;
 		this.monthlyGoal = monthlyGoal;
-		this.wonLookbackDays = wonLookbackDays;
 		this.sellingBrand = sellingBrand;
 	}
 
@@ -206,11 +189,10 @@ public class GmOverviewService {
 
 	/**
 	 * The period cut into at most {@link #TREND_BUCKETS} equal slices — daily up to a month, wider beyond —
-	 * so one rule serves every range the shell's filter can make. {@code comparable} is false when the
-	 * previous period reaches back past the won lookback: its wins would be partial, and a partial
-	 * comparison is worse than none.
+	 * so one rule serves every range the shell's filter can make. The mirror holds every opportunity, so
+	 * the previous period is always complete.
 	 */
-	public record Trend(boolean comparable, int bucketDays, List<TrendPoint> points) {
+	public record Trend(int bucketDays, List<TrendPoint> points) {
 	}
 
 	public record GmOverview(Headline headline, List<SourceRow> bySource, List<ServiceRow> byService, Sales sales,
@@ -234,7 +216,27 @@ public class GmOverviewService {
 	public record Today(int salesLeads, BigDecimal salesLeadValue, int won, BigDecimal wonValue, int marketingLeads,
 			BigDecimal marketingLeadValue, int monthWon, BigDecimal monthWonValue, int monthSalesLeads,
 			BigDecimal monthSalesLeadValue, int monthMarketingLeads, BigDecimal monthMarketingLeadValue,
-			int monthOpenLeads, BigDecimal monthOpenLeadValue, Changes changes) {
+			int monthOpenLeads, BigDecimal monthOpenLeadValue, Changes changes, StageNow newLeads, StageNow hot,
+			StageNow invoiceSent) {
+	}
+
+	/** Open deals standing in one kind of stage right now, across every desk's pipelines, each counted once. */
+	public record StageNow(int deals, BigDecimal value) {
+	}
+
+	/**
+	 * Which top-row tile an open deal's stage feeds, by the stage's name: Sales pipelines say "Lead", "Hot" and
+	 * "Invoice Sent", Marketing ones "New Lead" and "Hot Leads". ponytail: matched on GHL's stage names, so a stage
+	 * renamed in GHL drops out of its tile (display only — nothing routes on it); an EvalOS-owned stage kind like
+	 * {@code pipeline_stage.won} is the upgrade if that bites.
+	 */
+	static String tileOf(String stageName) {
+		return switch (stageName == null ? "" : stageName.strip().toLowerCase(Locale.ROOT)) {
+			case "lead", "new lead", "new leads" -> "new";
+			case "hot", "hot lead", "hot leads" -> "hot";
+			case "invoice sent" -> "invoice";
+			default -> null;
+		};
 	}
 
 	/**
@@ -247,6 +249,8 @@ public class GmOverviewService {
 	}
 
 	private static final int TREND_BUCKETS = 31;
+
+	private static final StageNow NONE = new StageNow(0, BigDecimal.ZERO);
 
 	// --- the read ------------------------------------------------------------
 
@@ -271,7 +275,6 @@ public class GmOverviewService {
 		LocalDate previousFrom = from.minusDays(span);
 		int bucketDays = (int) Math.ceil(span / (double) TREND_BUCKETS);
 		int buckets = (int) Math.ceil(span / (double) bucketDays);
-		boolean comparable = span <= wonLookbackDays();
 		int[] trendLeads = new int[buckets];
 		int[] trendPreviousLeads = new int[buckets];
 		BigDecimal[] trendWon = new BigDecimal[buckets];
@@ -339,14 +342,26 @@ public class GmOverviewService {
 		BigDecimal todayMarketingLeadValue = BigDecimal.ZERO;
 		BigDecimal todayWonValue = BigDecimal.ZERO;
 
+		// The earliest instant any figure below looks at. Every figure counts a deal by when it was opened or when
+		// its status last changed, except "open now", which the query keeps whatever its dates — so a deal opened
+		// and settled before this answers nothing here, and is not loaded.
+		Map<String, String> stageNames = new java.util.HashMap<>();
+		jdbc.query("SELECT ghl_id, name FROM pipeline_stage WHERE brand_id = ? AND missing_since IS NULL",
+				(rs) -> {
+					stageNames.put(rs.getString(1), rs.getString(2));
+				}, sellingBrand.id());
+		Map<String, StageNow> stagesNow = new java.util.HashMap<>();
+
+		Instant since = java.util.stream.Stream.of(previousStart, windowStart, lastMonthStart, yesterdayStart, monthStart)
+				.min(Comparator.naturalOrder()).orElseThrow();
+
 		for (TeamMember desk : desks) {
 			// The desk's pipelines are the set they are granted (D19b), the same one their board draws —
 			// not `team_member.ghl_pipeline_id`, which nothing has written since Unit 44b. A desk on two
 			// pipelines is both of them here, and a desk granted one after that migration is on this card.
-			// ponytail: each pipeline's whole history is loaded and filtered here; a date-bounded query is the
-			// upgrade if a desk ever holds a pipeline the size of the Master Pipeline.
 			List<Opportunity> rows = assignments.ghlIdsFor(desk.getId()).stream()
-					.flatMap((id) -> byPipeline.computeIfAbsent(id, (key) -> mirror.onPipelines(List.of(key))).stream())
+					.flatMap((id) -> byPipeline.computeIfAbsent(id, (key) -> mirror.onPipelinesSince(List.of(key), since))
+							.stream())
 					.toList();
 			boolean sales = desk.getRole() != Role.MARKETING;
 			String group = sales ? "S:" : "M:";
@@ -361,6 +376,11 @@ public class GmOverviewService {
 				boolean firstForGroup = counted.add(group + row.getGhlId());
 				boolean firstAtAll = counted.add("A:" + row.getGhlId());
 				Instant wonAt = WON.equalsIgnoreCase(row.getStatus()) ? row.getLastStatusChangeAt() : null;
+				String tile = firstAtAll && OpportunityBoardService.isOpen(row) ? tileOf(stageNames.get(row.getGhlStageId())) : null;
+				if (tile != null) {
+					stagesNow.merge(tile, new StageNow(1, amountOf(row)),
+							(a, b) -> new StageNow(a.deals() + b.deals(), a.value().add(b.value())));
+				}
 
 				if (firstForGroup && within(createdAt, todayStart, todayEnd)) {
 					if (sales) {
@@ -440,7 +460,7 @@ public class GmOverviewService {
 						}
 					}
 				}
-				else if (sales && firstForGroup && comparable && within(createdAt, previousStart, windowStart)) {
+				else if (sales && firstForGroup && within(createdAt, previousStart, windowStart)) {
 					bump(trendPreviousLeads, createdAt, previousFrom, bucketDays, window);
 				}
 
@@ -490,7 +510,7 @@ public class GmOverviewService {
 				new Marketing(marketingNew, marketingNewValue,
 						opportunities == 0 ? null : Math.round(unattributed * 100f / opportunities)),
 				evaluation,
-				trend(from, bucketDays, comparable, trendLeads, trendPreviousLeads, trendWon, trendPreviousWon),
+				trend(from, bucketDays, trendLeads, trendPreviousLeads, trendWon, trendPreviousWon),
 				Instant.now(),
 				null,
 				new Today(todaySalesLeads, todaySalesLeadValue, todayWon, todayWonValue, todayMarketingLeads,
@@ -500,17 +520,19 @@ public class GmOverviewService {
 								change(yesterdaySalesLeads, todaySalesLeads),
 								change(yesterdayMarketingLeads, todayMarketingLeads), change(lastMonthWon, monthWon),
 								change(lastMonthSalesLeads, monthSalesLeads),
-								change(lastMonthMarketingLeads, monthMarketingLeads))));
+								change(lastMonthMarketingLeads, monthMarketingLeads)),
+						stagesNow.getOrDefault("new", NONE), stagesNow.getOrDefault("hot", NONE),
+						stagesNow.getOrDefault("invoice", NONE)));
 	}
 
-	private static Trend trend(LocalDate from, int bucketDays, boolean comparable, int[] leads, int[] previousLeads,
+	private static Trend trend(LocalDate from, int bucketDays, int[] leads, int[] previousLeads,
 			BigDecimal[] won, BigDecimal[] previousWon) {
 		List<TrendPoint> points = new ArrayList<>();
 		for (int i = 0; i < leads.length; i++) {
-			points.add(new TrendPoint(from.plusDays((long) i * bucketDays), leads[i], won[i],
-					comparable ? previousLeads[i] : 0, comparable ? previousWon[i] : BigDecimal.ZERO));
+			points.add(new TrendPoint(from.plusDays((long) i * bucketDays), leads[i], won[i], previousLeads[i],
+					previousWon[i]));
 		}
-		return new Trend(comparable, bucketDays, points);
+		return new Trend(bucketDays, points);
 	}
 
 	/** The slice an instant falls in, counted from {@code base}; -1 when it is outside the period. */

@@ -94,6 +94,14 @@ public class SyncOutboxService {
 		this.settings = settings;
 	}
 
+	/** Links a client account's GHL contact for a sign-in that queued it. Absent only in hand-built tests. */
+	private ClientAccountService clientAccounts;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	void useClientAccounts(ClientAccountService clientAccounts) {
+		this.clientAccounts = clientAccounts;
+	}
+
 	/** The Administrator's value from Settings when saved (D83), else the configured one. */
 	private String correlationFieldId() {
 		return com.ie.evalos.config.AppSettings.or(settings, com.ie.evalos.config.Setting.GHL_CORRELATION_FIELD, this.correlationFieldId);
@@ -325,6 +333,11 @@ public class SyncOutboxService {
 	private boolean push(SyncOutboxEntry entry) {
 		if (entry.getEntityType() == SyncEntity.OPPORTUNITY_NOTE) {
 			return pushNote(entry);
+		}
+		if (entry.getEntityType() == SyncEntity.CLIENT_ACCOUNT) {
+			// Idempotent on the account's link, so a retry after a lost reply is a no-op once it lands.
+			clientAccounts.linkCrmIdentity(entry.getBrandId(), entry.getEntityId());
+			return false;
 		}
 		Opportunity row = opportunities.findById(entry.getEntityId())
 				.orElseThrow(() -> new IllegalStateException(

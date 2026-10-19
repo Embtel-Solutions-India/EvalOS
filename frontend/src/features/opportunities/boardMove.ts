@@ -39,12 +39,3 @@ export function moveDeal(
     return column
   })
 }
-
-
-/**
- * Every GHL pipeline here has a stage called "Won"; moving a deal there is winning it (D70), so it
- * asks for the production team's note. Mirrors `SalesDeskService.isWonStage`.
- */
-export function isWonStage(stageName: string): boolean {
-  return stageName.trim().toLowerCase() === 'won'
-}

@@ -92,6 +92,9 @@ PDF in pdf_object_key/pdf_filename/pdf_size_bytes; status gains CHANGES_REQUESTE
 **Case chat (Unit 57, V69):** conversations (UNIQUE case_id+type), conversation_members (never deleted;
 left_at stamped once; trigger-guarded), messages (text ≤4000, parent_message_id, deleted_at, search tsvector),
 message_reactions, message_reads (one watermark per member), push_subscriptions.
+**2026-10-15:** `push_outbox` (V92; push owed a retry, FK subscription ON DELETE CASCADE, deleted when settled,
+drained by PUSH_OUTBOX 1m across brands). `pipeline.purpose` gains MASTER (V93; ≤1 per brand, partial unique index).
+`pipeline_stage.won` (V94; EvalOS-owned, backfilled from name "won", mirror never overwrites; D70 wins by it).
 
 **V72 (Unit 59):** `expert_account` (expert_id unique → expert, password_hash, last_sign_in_at) and `expert_credential_token` (token_hash unique, purpose SET|RESET, expires_at, used_at — single use).
 

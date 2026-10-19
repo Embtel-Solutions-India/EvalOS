@@ -1,5 +1,6 @@
 package com.ie.evalos.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -25,4 +26,7 @@ public interface GhlUserRepository extends JpaRepository<GhlReference.User, UUID
 	long countByBrandId(UUID brandId);
 
 	Optional<GhlReference.User> findByBrandIdAndGhlId(UUID brandId, String ghlId);
+
+	/** Several users at once, so a timeline names every GHL author in one query rather than one each. */
+	List<GhlReference.User> findByBrandIdAndGhlIdIn(UUID brandId, Collection<String> ghlIds);
 }

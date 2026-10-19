@@ -264,10 +264,12 @@ public class SalesMeetingService {
 		requireText(eventId, "Which blocked time?");
 		String me = myGhlUser();
 		Instant now = Instant.now();
-		// ponytail: fixed window (yesterday to a year out). A block outside it cannot be removed
-		// here; widen it if anyone ever blocks time further ahead.
-		boolean mine = calendars.blockedTimes(me, now.minus(java.time.Duration.ofDays(1)).toEpochMilli(),
-				now.plus(java.time.Duration.ofDays(366)).toEpochMilli()).stream()
+		// Looked up in a window, not by id: GHL's single-event read (GET /calendars/events/appointments/{id})
+		// documents appointments only, says nothing of block slots, and does not confirm it returns the
+		// owning user — which is the whole question here. So the caller's own blocks are listed over a window
+		// wide enough for any block a person would still want to remove: a year back to five years out.
+		boolean mine = calendars.blockedTimes(me, now.minus(java.time.Duration.ofDays(366)).toEpochMilli(),
+				now.plus(java.time.Duration.ofDays(5 * 366)).toEpochMilli()).stream()
 				.anyMatch((block) -> eventId.equals(block.id()));
 		if (!mine) {
 			throw new ForbiddenException("That is not one of your blocked times");

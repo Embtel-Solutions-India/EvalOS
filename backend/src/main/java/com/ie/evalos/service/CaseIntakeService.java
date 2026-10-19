@@ -152,10 +152,10 @@ public class CaseIntakeService {
 	 * for the amount, so the latest won-opportunity figure wins. Still one value and never
 	 * a running total, so a correction cannot double-count.
 	 *
-	 * <p><strong>{@code dealValue} and {@code ghlOpportunityId} move together, always.</strong>
-	 * They are two halves of one fact — this deal, for this money — and they arrive in the same
-	 * delivery, so writing one without the other is what lets a case carry opp-B's amount under
-	 * opp-A's id. Unit 18 closes the opportunity named by that column, so a stale id closes the
+	 * <p><strong>{@code dealValue} and {@code ghlOpportunityId} overwrite together, always.</strong>
+	 * They are two halves of one fact — this deal, for this money — so overwriting one without the
+	 * other is what lets a case carry opp-B's amount under opp-A's id. A delivery carrying only one
+	 * half may fill the case's missing half and nothing more ({@link #mergeHalf}). Unit 18 closes the opportunity named by that column, so a stale id closes the
 	 * wrong deal in GHL and leaves the paid one open. If the incoming id is already on another
 	 * open case in this brand, {@code V24} refuses the write, which is correct: one opportunity
 	 * is one case.
@@ -182,15 +182,12 @@ public class CaseIntakeService {
 		// figure moved and never what it moved to; the figures themselves are in the
 		// append-only webhook_event archive, which holds the raw payload of every delivery.
 		//
-		// Both halves or neither, per the pair rule above. GHL's Custom Webhook carries the
-		// deal only when the workflow author added it to customData, and each half is optional
-		// on its own — so a delivery naming one of the two names no deal this can write:
-		// writing the pair from a single non-null half blanks the other, which costs revenue
-		// recognition the amount or costs Unit 18 the id it closes the opportunity on.
-		//
-		// ponytail: a half-carried deal is ignored rather than merged into what the case
-		// already holds. Merge it if a workflow turns up that really does send the amount and
-		// the opportunity id in separate deliveries.
+		// The pair rule above, for a delivery naming both. GHL's Custom Webhook carries the deal
+		// only when the workflow author added it to customData, and each half is optional on its
+		// own — so a workflow may send the amount and the opportunity id in separate deliveries.
+		// A lone half is merged into what the case holds (see mergeHalf), never written as a pair:
+		// that would blank the other half, costing revenue recognition the amount or Unit 18 the id
+		// it closes the opportunity on.
 		String moneyNote = "";
 		if (request.dealValue() != null && request.ghlOpportunityId() != null) {
 			if (subject.getDealValue() == null) {
@@ -204,12 +201,47 @@ public class CaseIntakeService {
 			subject.setDealValue(request.dealValue());
 			subject.setGhlOpportunityId(request.ghlOpportunityId());
 		}
+		else {
+			moneyNote = mergeHalf(subject, request.dealValue(), request.ghlOpportunityId());
+		}
 
 		Case saved = cases.save(subject);
 		audit.recordSystemEvent(brand.getId(), OBJECT_TYPE, saved.getId(), AuditAction.UPDATED,
 				before, CaseLifecycleService.CaseSnapshot.of(saved,
 						"refreshed from GHL won opportunity" + moneyNote));
 		return saved;
+	}
+
+	/**
+	 * A delivery carrying one half of the deal: <strong>fill-only</strong>, unlike the pair.
+	 *
+	 * <p>A lone half fills the half the case is missing, and a replay of the same value is a no-op,
+	 * so redeliveries stay idempotent. It never overwrites a different value: a lone amount names no
+	 * opportunity, so it cannot say it corrects the deal the case holds, and a lone id names no
+	 * amount, so taking it would put one deal's money under another's id. That conflict is kept out
+	 * and flagged on the audit note rather than thrown — a refusal would only make GHL redeliver the
+	 * same half forever. The raw values are in the {@code webhook_event} archive, as for the pair.
+	 *
+	 * @return the audit-note suffix; empty when nothing changed
+	 */
+	private static String mergeHalf(Case subject, BigDecimal dealValue, String ghlOpportunityId) {
+		if (dealValue != null) {
+			if (subject.getDealValue() == null) {
+				subject.setDealValue(dealValue);
+				return " — deal value recorded";
+			}
+			return dealValue.compareTo(subject.getDealValue()) == 0 ? ""
+					: " — deal value without its opportunity differs from the case's; not applied";
+		}
+		if (ghlOpportunityId != null) {
+			if (subject.getGhlOpportunityId() == null) {
+				subject.setGhlOpportunityId(ghlOpportunityId);
+				return " — opportunity recorded";
+			}
+			return ghlOpportunityId.equals(subject.getGhlOpportunityId()) ? ""
+					: " — opportunity without its deal value differs from the case's; not applied";
+		}
+		return "";
 	}
 
 	/** A whitespace-only note is no note; the timeline should not draw empty quotation marks. */

@@ -28,7 +28,7 @@ import type { CardState } from '../../components/ui/card'
  *
  * **`refreshEvery` (ms) re-reads on a timer while the tab is visible** — for a screen over the mirror
  * only, whose rows the sweeps rewrite with nothing to tell the browser (D68 leaves mirrored screens
- * out of live updates). Never for one that reads GHL live, such as the GM overview: a poll there
+ * out of live updates), such as the GM overview. Never for one that reads GHL live: a poll there
  * would spend the shared 100-requests-per-10-seconds budget. A hidden tab does not poll.
  */
 /** The timer half of a metrics query, apart from the hook so it can be tested without a DOM. */

@@ -45,6 +45,14 @@ public class PipelineStage extends ScopedEntity {
 	@Column(name = "missing_since")
 	private Instant missingSince;
 
+	/**
+	 * Moving a deal here wins it (D70). <strong>EvalOS's column, not GHL's</strong> (V94): GHL has
+	 * no such marker, so {@link #syncFromGhl} never touches it. A new stage named "Won" starts out
+	 * won, so nothing changes out of the box; after that only an Admin changes it.
+	 */
+	@Column(name = "won", nullable = false)
+	private boolean won;
+
 	protected PipelineStage() {
 		// for JPA
 	}
@@ -56,6 +64,7 @@ public class PipelineStage extends ScopedEntity {
 		this.name = name;
 		this.position = position;
 		this.syncedAt = Instant.now();
+		this.won = "won".equalsIgnoreCase(name.strip());
 	}
 
 	public void syncFromGhl(String ghlId, String name, int position) {
@@ -94,6 +103,14 @@ public class PipelineStage extends ScopedEntity {
 
 	public Instant getMissingSince() {
 		return missingSince;
+	}
+
+	public boolean isWon() {
+		return won;
+	}
+
+	public void setWon(boolean won) {
+		this.won = won;
 	}
 
 	public boolean isLive() {

@@ -146,12 +146,14 @@ public class OpportunityNoteService {
 		Map<UUID, String> staff = teamMembers.findAllById(
 				ours.stream().map(OpportunityNote::getAuthorId).distinct().toList()).stream()
 				.collect(Collectors.toMap(TeamMember::getId, TeamMember::getDisplayName, (a, b) -> a));
-		// ponytail: one lookup per distinct GHL author — a handful per deal. Add a findByGhlIdIn if a
-		// timeline ever carries dozens of authors.
-		Map<String, String> ghlAuthors = theirs.stream().map(GhlNote::getGhlUserId)
-				.filter(java.util.Objects::nonNull).distinct()
-				.collect(Collectors.toMap((id) -> id, (id) -> ghlUsers.findByBrandIdAndGhlId(brand, id)
-						.map(GhlReference.User::getName).orElse("")));
+		// Every GHL author in one read rather than one per author.
+		List<String> ghlAuthorIds = theirs.stream().map(GhlNote::getGhlUserId)
+				.filter(java.util.Objects::nonNull).distinct().toList();
+		// Not Map.of(): a GHL note with no author looks itself up by null below, which Map.of() refuses.
+		Map<String, String> ghlAuthors = ghlAuthorIds.isEmpty() ? java.util.Collections.emptyMap()
+				: ghlUsers.findByBrandIdAndGhlIdIn(brand, ghlAuthorIds).stream()
+						.filter((user) -> user.getName() != null)
+						.collect(Collectors.toMap(GhlReference.User::getGhlId, GhlReference.User::getName, (a, b) -> a));
 
 		List<Note> timeline = new ArrayList<>();
 		ours.forEach((note) -> timeline.add(new Note(note.getId(), note.getBody(), note.getAuthorId(),

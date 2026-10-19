@@ -39,8 +39,18 @@ export type MirroredPipeline = {
   name: string;
   position: number | null;
   purpose: string;
-  stages: unknown[];
+  /** A count: the list payload carries no stages (Unit 38); `fetchStages` has them. */
+  stages: number;
   syncedAt: string | null;
+  missingSince: string | null;
+};
+
+/** One mirrored stage. `won`: moving a deal here closes it won (D70); EvalOS's flag, not GHL's (V94). */
+export type MirroredStage = {
+  id: string;
+  name: string;
+  position: number;
+  won: boolean;
   missingSince: string | null;
 };
 
@@ -83,6 +93,7 @@ export const PURPOSES = [
   "MARKETING",
   "DELIVERY",
   "EXPERT_HIRING",
+  "MASTER",
 ] as const;
 
 export const fetchStaff = (signal?: AbortSignal) =>
@@ -117,6 +128,10 @@ export const updateBrand = (id: string, edit: { name: string; currency: string |
   unwrap<Brand>(api.put(`/brands/${id}`, edit));
 export const setPurpose = (mirrorId: string, purpose: string) =>
   unwrap(api.put(`/ghl/pipelines/${mirrorId}/purpose`, { purpose }));
+export const fetchStages = (mirrorId: string, signal?: AbortSignal) =>
+  unwrap<MirroredStage[]>(api.get(`/ghl/pipelines/${mirrorId}/stages`, { signal }));
+export const setStageWon = (stageId: string, won: boolean) =>
+  unwrap<MirroredStage>(api.put(`/ghl/pipelines/stages/${stageId}/won`, { won }));
 
 /** Roles in the order a GM thinks of them, and the words they use. */
 export const ROLE_LABEL: Record<Role, string> = {

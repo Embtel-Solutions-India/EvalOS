@@ -113,10 +113,23 @@ class GhlPipelineControllerTest {
 	 * role the names of every other desk's funnel on a location EvalOS cannot attribute.
 	 */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "ADMIN")
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = { "ADMIN", "GM" })
 	void everyOtherRoleIsRefused(Role role) throws Exception {
 		mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(role)))
 				.andExpect(status().isForbidden());
+		mockMvc.perform(get("/api/ghl/pipelines/" + UUID.randomUUID() + "/stages")
+				.header(HttpHeaders.AUTHORIZATION, bearer(role)))
+				.andExpect(status().isForbidden());
+	}
+
+	/** The GM reads the list it edits; the Admin reads it without editing (the Pipelines screen is view-only to them). */
+	@Test
+	void theGmAndTheAdminBothReadThePipelines() throws Exception {
+		given(pipelines.all()).willReturn(List.of());
+		for (Role role : List.of(Role.GM, Role.ADMIN)) {
+			mockMvc.perform(get("/api/ghl/pipelines").header(HttpHeaders.AUTHORIZATION, bearer(role)))
+					.andExpect(status().isOk());
+		}
 	}
 
 	@Test
@@ -150,20 +163,65 @@ class GhlPipelineControllerTest {
 	@Test
 	void anUnknownPurposeIsRefusedWithTheAllowedValues() throws Exception {
 		mockMvc.perform(put("/api/ghl/pipelines/" + UUID.randomUUID() + "/purpose")
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN))
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
 				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
 				.content("{\"purpose\":\"WHATEVER\"}"))
 				.andExpect(status().isBadRequest());
 	}
 
-	/** Setting a purpose is an Administrator act: it decides where a client's request is routed. */
+	/** Setting a purpose is the GM's act: it decides where a client's request is routed. The Admin only reads it. */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "ADMIN")
-	void onlyTheAdminMaySetAPurpose(Role role) throws Exception {
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
+	void onlyTheGmMaySetAPurpose(Role role) throws Exception {
 		mockMvc.perform(put("/api/ghl/pipelines/" + UUID.randomUUID() + "/purpose")
 				.header(HttpHeaders.AUTHORIZATION, bearer(role))
 				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
 				.content("{\"purpose\":\"SALES\"}"))
+				.andExpect(status().isForbidden());
+	}
+
+	/** V94: a pipeline's stages, each with the won flag the Pipelines screen toggles. */
+	@Test
+	void theAdminSeesEachStageAndWhetherItWins() throws Exception {
+		UUID pipelineId = UUID.randomUUID();
+		com.ie.evalos.domain.PipelineStage won = new com.ie.evalos.domain.PipelineStage(BRAND_IE, pipelineId,
+				"s-won", "Won", 3);
+		ReflectionTestUtils.setField(won, "id", UUID.randomUUID());
+		given(pipelines.stagesOf(pipelineId)).willReturn(List.of(won));
+
+		mockMvc.perform(get("/api/ghl/pipelines/" + pipelineId + "/stages")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.ADMIN)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data[0].id").value(won.getId().toString()))
+				.andExpect(jsonPath("$.data[0].name").value("Won"))
+				.andExpect(jsonPath("$.data[0].won").value(true));
+	}
+
+	@Test
+	void theAdminMarksAStageWon() throws Exception {
+		com.ie.evalos.domain.PipelineStage closed = new com.ie.evalos.domain.PipelineStage(BRAND_IE,
+				UUID.randomUUID(), "s-closed", "Closed won", 3);
+		UUID id = UUID.randomUUID();
+		ReflectionTestUtils.setField(closed, "id", id);
+		closed.setWon(true);
+		given(pipelines.setWon(id, true)).willReturn(closed);
+
+		mockMvc.perform(put("/api/ghl/pipelines/stages/" + id + "/won")
+				.header(HttpHeaders.AUTHORIZATION, bearer(Role.GM))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"won\":true}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.data.won").value(true));
+	}
+
+	/** Marking a stage won changes what a drag does on every desk's board: the GM's call alone. */
+	@ParameterizedTest
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
+	void onlyTheGmMayMarkAStageWon(Role role) throws Exception {
+		mockMvc.perform(put("/api/ghl/pipelines/stages/" + UUID.randomUUID() + "/won")
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+				.content("{\"won\":true}"))
 				.andExpect(status().isForbidden());
 	}
 }

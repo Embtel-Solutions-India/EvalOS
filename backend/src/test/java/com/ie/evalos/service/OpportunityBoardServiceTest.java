@@ -52,9 +52,10 @@ class OpportunityBoardServiceTest {
 	private final com.ie.evalos.repository.GhlCustomFieldRepository customFields =
 			mock(com.ie.evalos.repository.GhlCustomFieldRepository.class);
 
+
 	private OpportunityBoardService service() {
 		return new OpportunityBoardService(deals, pipelines, assignments, STALE_AFTER,
-				new SellingBrand(SELLING_BRAND), customFields);
+				new SellingBrand(SELLING_BRAND), customFields, 30);
 	}
 
 	private void authenticate(Role role, String pipelineId) {
@@ -552,7 +553,7 @@ class OpportunityBoardServiceTest {
 		authenticate(Role.SALES, MINE);
 		givenMirrored(List.of(), MINE);
 
-		service().syncNow();
+		service().syncNow(MINE);
 
 		verify(deals).refreshIfStale(eq(MINE), any());
 		verify(deals, never()).refreshIfStale(eq(THEIRS), any());
@@ -618,7 +619,7 @@ class OpportunityBoardServiceTest {
 		when(pipelines.all()).thenReturn(List.of());
 		givenMirrored(List.of(), MINE);
 
-		service().syncNow();
+		service().syncNow(MINE);
 
 		verify(pipelines).sync();
 	}
@@ -635,10 +636,38 @@ class OpportunityBoardServiceTest {
 		authenticate(Role.SALES, MINE);
 		givenMirrored(List.of(), MINE);
 
-		service().syncNow();
+		service().syncNow(MINE);
 
 		// The @BeforeEach mirror holds two live pipelines, which is every state but the first run.
 		verify(pipelines, never()).sync();
 		verify(deals).refreshIfStale(eq(MINE), any());
+	}
+
+	/** The GM starts on the pipeline TAGGED Master, whatever it is called, ahead of one merely named so. */
+	@Test
+	void theGmStartsOnThePipelineTaggedMasterRatherThanOneNamedSo() {
+		authenticate(Role.GM, null);
+		Pipeline tagged = mirrored("pipe_tagged", "Head office", 2);
+		tagged.setPurpose(com.ie.evalos.domain.PipelinePurpose.MASTER);
+		when(pipelines.all()).thenReturn(List.of(mirrored(MINE, "Master Pipeline", 0), tagged));
+		givenMirrored(List.of());
+
+		assertThat(service().forPipeline(null).pipelineId()).isEqualTo("pipe_tagged");
+	}
+
+	/** The floor is the Administrator's setting when one is saved. */
+	@Test
+	void theManualSyncFloorIsTheSavedSetting() {
+		authenticate(Role.SALES, MINE);
+		givenMirrored(List.of(), MINE);
+		com.ie.evalos.config.AppSettings settings = mock(com.ie.evalos.config.AppSettings.class);
+		when(settings.app(com.ie.evalos.config.Setting.MANUAL_SYNC_FLOOR_SECONDS))
+				.thenReturn(java.util.Optional.of("90"));
+		OpportunityBoardService service = service();
+		service.useSettings(settings);
+
+		service.syncNow(MINE);
+
+		verify(deals).refreshIfStale(MINE, Duration.ofSeconds(90));
 	}
 }
