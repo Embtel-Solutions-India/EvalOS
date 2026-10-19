@@ -64,8 +64,8 @@ const LABELS: Record<string, string> = {
   GHL_LOCATION_ID: "Location ID",
   GHL_CORRELATION_FIELD: "Opportunity correlation field ID",
   GHL_WRITES_ENABLED: "Writes to GHL",
+  MANUAL_SYNC_FLOOR_SECONDS: "Refresh skips pipelines read in the last (seconds)",
   SALES_BRAND: "Selling brand",
   CASES_PER_CM: "Cases per Case Manager",
   ONBOARDING_TARGET: "Experts onboarded per month (target)",
-  WON_LOOKBACK_DAYS: "Won-deal lookback (days)",
 };

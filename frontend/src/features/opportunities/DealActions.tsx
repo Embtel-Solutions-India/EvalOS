@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import WinNote from './WinNote'
-import { isWonStage } from './boardMove'
 import {
   bookMeeting,
   closeDeal,
@@ -40,7 +39,7 @@ export default function DealActions({
 }: {
   opportunityId: string
   contactId: string
-  stages: readonly { stageId: string; stageName: string }[]
+  stages: readonly { stageId: string; stageName: string; won: boolean }[]
   onChanged: () => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -98,7 +97,7 @@ export default function DealActions({
           onChange={(event) => {
             const stageId = event.target.value
             const stage = stages.find((s) => s.stageId === stageId)
-            if (stage && isWonStage(stage.stageName)) setWinning({ stageId })
+            if (stage?.won) setWinning({ stageId })
             else if (stageId) run(() => moveStage(opportunityId, stageId))
           }}
           className="field mt-1 w-full"

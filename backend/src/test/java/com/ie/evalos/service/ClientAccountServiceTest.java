@@ -68,8 +68,11 @@ class ClientAccountServiceTest {
 
 	private final ContactSnapshotService contacts = mock(ContactSnapshotService.class);
 
+	private final com.ie.evalos.repository.SyncOutboxRepository outbox =
+			mock(com.ie.evalos.repository.SyncOutboxRepository.class);
+
 	private final ClientAccountService service = new ClientAccountService(accounts, credentials,
-			mailer, ghlContacts, contacts, links, audit, encoder, BRAND, Duration.ofMinutes(30),
+			mailer, ghlContacts, contacts, links, audit, outbox, encoder, BRAND, Duration.ofMinutes(30),
 			"https://client.example.com");
 
 	/**
@@ -273,6 +276,73 @@ class ClientAccountServiceTest {
 				eq(com.ie.evalos.domain.AuditAction.CLIENT_SIGNED_IN), any(), any());
 	}
 
+	/**
+	 * Sign-in's CRM repair is queued, never called: a GHL outage cannot cost a sign-in a client
+	 * timeout or hold its connection. The drain does the call ({@code linkCrmIdentity}).
+	 */
+	@Test
+	void signInQueuesAMissingContactLinkInsteadOfCallingGhl() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setPasswordHash(encoder.encode("Correct!1"));
+		UUID accountId = UUID.randomUUID();
+		ReflectionTestUtils.setField(account, "id", accountId);
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(account));
+
+		service.signIn("ana@example.com", "Correct!1");
+
+		verify(outbox).enqueueIfAbsent(BRAND, "CLIENT_ACCOUNT", accountId, "UPSERT");
+		verifyNoInteractions(ghlContacts);
+	}
+
+	/** An account that is already linked queues nothing. */
+	@Test
+	void signInToALinkedAccountQueuesNothing() {
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		account.setPasswordHash(encoder.encode("Correct!1"));
+		account.linkGhlContact("ghl-c-1");
+		given(accounts.findByBrandIdAndEmailIgnoreCase(BRAND, "ana@example.com"))
+				.willReturn(Optional.of(account));
+
+		service.signIn("ana@example.com", "Correct!1");
+
+		verifyNoInteractions(outbox, ghlContacts);
+	}
+
+	/** The drain's half: links the account, and lets a GHL failure through so the drain retries it. */
+	@Test
+	void theDrainLinksAQueuedAccountAndSurfacesAGhlFailure() {
+		UUID accountId = UUID.randomUUID();
+		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
+		given(accounts.findById(accountId)).willReturn(Optional.of(account));
+		given(ghlContacts.upsertContact(any(), any(), any(), any(), any()))
+				.willThrow(new com.ie.evalos.integration.GhlUnavailableException("GHL did not answer"))
+				.willReturn(new GhlWriteClient.UpsertedContact("ghl-c-1", "Ana", "ana@example.com", null));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.linkCrmIdentity(BRAND, accountId))
+				.isInstanceOf(com.ie.evalos.integration.GhlUnavailableException.class);
+		assertThat(account.getGhlContactId()).isNull();
+
+		service.linkCrmIdentity(BRAND, accountId);
+		assertThat(account.getGhlContactId()).isEqualTo("ghl-c-1");
+
+		// Linked now, so a replayed row makes no third call.
+		service.linkCrmIdentity(BRAND, accountId);
+		verify(ghlContacts, org.mockito.Mockito.times(2)).upsertContact(any(), any(), any(), any(), any());
+	}
+
+	/** Reached by id, so an account of another brand is never linked from this brand's row. */
+	@Test
+	void theDrainNeverLinksAnotherBrandsAccount() {
+		UUID accountId = UUID.randomUUID();
+		given(accounts.findById(accountId))
+				.willReturn(Optional.of(new ClientAccount(UUID.randomUUID(), "ana@example.com")));
+
+		service.linkCrmIdentity(BRAND, accountId);
+
+		verifyNoInteractions(ghlContacts);
+	}
+
 	@Test
 	void signInWithTheWrongPasswordIsRefusedAndAudited() {
 		ClientAccount account = new ClientAccount(BRAND, "ana@example.com");
@@ -300,7 +370,7 @@ class ClientAccountServiceTest {
 		PasswordEncoder hostile = mock(PasswordEncoder.class);
 		given(hostile.matches(any(), any())).willThrow(new IllegalArgumentException("must not be called"));
 		ClientAccountService hostileService = new ClientAccountService(accounts, credentials, mailer,
-				ghlContacts, contacts, links, audit, hostile, BRAND, Duration.ofMinutes(30),
+				ghlContacts, contacts, links, audit, outbox, hostile, BRAND, Duration.ofMinutes(30),
 				"https://client.example.com");
 
 		org.assertj.core.api.Assertions

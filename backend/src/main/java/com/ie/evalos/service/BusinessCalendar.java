@@ -62,23 +62,57 @@ public class BusinessCalendar {
 		}
 		ZonedDateTime start = from.atZone(ZONE);
 		ZonedDateTime end = to.atZone(ZONE);
-		Duration total = Duration.ZERO;
-		// ponytail: day-by-day scan. Stage-length spans are a handful of iterations at
-		// 50-100 cases/brand/month; precompute a business-day index if this ever has to
-		// measure years of history.
-		for (LocalDate day = start.toLocalDate(); !day.isAfter(end.toLocalDate()); day = day.plusDays(1)) {
-			if (!isBusinessDay(day)) {
-				continue;
-			}
-			ZonedDateTime open = day.atTime(OPEN).atZone(ZONE);
-			ZonedDateTime close = day.atTime(CLOSE).atZone(ZONE);
-			ZonedDateTime windowStart = start.isAfter(open) ? start : open;
-			ZonedDateTime windowEnd = end.isBefore(close) ? end : close;
-			if (windowEnd.isAfter(windowStart)) {
-				total = total.plus(Duration.between(windowStart, windowEnd));
+		LocalDate first = start.toLocalDate();
+		LocalDate last = end.toLocalDate();
+		if (first.equals(last)) {
+			return clipped(first, start, end);
+		}
+		// The two end days are clipped; every whole business day between them is a full 09:00-17:00,
+		// which is always eight hours — Los Angeles changes its clocks at 02:00, outside the window.
+		long whole = businessDaysBetween(first.plusDays(1), last.minusDays(1));
+		return clipped(first, start, end).plus(clipped(last, start, end))
+				.plus(Duration.between(OPEN, CLOSE).multipliedBy(whole));
+	}
+
+	/** One day's business hours that fall between {@code start} and {@code end}. */
+	private Duration clipped(LocalDate day, ZonedDateTime start, ZonedDateTime end) {
+		if (!isBusinessDay(day)) {
+			return Duration.ZERO;
+		}
+		ZonedDateTime open = day.atTime(OPEN).atZone(ZONE);
+		ZonedDateTime close = day.atTime(CLOSE).atZone(ZONE);
+		ZonedDateTime windowStart = start.isAfter(open) ? start : open;
+		ZonedDateTime windowEnd = end.isBefore(close) ? end : close;
+		return windowEnd.isAfter(windowStart) ? Duration.between(windowStart, windowEnd) : Duration.ZERO;
+	}
+
+	/**
+	 * Business days from {@code first} to {@code last}, both inclusive, without walking them: weekdays by
+	 * whole-week arithmetic, less the holidays in range. A date is a holiday when its own year's set holds
+	 * it — {@link #isBusinessDay}'s rule — so a set's carried-over neighbour is not counted twice.
+	 */
+	long businessDaysBetween(LocalDate first, LocalDate last) {
+		if (last.isBefore(first)) {
+			return 0;
+		}
+		long days = last.toEpochDay() - first.toEpochDay() + 1;
+		long weekdays = days / 7 * 5;
+		// The leftover is under a week, so this loop is at most six steps.
+		for (LocalDate day = first.plusDays(days / 7 * 7); !day.isAfter(last); day = day.plusDays(1)) {
+			if (day.getDayOfWeek() != DayOfWeek.SATURDAY && day.getDayOfWeek() != DayOfWeek.SUNDAY) {
+				weekdays++;
 			}
 		}
-		return total;
+		long holidays = 0;
+		for (int year = first.getYear(); year <= last.getYear(); year++) {
+			for (LocalDate holiday : holidays(year)) {
+				if (holiday.getYear() == year && !holiday.isBefore(first) && !holiday.isAfter(last)
+						&& holiday.getDayOfWeek() != DayOfWeek.SATURDAY && holiday.getDayOfWeek() != DayOfWeek.SUNDAY) {
+					holidays++;
+				}
+			}
+		}
+		return weekdays - holidays;
 	}
 
 	/**

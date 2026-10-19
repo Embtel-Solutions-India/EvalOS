@@ -4,6 +4,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.ie.evalos.common.PaymentDetailConverter;
 
@@ -23,9 +24,9 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * (its environment variable) and asks {@link #app} per use; a saved value wins, no saved value means the
  * environment applies. That keeps every consumer's boot behaviour exactly as it was when nothing is saved.
  *
- * <p>Reads come from memory. The map is reloaded after every save on this instance and at most
- * {@link #MAX_STALE_MS} later on any other.
- * ponytail: time-based staleness across instances; a cluster-wide invalidation is the upgrade if instances multiply.
+ * <p>Reads come from memory. The map is reloaded after every save on this instance; on every other one, the
+ * save's {@code NOTIFY} on {@link #CHANNEL} reaches {@link AppSettingsListener}, which {@link #invalidate}s it so
+ * the next read reloads. {@link #MAX_STALE_MS} stays as the floor for when the listener is down.
  *
  * <p>Deployment-wide, not brand-scoped: these configure the server, not a brand's rows.
  */
@@ -36,6 +37,9 @@ public class AppSettings {
 
 	static final long MAX_STALE_MS = 30_000;
 
+	/** The Postgres channel a save or reset is announced on. Delivered on commit, dropped on rollback. */
+	static final String CHANNEL = "evalos_app_setting";
+
 	/** Where a setting's current value comes from, for the screen. */
 	public enum Source { APP, ENVIRONMENT, UNSET }
 
@@ -45,6 +49,9 @@ public class AppSettings {
 
 	private volatile Map<Setting, String> saved;
 	private volatile long loadedAt;
+	/** Bumped by {@link #invalidate}; the map is fresh only while it matches the count its read started at. */
+	private final AtomicLong invalidations = new AtomicLong();
+	private volatile long loadedAtInvalidation;
 
 	AppSettings(JdbcTemplate jdbc, PaymentDetailConverter cipher, Environment environment) {
 		this.jdbc = jdbc;
@@ -102,13 +109,28 @@ public class AppSettings {
 		jdbc.update("INSERT INTO app_setting (key, value, updated_at, updated_by) VALUES (?, ?, now(), ?) "
 				+ "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now(), "
 				+ "updated_by = EXCLUDED.updated_by", setting.name(), stored, by);
+		announce();
 		reloadAfterCommit();
 	}
 
 	/** Deletes the saved value, so the environment applies again. */
 	public void clear(Setting setting) {
 		jdbc.update("DELETE FROM app_setting WHERE key = ?", setting.name());
+		announce();
 		reloadAfterCommit();
+	}
+
+	/**
+	 * Another instance saved: the next read reloads. Counted rather than flagged, so a notice that lands while a
+	 * read is in flight is not swallowed by that read finishing — it may have read the table before the commit.
+	 */
+	void invalidate() {
+		invalidations.incrementAndGet();
+	}
+
+	/** Tells the other instances. Postgres queues it with the transaction, so a rolled-back save announces nothing. */
+	private void announce() {
+		jdbc.execute("NOTIFY " + CHANNEL);
 	}
 
 	/**
@@ -144,7 +166,7 @@ public class AppSettings {
 	}
 
 	private boolean stale() {
-		return System.currentTimeMillis() - loadedAt > MAX_STALE_MS;
+		return System.currentTimeMillis() - loadedAt > MAX_STALE_MS || loadedAtInvalidation != invalidations.get();
 	}
 
 	/**
@@ -155,6 +177,7 @@ public class AppSettings {
 		if (!force && saved != null && !stale()) {
 			return saved;
 		}
+		long invalidation = invalidations.get();
 		Map<Setting, String> map = new EnumMap<>(Setting.class);
 		try {
 			jdbc.query("SELECT key, value FROM app_setting", (row) -> {
@@ -187,10 +210,12 @@ public class AppSettings {
 				saved = Map.of();
 			}
 			loadedAt = System.currentTimeMillis();
+			loadedAtInvalidation = invalidation;
 			return saved;
 		}
 		saved = map;
 		loadedAt = System.currentTimeMillis();
+		loadedAtInvalidation = invalidation;
 		return map;
 	}
 

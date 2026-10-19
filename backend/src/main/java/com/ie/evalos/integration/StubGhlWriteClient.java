@@ -119,9 +119,8 @@ public class StubGhlWriteClient extends GhlWriteClient {
 	}
 
 	@Override
-	public UpsertedOpportunity setStatus(String opportunityId, String pipelineId, String status) {
+	public void setStatus(String opportunityId, String pipelineId, String status) {
 		log.info("STUB setStatus {} -> {}", opportunityId, status);
-		return new UpsertedOpportunity(opportunityId, null, pipelineId, null, status, null, null, false);
 	}
 
 	@Override

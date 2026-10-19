@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isWonStage, moveDeal } from './boardMove'
+import { moveDeal } from './boardMove'
 import { openSummary } from './dealOpen'
 import type { BoardColumn, Deal } from './opportunityApi'
 
@@ -7,7 +7,7 @@ const deal = (id: string, amount: number | null): Deal => ({
   opportunityId: id, name: id, contactId: 'c', status: 'open', amount, updatedAt: null, source: null, service: null,
 })
 const column = (stageId: string, deals: Deal[]): BoardColumn => ({
-  stageId, stageName: stageId, position: 0, deals, total: deals.reduce((t, d) => t + (d.amount ?? 0), 0),
+  stageId, stageName: stageId, position: 0, won: false, deals, total: deals.reduce((t, d) => t + (d.amount ?? 0), 0),
 })
 
 describe('moveDeal', () => {
@@ -40,15 +40,6 @@ describe('moveDeal', () => {
     expect(next[0].deals[0].amount).toBe(120)
     expect(next[0].total).toBe(120)
     expect(next[1]).toBe(board[1])
-  })
-})
-
-describe('isWonStage', () => {
-  it('matches the Won stage however it is spaced or cased, and nothing else', () => {
-    expect(isWonStage(' Won ')).toBe(true)
-    expect(isWonStage('WON')).toBe(true)
-    expect(isWonStage('Invoice Sent')).toBe(false)
-    expect(isWonStage('Lost')).toBe(false)
   })
 })
 

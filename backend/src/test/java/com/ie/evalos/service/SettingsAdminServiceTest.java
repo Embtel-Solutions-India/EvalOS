@@ -115,7 +115,7 @@ class SettingsAdminServiceTest {
 				Map.of("MAIL_HOST", "smtp example.com"),
 				Map.of("MAIL_ENABLED", "yes"),
 				Map.of("CASES_PER_CM", "0"),
-				Map.of("WON_LOOKBACK_DAYS", "many"),
+				Map.of("ONBOARDING_TARGET", "many"),
 				Map.of("GHL_LOCATION_ID", "   "),
 				Map.of("NOT_A_SETTING", "x"))) {
 			assertThatThrownBy(() -> service.update(bad)).as(bad.toString()).isInstanceOf(InvalidRequestException.class);

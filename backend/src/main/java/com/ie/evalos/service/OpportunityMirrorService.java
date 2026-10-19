@@ -424,6 +424,21 @@ public class OpportunityMirrorService {
 	}
 
 	/**
+	 * The live deals on a set of GHL pipelines that are open now or were opened or changed status at or
+	 * after {@code since} — the GM overview's read, date-bounded so it does not load whole histories.
+	 */
+	@Transactional(readOnly = true)
+	public List<Opportunity> onPipelinesSince(List<String> ghlPipelineIds, Instant since) {
+		List<UUID> mirrored = ghlPipelineIds.stream()
+				.map(this::mirroredPipeline)
+				.filter(Optional::isPresent)
+				.map((found) -> found.get().getId())
+				.toList();
+		return mirrored.isEmpty() ? List.of()
+				: opportunities.findLiveOnPipelinesOpenOrTouchedSince(sellingBrand.id(), mirrored, since);
+	}
+
+	/**
 	 * Whether a deal is on a pipeline — the authorisation question every Sales and Marketing write
 	 * asks through {@code PipelineScope.requireMine}.
 	 *

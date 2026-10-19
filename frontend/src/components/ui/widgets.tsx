@@ -167,8 +167,11 @@ export function Donut({
   );
 }
 
-/** Initials in a soft accent disc — the Sketch's member avatar, without needing a photo EvalOS does not hold. */
-export function Avatar({ name }: { name: string }) {
+/**
+ * Initials in a soft accent disc — the Sketch's member avatar, without needing a photo EvalOS does not hold.
+ * `colour` tints the disc in that colour instead of the accent.
+ */
+export function Avatar({ name, colour }: { name: string; colour?: string }) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const letters = (
     parts.length > 1
@@ -180,8 +183,8 @@ export function Avatar({ name }: { name: string }) {
       aria-hidden
       className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-semibold"
       style={{
-        background: "var(--accent-soft)",
-        color: "var(--accent-primary)",
+        background: colour ? `color-mix(in srgb, ${colour} 14%, transparent)` : "var(--accent-soft)",
+        color: colour ?? "var(--accent-primary)",
       }}
     >
       {letters}

@@ -8,6 +8,7 @@ import com.ie.evalos.common.ApiResponse;
 import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.domain.Pipeline;
 import com.ie.evalos.domain.PipelinePurpose;
+import com.ie.evalos.domain.PipelineStage;
 import com.ie.evalos.service.PipelineMirrorService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -62,6 +63,21 @@ public class GhlPipelineController {
 	public record PurposeRequest(String purpose) {
 	}
 
+	/**
+	 * One mirrored stage, for marking which one wins a deal. {@code id} is EvalOS's key — the won
+	 * route writes an EvalOS row, as the purpose route does.
+	 */
+	public record StageOption(UUID id, String name, int position, boolean won, Instant missingSince) {
+
+		static StageOption of(PipelineStage stage) {
+			return new StageOption(stage.getId(), stage.getName(), stage.getPosition(), stage.isWon(),
+					stage.getMissingSince());
+		}
+	}
+
+	public record WonRequest(boolean won) {
+	}
+
 	private final PipelineMirrorService mirror;
 
 	GhlPipelineController(PipelineMirrorService mirror) {
@@ -69,7 +85,7 @@ public class GhlPipelineController {
 	}
 
 	@GetMapping("/pipelines")
-	@PreAuthorize("hasRole('ADMIN')")
+	@PreAuthorize("hasAnyRole('ADMIN', 'GM')")
 	public ApiResponse<List<PipelineOption>> list() {
 		return ApiResponse.ok(mirror.all().stream().map(this::option).toList());
 	}
@@ -86,10 +102,27 @@ public class GhlPipelineController {
 	 * route keyed on a foreign id would be one recreate away from addressing nothing.
 	 */
 	@PutMapping("/pipelines/{mirrorId}/purpose")
-	@PreAuthorize("hasRole('ADMIN')")
+	@PreAuthorize("hasRole('GM')")
 	public ApiResponse<PipelineOption> setPurpose(@PathVariable UUID mirrorId,
 			@RequestBody PurposeRequest request) {
 		return ApiResponse.ok(option(mirror.setPurpose(mirrorId, parse(request.purpose()))));
+	}
+
+	/** One pipeline's stages with their won flag, in GHL's order — what a pipeline row expands to. */
+	@GetMapping("/pipelines/{mirrorId}/stages")
+	@PreAuthorize("hasAnyRole('ADMIN', 'GM')")
+	public ApiResponse<List<StageOption>> stages(@PathVariable UUID mirrorId) {
+		return ApiResponse.ok(mirror.stagesOf(mirrorId).stream().map(StageOption::of).toList());
+	}
+
+	/**
+	 * Marks a stage as winning a deal, or not (D70, V94). EvalOS's own column on a mirrored stage:
+	 * a deal moved onto it closes won and needs the production team's note.
+	 */
+	@PutMapping("/pipelines/stages/{stageId}/won")
+	@PreAuthorize("hasRole('GM')")
+	public ApiResponse<StageOption> setWon(@PathVariable UUID stageId, @RequestBody WonRequest request) {
+		return ApiResponse.ok(StageOption.of(mirror.setWon(stageId, request.won())));
 	}
 
 	private PipelineOption option(Pipeline pipeline) {

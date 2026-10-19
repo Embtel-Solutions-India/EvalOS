@@ -371,6 +371,7 @@ public class DocumentStore {
 	 * // ponytail: one prefix for every document a client sends, case or request. Unit 53's funnel
 	 * // upload is a step earlier in the lifecycle and lands in the same place, which is what makes
 	 * // Handoff A's carry-forward a row insert over the same object rather than an S3 copy.
+	 * // Split the prefix only if request and case documents ever need different retention or access.
 	 * </pre>
 	 *
 	 * @param ghlContactId GHL's contact id — the one identifier that represents a contact

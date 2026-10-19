@@ -87,33 +87,13 @@ export function PipelineSummary({ pipelines, state }: { pipelines?: MirroredPipe
 
 export function SyncSummary({ health, state }: { health?: SyncHealth; state: CardState }) {
   const byKind = count((health?.drifts ?? []).map((d) => readable(d.kind)));
-  // With no drift the Drift table below already says "EvalOS and GHL agree"; a second card saying so is noise.
-  const drifting = byKind.size > 0;
+  // The outbox numbers live in the page's tiles; with no drift the Drift table already says "agree".
+  if (byKind.size === 0) return null;
   return (
     <div className={ROW}>
-      <Card className={`col-span-12 ${drifting ? "md:col-span-6" : ""}`} title="Outbox to GHL" state={state}>
-        {health && (
-          <>
-            <BarList
-              rows={[
-                ["Waiting to send", health.outbox.pending],
-                ["Dead", health.outbox.dead],
-              ]}
-              colors={["var(--accent-primary)", "var(--status-red)"]}
-            />
-            <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
-              {health.outbox.oldestPending
-                ? `Oldest waiting item: ${new Date(health.outbox.oldestPending).toLocaleString()}`
-                : "Nothing is waiting."}
-            </p>
-          </>
-        )}
+      <Card className="col-span-12" title="Open drift by kind" state={state}>
+        <BarList rows={[...byKind].sort((a, b) => b[1] - a[1])} color="var(--status-amber)" />
       </Card>
-      {drifting && (
-        <Card className="col-span-12 md:col-span-6" title="Open drift by kind" state={state}>
-          <BarList rows={[...byKind].sort((a, b) => b[1] - a[1])} color="var(--status-amber)" />
-        </Card>
-      )}
     </div>
   );
 }

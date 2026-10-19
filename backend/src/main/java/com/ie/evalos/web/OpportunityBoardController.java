@@ -53,30 +53,17 @@ public class OpportunityBoardController {
 		return ApiResponse.ok(board.forPipeline(id));
 	}
 
-	/** Refresh for one pipeline: syncs that one only. */
+	/**
+	 * Refresh for one pipeline: syncs that one only, then answers with it drawn.
+	 *
+	 * <p><strong>A reconciliation, not a live read</strong> (Unit 46): it brings the mirror's rows forward and
+	 * the board is drawn from them as always. <strong>POST because it writes</strong> the mirror. The
+	 * all-pipelines {@code POST /board/refresh} was removed on 2026-10-15 (Q25): nothing called it.
+	 */
 	@PostMapping("/board/pipeline/refresh")
 	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER')")
 	public ApiResponse<OpportunityBoardService.Board> refreshPipeline(
 			@org.springframework.web.bind.annotation.RequestParam(required = false) String id) {
 		return ApiResponse.ok(board.syncNow(id));
-	}
-
-	/**
-	 * Sync the mirror for this caller's pipelines, then answer with the board.
-	 *
-	 * <p><strong>A reconciliation, not a live read</strong>, and the difference is the point of
-	 * Unit 46: an ordinary load draws EvalOS rows and this brings those rows forward first. The
-	 * board never reads GHL on a render, with or without this route.
-	 *
-	 * <p><strong>POST because it writes.</strong> It updates the mirror — that is a side effect, and
-	 * a GET that changes rows is one a browser or a proxy will happily repeat.
-	 *
-	 * <p>Returns the drawn board rather than an acknowledgement, so the screen replaces its state in
-	 * one round trip instead of refreshing and then re-reading.
-	 */
-	@PostMapping("/board/refresh")
-	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'GM', 'EXPERT_NETWORK_MANAGER')")
-	public ApiResponse<OpportunityBoardService.Board> refresh() {
-		return ApiResponse.ok(board.syncNow());
 	}
 }

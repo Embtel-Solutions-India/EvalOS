@@ -57,6 +57,59 @@ class BusinessCalendarTest {
 		assertEquals(Duration.ZERO, calendar.elapsedBusinessTime(pt(2026, 7, 6, 15), pt(2026, 7, 6, 10)));
 	}
 
+	/**
+	 * The arithmetic answers exactly what the day-by-day scan it replaced did, over years of history: random
+	 * spans from 2020 to 2030, plus edges that a counting slip would miss — weekend and holiday boundaries,
+	 * a New Year observed in the year before, the DST changes, and spans starting or ending outside hours.
+	 */
+	@Test
+	void elapsedTimeMatchesTheDayByDayScanOverYears() {
+		java.util.List<Instant[]> spans = new java.util.ArrayList<>();
+		java.util.Random random = new java.util.Random(42);
+		long lo = pt(2020, 1, 1, 0).getEpochSecond();
+		long hi = pt(2030, 12, 31, 23).getEpochSecond();
+		for (int i = 0; i < 3000; i++) {
+			long a = lo + (long) (random.nextDouble() * (hi - lo));
+			long b = a + (long) (random.nextDouble() * (i % 3 == 0 ? 3 * 365 * 86400L : 20 * 86400L));
+			spans.add(new Instant[] { Instant.ofEpochSecond(a), Instant.ofEpochSecond(b) });
+		}
+		spans.add(new Instant[] { pt(2026, 7, 2, 16), pt(2026, 7, 6, 9) });     // into an observed holiday and weekend
+		spans.add(new Instant[] { pt(2026, 7, 3, 12), pt(2026, 7, 4, 12) });    // holiday to Saturday
+		spans.add(new Instant[] { pt(2021, 12, 30, 17), pt(2022, 1, 3, 9) });   // New Year 2022 observed 31 Dec 2021
+		spans.add(new Instant[] { pt(2027, 12, 31, 8), pt(2028, 1, 3, 18) });   // New Year 2028 observed 31 Dec 2027
+		spans.add(new Instant[] { pt(2026, 3, 6, 10), pt(2026, 3, 9, 10) });    // spring forward
+		spans.add(new Instant[] { pt(2026, 10, 30, 16), pt(2026, 11, 2, 11) }); // fall back
+		spans.add(new Instant[] { pt(2026, 1, 3, 0), pt(2026, 1, 4, 23) });     // a whole weekend
+		spans.add(new Instant[] { pt(2020, 1, 1, 0), pt(2030, 12, 31, 23) });   // the whole range
+		for (Instant[] span : spans) {
+			assertEquals(dayByDay(span[0], span[1]), calendar.elapsedBusinessTime(span[0], span[1]),
+					() -> span[0] + " to " + span[1]);
+		}
+	}
+
+	/** The scan {@code elapsedBusinessTime} used to run, kept as the reference it must agree with. */
+	private Duration dayByDay(Instant from, Instant to) {
+		if (!to.isAfter(from)) {
+			return Duration.ZERO;
+		}
+		var start = from.atZone(BusinessCalendar.ZONE);
+		var end = to.atZone(BusinessCalendar.ZONE);
+		Duration total = Duration.ZERO;
+		for (LocalDate day = start.toLocalDate(); !day.isAfter(end.toLocalDate()); day = day.plusDays(1)) {
+			if (!calendar.isBusinessDay(day)) {
+				continue;
+			}
+			var open = day.atTime(BusinessCalendar.OPEN).atZone(BusinessCalendar.ZONE);
+			var close = day.atTime(BusinessCalendar.CLOSE).atZone(BusinessCalendar.ZONE);
+			var windowStart = start.isAfter(open) ? start : open;
+			var windowEnd = end.isBefore(close) ? end : close;
+			if (windowEnd.isAfter(windowStart)) {
+				total = total.plus(Duration.between(windowStart, windowEnd));
+			}
+		}
+		return total;
+	}
+
 	@Test
 	void businessTimeAddsAndSubtractsAcrossTheClosedDays() {
 		// Thursday 16:00 + 4 business hours: one hour left on Thursday, three on Monday.

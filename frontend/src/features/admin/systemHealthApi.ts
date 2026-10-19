@@ -83,9 +83,18 @@ export type SystemHealthReport = {
     maxMs: number;
     routes: HttpRoute[];
   };
-  logs: { byLevel: Record<string, number> };
+  logs: { byLevel: Record<string, number>; recent?: LogLine[] };
   auth: { signInsOk: number | null; signInsRefused: number | null };
   jobs: { job: string; ok: number; failed: number; itemsFailed: number }[];
+};
+
+export type LogLine = {
+  at: string;
+  level: string;
+  logger: string;
+  thread: string;
+  message: string | null;
+  exception: string | null;
 };
 
 export type HttpRoute = {

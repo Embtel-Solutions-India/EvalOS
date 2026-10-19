@@ -30,6 +30,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -48,7 +49,7 @@ class OpportunityBoardControllerTest {
 	private static final UUID BRAND_IE = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
 	private static final OpportunityBoardService.Board BOARD = new OpportunityBoardService.Board(
-			List.of(new OpportunityBoardService.BoardColumn("s1", "New", 0,
+			List.of(new OpportunityBoardService.BoardColumn("s1", "New", 0, false,
 					List.of(new OpportunityBoardService.Deal("o1", "Acme Corp", "contact_1", "open",
 							new BigDecimal("1200"), Instant.parse("2026-09-01T09:00:00Z"), "Website",
 							"Credential evaluation")),

@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { stateOf } from "../dashboards/useMetrics";
 import { PipelineSummary } from "./adminSummaries";
+import { PipelineStages } from "./PipelineStages";
 import { useState } from "react";
+import { useMe } from "../../lib/authContext";
 import { PURPOSES, fetchPipelines, setPurpose } from "./adminApi";
 
 /**
@@ -11,6 +13,8 @@ import { PURPOSES, fetchPipelines, setPurpose } from "./adminApi";
  * infers a purpose from a name (D11a), so an untagged pipeline stays `UNASSIGNED`.
  */
 export default function PipelinesPage() {
+  // The GM sets purposes and won stages; the Administrator sees them and cannot change them (2026-10-15).
+  const canEdit = useMe().role === "GM";
   const query = useQuery({
     queryKey: ["admin", "pipelines"],
     queryFn: ({ signal }) => fetchPipelines(signal),
@@ -36,7 +40,9 @@ export default function PipelinesPage() {
         <p className="text-sm" style={{ color: "var(--text-muted)" }}>
           Mirrored from GHL every hour. The purpose says what a pipeline is for:
           only Expert hiring pipelines can be given to an expert network
-          manager, one by one, on the Staff screen.
+          manager, one by one, on the Staff screen. The one pipeline tagged
+          Master is where the GM&apos;s pipeline board starts.
+          {!canEdit && " Only the GM can change a purpose or a won stage."}
         </p>
       </header>
       <PipelineSummary pipelines={query.data} state={stateOf(query)} />
@@ -104,8 +110,8 @@ export default function PipelinesPage() {
                       </span>
                     )}
                   </td>
-                  <td className="font-num px-4 py-2 tabular-nums">
-                    {p.stages.length}
+                  <td className="px-4 py-2">
+                    <PipelineStages mirrorId={p.mirrorId} name={p.name} count={p.stages} canEdit={canEdit} />
                   </td>
                   <td className="px-4 py-2 text-xs">
                     {p.syncedAt
@@ -116,6 +122,7 @@ export default function PipelinesPage() {
                     <select
                       aria-label={`Purpose of ${p.name}`}
                       value={p.purpose}
+                      disabled={!canEdit}
                       onChange={(e) => void change(p.mirrorId, e.target.value)}
                       className="rounded-md border px-2 py-1 text-xs"
                       style={{

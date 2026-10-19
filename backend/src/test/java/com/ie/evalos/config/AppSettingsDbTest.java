@@ -1,5 +1,7 @@
 package com.ie.evalos.config;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -11,6 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * D83 against the real {@code app_setting} table: a secret is ciphertext at rest and plaintext only in memory,
@@ -45,6 +48,9 @@ class AppSettingsDbTest {
 	@Autowired
 	JdbcTemplate jdbc;
 
+	@Autowired
+	AppSettingsListener listener;
+
 	@Test
 	void aSecretIsCiphertextAtRestAndPlaintextOnlyInMemory(CapturedOutput output) {
 		settings.save(Setting.GHL_TOKEN, TOKEN, null);
@@ -74,6 +80,27 @@ class AppSettingsDbTest {
 		settings.clear(Setting.CASES_PER_CM);
 		assertThat(settings.effective(Setting.CASES_PER_CM)).isEqualTo("12");
 		assertThat(settings.source(Setting.CASES_PER_CM)).isEqualTo(AppSettings.Source.ENVIRONMENT);
+	}
+
+	/**
+	 * Another instance's save — a row written behind this instance's back, then the {@code NOTIFY} it sends — is
+	 * in force here well inside the time-based window, because the listener invalidated the cache.
+	 */
+	@Test
+	void anotherInstancesSaveIsHeardBeforeTheWindowRunsOut() {
+		await().atMost(Duration.ofSeconds(10)).until(listener::listening);
+		assertThat(settings.app(Setting.CASES_PER_CM)).isEmpty();
+
+		jdbc.update("INSERT INTO app_setting (key, value, updated_at) VALUES ('CASES_PER_CM', '31', now())");
+		jdbc.execute("NOTIFY " + AppSettings.CHANNEL);
+
+		try {
+			await().atMost(Duration.ofSeconds(10)).untilAsserted(
+					() -> assertThat(settings.app(Setting.CASES_PER_CM)).contains("31"));
+		}
+		finally {
+			settings.clear(Setting.CASES_PER_CM);
+		}
 	}
 
 	@Test

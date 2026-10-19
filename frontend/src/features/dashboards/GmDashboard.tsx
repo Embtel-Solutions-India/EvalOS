@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Bar,
@@ -16,7 +17,11 @@ import {
   KpiCard,
 } from "../../components/ui/card";
 import type { CardState } from "../../components/ui/card";
-import { Donut } from "../../components/ui/widgets";
+import { Avatar, Donut } from "../../components/ui/widgets";
+import { ChevronRight } from "lucide-react";
+import { fetchAssignable } from "../board/boardApi";
+import type { PickerOption } from "../board/boardRules";
+import type { Role } from "../../lib/session";
 import { formatCount, formatMoney } from "../../lib/money";
 import { rangeLabel, useFilters } from "../shell/filtersContext";
 import {
@@ -29,16 +34,13 @@ import {
   fetchGmOverview,
   fetchPmMetrics,
   fetchRevenueMetrics,
-  fetchTargets,
   type ExpertNetworkMetrics,
   type GmOverview,
   type GmTrend,
   type GmTrendPoint,
   type PmMetrics,
   type RevenueMetrics,
-  type TargetAmount,
 } from "./pmMetricsApi";
-import { DeskTarget } from "./DeskTarget";
 import RevenueGoalCard from "./RevenueGoalCard";
 import { SERIES } from "./journeyWidgets";
 import { TrendCard } from "./TrendCard";
@@ -72,13 +74,22 @@ import { emptyWhen, useMetrics } from "./useMetrics";
  * recruitment funnel (Unit 50). A tile that names a metric it cannot compute is the
  * header-contradicting-the-instrument failure this project has already had to clean up once.
  */
+/** The roles the Team card lists, grouped into departments. */
+const DEPARTMENTS: { name: string; roles: Role[]; dashboard?: "sales" | "marketing" }[] = [
+  { name: "Sales", roles: ["SALES"], dashboard: "sales" },
+  { name: "Marketing", roles: ["MARKETING"], dashboard: "marketing" },
+  { name: "Production", roles: ["PROJECT_MANAGER", "PROJECT_COORDINATOR", "CASE_MANAGER"] },
+];
+const TEAM_ROLES = DEPARTMENTS.flatMap((department) => department.roles);
+
 export default function GmDashboard() {
   const { activeBrandId, dateRange } = useFilters();
 
   const gm = useMetrics<GmOverview>(
     (signal) => fetchGmOverview(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
-    { key: 'GmDashboard:0' },
+    // Mirror-backed since 2026-10-13, so it polls like the desk dashboards instead of waiting for a tab focus.
+    { key: 'GmDashboard:0', refreshEvery: 60_000 },
   );
   const revenue = useMetrics<RevenueMetrics>(
     (signal) => fetchRevenueMetrics(activeBrandId, signal),
@@ -105,17 +116,19 @@ export default function GmDashboard() {
   const today = data?.today ?? null;
   const period = rangeLabel(dateRange).toLowerCase();
 
-  // A desk's monthly target is for a calendar month, so the column exists only while the range is one
-  // (the overview names the month in `goalMonth`). Amounts only: progress is on the rows already.
-  const targetMonth = data?.headline?.goalMonth ?? null;
-  const targets = useMetrics<TargetAmount[]>(
-    (signal) =>
-      targetMonth ? fetchTargets(targetMonth, signal) : Promise.resolve([]),
-    [targetMonth],
+  // The whole team by department: the same picker list the assignment screens read, one call per role.
+  const team = useMetrics<Record<Role, PickerOption[]>>(
+    async (signal) => {
+      const lists = await Promise.all(TEAM_ROLES.map((role) => fetchAssignable(role, signal)));
+      return Object.fromEntries(TEAM_ROLES.map((role, i) => [role, lists[i]])) as Record<Role, PickerOption[]>;
+    },
+    [],
     { key: 'GmDashboard:5' },
   );
-  const targetOf = (memberId: string) =>
-    targets.data?.find((t) => t.memberId === memberId)?.target ?? null;
+  const membersOf = (d: (typeof DEPARTMENTS)[number]) =>
+    d.roles.flatMap((role) => (team.data?.[role] ?? []).map((member) => ({ ...member, role })));
+  const [departmentName, setDepartmentName] = useState(DEPARTMENTS[0].name);
+  const department = DEPARTMENTS.find((d) => d.name === departmentName) ?? DEPARTMENTS[0];
 
   /**
    * The state for a tile fed by the GHL half of `/metrics/gm`.
@@ -132,10 +145,19 @@ export default function GmDashboard() {
     gm.state.kind === "ok" && data && !data.pipelineUnavailable && !today
       ? { kind: "error", note: "Not available from the server yet", onRetry: gm.reload }
       : pipelineState;
+  // Same rule for the stage tiles: a server without them is "not available", never a 0.
+  const stageState = (stage: unknown): CardState =>
+    todayState.kind === "ok" && !stage
+      ? { kind: "error", note: "Not available from the server yet", onRetry: gm.reload }
+      : todayState;
   const up = (value: number | null | undefined) =>
     value == null ? undefined : { value, better: "up" as const };
 
   const untouched = staleDeals(board.data);
+  const sourceWon = (data?.bySource ?? []).reduce(
+    (sum, row) => ({ value: sum.value + row.value, deals: sum.deals + row.deals }),
+    { value: 0, deals: 0 },
+  );
 
   const rankedServices = (data?.byService ?? [])
     .filter((row) => row.openCases > 0)
@@ -177,9 +199,10 @@ export default function GmDashboard() {
             change={wonChange}
             onSaved={gm.reload}
           />
-          {/* Two rows of four beside the revenue card: today and this calendar month, whatever the range filter
-              says. Arrows: today against yesterday, this month against the same days of last month (none on open
-              leads). Two to a row on a phone. */}
+          {/* Two rows of four beside the revenue card, whatever the range filter says. Top: today's revenue, then the
+              open deals standing in New leads / Hot / Invoice sent right now (count and value). Bottom: Sales and
+              Marketing leads today and this month. Arrows: today against yesterday, this month against the same days
+              of last month. Two to a row on a phone. */}
           <div className="col-span-12 grid grid-cols-2 gap-5 md:col-span-8 md:grid-cols-4">
             <KpiCard
               title="Today's revenue"
@@ -188,25 +211,28 @@ export default function GmDashboard() {
               state={todayState}
               value={today ? Math.round(today.wonValue) : null}
             />
-            <KpiCard
-              title="Won deals · today"
-              delta={up(today?.changes?.won)}
-              state={todayState}
-              value={today ? today.won : null}
-            />
-            <KpiCard
-              title="Won deals · this month"
-              delta={up(today?.changes?.monthWon)}
-              state={todayState}
-              value={today ? today.monthWon : null}
-              to="/opportunities/board"
-            />
-            <KpiCard
-              title="Open leads · this month"
-              state={todayState}
-              value={today ? today.monthOpenLeads : null}
-              to="/opportunities/board"
-            />
+            {/* Where the open deals stand right now, whatever the range says: a count with what it is worth. */}
+            {([
+              ["New leads", today?.newLeads],
+              ["Hot leads", today?.hot],
+              ["Invoice sent", today?.invoiceSent],
+            ] as const).map(([title, stage]) => (
+              <KpiCard
+                key={title}
+                title={title}
+                note="Open deals in this stage right now, on every desk's pipelines"
+                state={stageState(stage)}
+                value={stage ? stage.deals : null}
+                to="/opportunities/board"
+                action={
+                  stage && (
+                    <p className="font-num mt-1.5 text-sm tabular-nums" style={{ color: "var(--text-muted)" }}>
+                      {formatMoney(Math.round(stage.value))}
+                    </p>
+                  )
+                }
+              />
+            ))}
             <KpiCard
               title="Sales · today's leads"
               delta={up(today?.changes?.salesLeads)}
@@ -235,133 +261,136 @@ export default function GmDashboard() {
             />
           </div>
 
-          <div className="col-span-12 xl:col-span-7">
+          {/* The trend and the team, side by side from xl; stacked below that. */}
+          <div className="col-span-12 xl:col-span-6">
             <TrendCard
               trend={data?.trend ?? null}
               state={pipelineState}
               period={period}
             />
           </div>
+          {/* The trend card sets the row's height; from xl the team fills exactly that and scrolls inside it. Below
+              xl the card stacks and grows with its list (capped, so a long team still scrolls). */}
+          <div className="relative col-span-12 xl:col-span-6">
           <Card
-            className="col-span-12 xl:col-span-5"
-            title="By desk"
+            className="max-h-[32rem] xl:absolute xl:inset-0 xl:max-h-none"
+            fill
+            title="Team"
             state={emptyWhen(
-              pipelineState,
-              (data?.desks.length ?? 0) === 0,
-              "No salesperson has a GHL pipeline assigned. Assign one on the team screen.",
+              team.state,
+              TEAM_ROLES.every((role) => (team.data?.[role]?.length ?? 0) === 0),
+              "No active team members yet.",
             )}
-            /* Keyed on `team_member.ghl_pipeline_id`, not on GHL's `assignedTo`: EvalOS has no
-             mapping from a GHL user to a team member, and the pipeline link is the one it owns. */
           >
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ color: "var(--text-muted)" }}>
-                    <th className="pb-1 text-left text-xs font-medium uppercase">
-                      Desk
-                    </th>
-                    <th
-                      className="pb-1 text-right text-xs font-medium uppercase"
-                      title="Deals created in the selected date range"
-                    >
-                      New
-                    </th>
-                    <th className="pb-1 text-right text-xs font-medium uppercase">
-                      Won
-                    </th>
-                    <th className="pb-1 text-right text-xs font-medium uppercase">
-                      Value
-                    </th>
-                    <th
-                      className="pb-1 text-right text-xs font-medium uppercase"
-                      title="Open on the desk's pipelines right now — what their board's header shows"
-                    >
-                      Open now
-                    </th>
-                    {targetMonth && (
-                      <th
-                        className="pb-1 text-right text-xs font-medium uppercase"
-                        title="Sales: won value. Marketing: new leads. Click a cell to set the month's target."
-                      >
-                        Target
-                      </th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {data?.desks.map((row) => (
-                    <tr key={row.memberId}>
-                      <td className="py-1">
-                        <Link
-                          to={`/dashboard/${row.role === "MARKETING" ? "marketing" : "sales"}?member=${row.memberId}`}
-                          className="hover:underline"
-                          style={{ color: "var(--accent-primary)" }}
-                        >
-                          {row.name}
-                        </Link>
-                        {row.role === "MARKETING" && (
-                          <span
-                            className="ml-2 text-xs"
-                            style={{ color: "var(--text-muted)" }}
-                          >
-                            marketing
-                          </span>
-                        )}
-                      </td>
-                      <td className="font-num py-1 text-right tabular-nums">
-                        {row.newLeads}
-                      </td>
-                      <td className="font-num py-1 text-right tabular-nums">
-                        {row.won}
-                      </td>
-                      <td className="font-num py-1 text-right tabular-nums">
-                        {formatMoney(Math.round(row.wonValue))}
-                      </td>
-                      <td className="font-num py-1 text-right tabular-nums">
-                        {row.open}
-                        <span
-                          className="ml-1 text-xs"
-                          style={{ color: "var(--text-muted)" }}
-                        >
-                          {formatMoney(Math.round(row.openValue))}
-                        </span>
-                      </td>
-                      {targetMonth && (
-                        <td className="py-1 text-right">
-                          <DeskTarget
-                            row={row}
-                            target={targetOf(row.memberId)}
-                            known={targets.state.kind === "ok"}
-                            month={targetMonth}
-                            onSaved={targets.reload}
-                          />
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* Every active member, a tab per department. A Sales or Marketing member opens their own dashboard
+                (the GM's drill-down, D76); Production has no one-person dashboard yet, so those rows are names only. */}
+            <div className="flex gap-1.5" role="tablist" aria-label="Departments">
+              {DEPARTMENTS.map((d) => {
+                const selected = d.name === department.name;
+                return (
+                  <button
+                    key={d.name}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => setDepartmentName(d.name)}
+                    className="h-8 px-3 text-sm"
+                    style={{
+                      borderRadius: "var(--radius-md)",
+                      background: selected ? "var(--accent-soft)" : "var(--bg-surface)",
+                      border: `1px solid ${selected ? "var(--accent-primary)" : "var(--border-default)"}`,
+                      color: selected ? "var(--accent-primary)" : "var(--text-primary)",
+                    }}
+                  >
+                    {d.name} <span className="font-num tabular-nums" style={{ color: "var(--text-muted)" }}>{membersOf(d).length}</span>
+                  </button>
+                );
+              })}
             </div>
+            <ul className="-mx-2 mt-3" role="tabpanel" aria-label={department.name}>
+              {membersOf(department).length === 0 && (
+                <li className="px-2 py-3 text-sm" style={{ color: "var(--text-muted)" }}>No active {department.name.toLowerCase()} members.</li>
+              )}
+              {membersOf(department).map((member, i) => {
+                const body = (
+                  <>
+                    <Avatar name={member.label} colour={SERIES[i % SERIES.length]} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">{member.label}</span>
+                      <span className="block text-xs" style={{ color: "var(--text-muted)" }}>
+                        {readable(member.role)}
+                      </span>
+                    </span>
+                  </>
+                );
+                const href = department.dashboard && `/dashboard/${department.dashboard}?member=${member.id}`;
+                return (
+                  <li key={member.id}>
+                    {href ? (
+                      <Link
+                        to={href}
+                        title={`Open ${member.label}'s performance`}
+                        className="flex items-center gap-3 rounded-lg p-2 hover:bg-(--bg-raised)"
+                      >
+                        {body}
+                        <ChevronRight className="h-4 w-4 shrink-0" style={{ color: "var(--text-muted)" }} aria-hidden />
+                      </Link>
+                    ) : (
+                      <div className="flex items-center gap-3 p-2">{body}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </Card>
+          </div>
 
-          <ChartCard
+          <Card
             className="col-span-12 md:col-span-6"
             title="Business by source"
+            note="The same sales wins, split by the lead source on the opportunity."
+            action={
+              sourceWon.deals > 0 ? (
+                <span className="font-num text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                  {formatMoney(Math.round(sourceWon.value))} · {formatCount(sourceWon.deals)} deal{sourceWon.deals === 1 ? "" : "s"}
+                </span>
+              ) : undefined
+            }
             state={emptyWhen(
               pipelineState,
               (data?.bySource.length ?? 0) === 0,
               `No wins ${period}.`,
             )}
-            note="The same sales wins, split by the source GHL holds on the opportunity."
           >
-            <MoneyBars
-              rows={(data?.bySource ?? []).map((row) => ({
-                label: row.source,
-                value: Math.round(row.value),
-                detail: `${row.deals} deal${row.deals === 1 ? "" : "s"}`,
-              }))}
-            />
-          </ChartCard>
+            {/* A ranked list, not a chart: source names are long, there can be many, and a win with no amount
+                still has to show. Each row's bar is its share of the won value (of the deals, if nothing had a value). */}
+            <ul className="max-h-60 space-y-3 overflow-y-auto pr-1">
+              {(data?.bySource ?? []).map((row, i) => {
+                const share = sourceWon.value > 0 ? row.value / sourceWon.value : row.deals / Math.max(sourceWon.deals, 1);
+                const unknown = row.source === "Unattributed";
+                const colour = unknown ? "var(--status-amber)" : i < SERIES.length ? SERIES[i] : "var(--text-muted)";
+                return (
+                  <li key={row.source}>
+                    <div className="flex items-baseline gap-2 text-sm">
+                      <span className="h-2 w-2 shrink-0 self-center rounded-full" style={{ background: colour }} aria-hidden />
+                      <span className="min-w-0 flex-1 truncate" title={row.source} style={unknown ? { color: "var(--status-amber)" } : undefined}>
+                        {row.source}
+                      </span>
+                      <span className="font-num shrink-0 font-semibold tabular-nums">{formatMoney(Math.round(row.value))}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 pl-4">
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--bg-raised)" }} aria-hidden>
+                        <span className="block h-full rounded-full" style={{ width: `${Math.max(share * 100, 2)}%`, background: colour }} />
+                      </span>
+                      <span className="font-num w-24 shrink-0 text-right text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                        {row.deals} deal{row.deals === 1 ? "" : "s"} · {Math.round(share * 100)}%
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
           <ChartCard
             className="col-span-12 md:col-span-6"
             title="Business by service"
@@ -719,15 +748,14 @@ function readable(value: string): string {
 
 /**
  * The change in a trend figure against the previous period of the same length, as a whole percentage.
- * Null — so no arrow — when the previous period is partial (`comparable` is false) or its total is zero:
- * growth from nothing is not a percentage.
+ * Null — so no arrow — when the previous period's total is zero: growth from nothing is not a percentage.
  */
 function trendChangePct(
   trend: GmTrend | null | undefined,
   now: (point: GmTrendPoint) => number,
   before: (point: GmTrendPoint) => number,
 ): number | null {
-  if (!trend?.comparable || trend.points.length === 0) return null;
+  if (!trend || trend.points.length === 0) return null;
   const current = trend.points.reduce((sum, point) => sum + now(point), 0);
   const previous = trend.points.reduce((sum, point) => sum + before(point), 0);
   return previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;

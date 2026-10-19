@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { PillButton, PillSelect, PillToggle } from '../../components/ui/widgets'
 import { useMe } from '../../lib/authContext'
 import { fetchJourney, type Audience } from './journeyApi'
+import { DeskTarget } from './DeskTarget'
 import { DeskCard, JourneyChart, KpiRow, SourceCard, StageCard } from './journeyWidgets'
 import { useMetrics } from './useMetrics'
 
@@ -121,7 +122,23 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
           a manager asks them; the rail answers "who" and "where from". */}
       <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="min-w-0 space-y-4">
-          <KpiRow data={data} state={cardState} audience={audience} canSetTarget={role === 'GM' && !memberId} source={source} />
+          <KpiRow
+            data={data}
+            state={cardState}
+            audience={audience}
+            canSetTarget={role === 'GM' && !memberId}
+            source={source}
+            targetAction={isGm && data?.member ? (
+              <DeskTarget
+                memberId={data.member.memberId}
+                name={data.member.name}
+                role={audience === 'sales' ? 'SALES' : 'MARKETING'}
+                target={data.target.target}
+                month={data.target.month}
+                onSaved={reload}
+              />
+            ) : undefined}
+          />
           {/* Where the pipeline stands right now, above the year's journey (2026-10-14). */}
           <StageCard data={data} state={cardState} to={isGm ? undefined : '/opportunities/board'} />
           <JourneyChart

@@ -83,15 +83,17 @@ public class PipelineMirrorService {
 	/** Unit 44b's join table, so a mirrored pipeline can resolve a desk still on the old column. */
 	private final com.ie.evalos.repository.TeamMemberPipelineRepository assignments;
 	private final SellingBrand sellingBrand;
+	private final AuditService audit;
 
 	PipelineMirrorService(GhlPipelineClient ghl, PipelineRepository pipelines, PipelineStageRepository stages,
 			com.ie.evalos.repository.TeamMemberPipelineRepository assignments,
-			SellingBrand sellingBrand) {
+			SellingBrand sellingBrand, AuditService audit) {
 		this.ghl = ghl;
 		this.pipelines = pipelines;
 		this.stages = stages;
 		this.assignments = assignments;
 		this.sellingBrand = sellingBrand;
+		this.audit = audit;
 	}
 
 	/** Whether this deployment knows which brand owns the configured GHL location. */
@@ -295,10 +297,12 @@ public class PipelineMirrorService {
 				: pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrand.id());
 	}
 
-	/** One pipeline's stages in GHL's own display order. */
+	/** One pipeline's stages in GHL's own display order, the selling brand's only. */
 	@Transactional(readOnly = true)
 	public List<PipelineStage> stagesOf(UUID pipelineId) {
-		return stages.findByPipelineIdOrderByPositionAsc(pipelineId);
+		return stages.findByPipelineIdOrderByPositionAsc(pipelineId).stream()
+				.filter((stage) -> stage.getBrandId().equals(sellingBrand.id()))
+				.toList();
 	}
 
 	/**
@@ -315,8 +319,52 @@ public class PipelineMirrorService {
 				.filter((row) -> row.getBrandId().equals(sellingBrand.id()))
 				.orElseThrow(() -> new com.ie.evalos.common.InvalidRequestException(
 						"No such mirrored pipeline. Run the PIPELINE_MIRROR sweep if this is a new one."));
+		// One Master Pipeline per brand (V93's unique index). Refused rather than moved: un-tagging the old one
+		// here would be a second write the GM never asked for.
+		if (purpose == PipelinePurpose.MASTER) {
+			pipelines.findByBrandIdOrderByPositionAscNameAsc(pipeline.getBrandId()).stream()
+					.filter((other) -> other.getPurpose() == PipelinePurpose.MASTER && !other.getId().equals(pipelineId))
+					.findFirst()
+					.ifPresent((other) -> {
+						throw new com.ie.evalos.common.InvalidRequestException("'" + other.getName()
+								+ "' is already the Master Pipeline. Give it another purpose first.");
+					});
+		}
+		PipelinePurpose before = pipeline.getPurpose();
+		if (before == purpose) {
+			return pipeline;
+		}
 		pipeline.setPurpose(purpose);
-		return pipelines.save(pipeline);
+		Pipeline saved = pipelines.save(pipeline);
+		// Audited like the won flag: a purpose decides routing (hiring grants, the GM's start, intake).
+		audit.recordEvent("PIPELINE", saved.getId(), com.ie.evalos.domain.AuditAction.UPDATED,
+				com.ie.evalos.security.TenantContext.current().memberId(), Map.of("purpose", before.name()),
+				Map.of("purpose", purpose.name()));
+		return saved;
+	}
+
+	/**
+	 * The GM says whether moving a deal onto this stage wins it (D70, V94; the Admin only reads it).
+	 *
+	 * <p>EvalOS's own column on a mirrored stage, like {@code purpose} on a pipeline: GHL has no won
+	 * marker, so nothing is pushed and {@code sync()} never writes it back. Audited, because it
+	 * changes what a drag on every desk's board does.
+	 */
+	@Transactional
+	public PipelineStage setWon(UUID stageId, boolean won) {
+		PipelineStage stage = stages.findById(stageId)
+				.filter((row) -> row.getBrandId().equals(sellingBrand.id()))
+				.orElseThrow(() -> new com.ie.evalos.common.InvalidRequestException(
+						"No such mirrored stage. Run the PIPELINE_MIRROR sweep if this is a new one."));
+		boolean before = stage.isWon();
+		if (before == won) {
+			return stage;
+		}
+		stage.setWon(won);
+		PipelineStage saved = stages.save(stage);
+		audit.recordEvent("PIPELINE_STAGE", saved.getId(), com.ie.evalos.domain.AuditAction.UPDATED,
+				com.ie.evalos.security.TenantContext.current().memberId(), Map.of("won", before), Map.of("won", won));
+		return saved;
 	}
 
 	private static final class Counters {

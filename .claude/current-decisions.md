@@ -538,7 +538,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   expert reads it with the offer, above Accept. Built as Unit 71 (`71-offer-and-win-notes.md`).
 - **D70.** **A deal won in EvalOS carries a Sales note for production** (2026-10-01, the business;
   GHL's won has no place for one). Won refuses a blank note — **and so does moving the deal to its
-  pipeline's Won stage** (board drag or stage picker), which wins the deal (stage + status won); the note is a deal note flagged
+  pipeline's Won stage** (board drag or stage picker), which wins the deal. **A Won stage is the one flagged
+  `pipeline_stage.won`** (2026-10-15, `V94`; it was the stage *named* "Won"), set by the GM on the
+  Pipelines screen; server and board both read the flag (stage + status won); the note is a deal note flagged
   `handoff`, synced to GHL like any other, and shown on the case page as the Sales handoff note.
   Built as Unit 71.
 - **D71.** **Clients and experts accept the portal's policies on first sign-in** (2026-10-01, the
@@ -595,8 +597,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. Mapping GHL's Service Requested values onto the types is a follow-up.
 - **D78.** **A separate Administrator account owns the admin functions; the GM no longer does** (2026-10-08, spec 78).
   `Role.ADMIN` (cross-brand, `Tier.ALL`, NULL brand, `V88`) owns staff create/edit/deactivate/password, pipeline
-  assignment and purpose, background jobs, sync health, and reads brands. The GM keeps business views, targets
-  and refunds, and reads brands, but loses the Admin nav group. **The Admin has no Sales or Pipeline screens**
+  assignment, background jobs, sync health, and reads brands. **Pipeline purpose and won stages are the GM's** (2026-10-15,
+  the business: the Admin sees the Pipelines screen but cannot change it; both routes are `hasRole('GM')` and audited
+  with the GM's brand — this closed Q23). The GM keeps business views, targets
+  and refunds, and reads brands, but loses the Admin nav group except Pipelines (2026-10-15). **The Admin has no Sales or Pipeline screens**
   (2026-10-14, on the business's instruction): Sales performance, Marketing performance, My pipeline and the
   production board left its nav, and so its routes (one table, `navigation.ts`). `AdminAllowlist` still lets it read
   `/api/metrics/gm`, `/journey`, `/api/opportunities/board` and `/api/cases/board` (client names withheld) — no screen calls them.
@@ -643,9 +647,11 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   added: the PM dashboard already shows that scoped by brand, and a gauge with no scraper has no history.
 - **D83.** **The Administrator edits integration settings, brand details and two switches in the app** (2026-10-10,
   spec 85). SMTP (host, port, username, password, from), GHL (Private Integration Token, location id, opportunity
-  correlation field), the selling brand and three business targets (cases per CM, onboarding target, won
-  lookback) are stored in `app_setting` and **an app-saved value wins over the env var**; reset deletes it and the
-  env var applies again. Changes take effect on the next use, **no restart**. Secrets are AES-GCM ciphertext
+  correlation field, and since 2026-10-15 the board Refresh floor in seconds), the selling brand and two business targets (cases per CM, onboarding target; the won lookback
+  was retired 2026-10-14, the mirror made it dead) are stored in `app_setting` and **an app-saved value wins over the env var**; reset deletes it and the
+  env var applies again. Changes take effect on the next use, **no restart**, on every instance within about a
+  second (2026-10-15: `NOTIFY evalos_app_setting` on save/reset, heard by `AppSettingsListener`; the 30 s cache
+  window stays as the fallback). Secrets are AES-GCM ciphertext
   (`EVALOS_FIELD_KEY`) and **no response ever carries one**, not even masked; audit rows record set/cleared only.
   Two switches: **outbound email off** (the existing `MAIL_UNAVAILABLE` path) and **GHL writes off** (`PAUSED`: the
   outbox drain touches no row while paused — no attempt counted — and drains when switched on; reads continue). Brand name, currency and

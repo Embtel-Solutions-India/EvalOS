@@ -27,7 +27,10 @@ account opens when your first case starts"); `signIn` creates nothing; **there i
 The account is opened by `CasePortalAccountListener` on `CASE_CREATED` (after commit, portal brand
 only, never throws) via `openForCase` — by GHL contact, then email; `created_via = 'CASE'`, linked;
 never relinks another contact's account; flags the case on no email / no GHL id / other contact /
-mail down. If GHL is down at set-password or sign-in, `ensureCrmIdentity` backfills later (D3c).
+mail down. If GHL is down at set-password, the next sign-in repairs the link (D3c): since 2026-10-15 sign-in never
+calls GHL — it queues `sync_outbox` CLIENT_ACCOUNT UPSERT (enqueueIfAbsent, same tx) and the drain's
+`linkCrmIdentity` upserts the contact. A half-carried deal (amount or opportunity id alone) fills the half the case
+lacks, never overwrites; a conflicting half is flagged on the UPDATED audit row, not applied.
 
 Two GHL create paths, two verbs: `SalesDeskService.newDeal` (createOpportunity) and
 `MarketingLeadService.openLead` (**upsertOpportunity** — the one place a repeat enquiry reuses an
@@ -35,7 +38,7 @@ open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — 
 **D64:** the BDE form is GHL's full opportunity form — stage + close ride the upsert, intake fields
 follow via `setOpportunityFields` since GHL's upsert has no `customFields`).
 **Unit 69 (D66):** Sales edits every deal field in `DealEditDialog` — name/value/stage queued (D44), close/owner/intake fields inline to GHL then onto the mirror — and deletes a non-won deal with no queued push (inline GHL delete, mirror row stamped missing).
-Set-password and sign-in may `upsertContact` (`ensureCrmIdentity`). The portal opens no deal.
+Set-password may `upsertContact` (`ensureCrmIdentity`); sign-in only queues it. The portal opens no deal.
 
 **Documents** enter **only at the case**, against a sent checklist item (D33, D60), keyed by the
 **GHL contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey`). **Notifications** are in-app today; D37 makes them in-app **and push**, never mail.

@@ -37,6 +37,21 @@ public interface OpportunityRepository
 
 	List<Opportunity> findByPipelineIdIn(Collection<UUID> pipelineIds);
 
+	/**
+	 * The live deals on a set of pipelines that the GM overview can count: open now, or opened or moved
+	 * status at or after {@code since}. A deal settled before then answers no figure on that screen, so a
+	 * long pipeline's history is not loaded to be thrown away. "Open" is {@code OpportunityBoardService.isOpen}
+	 * in SQL; it may over-include (a status of other whitespace), never under-include.
+	 */
+	@Query("""
+			select o from Opportunity o
+			where o.brandId = :brandId and o.pipelineId in :pipelineIds and o.missingSince is null
+			and (o.ghlCreatedAt >= :since or o.lastStatusChangeAt >= :since
+				or o.status is null or trim(o.status) = '' or lower(o.status) = 'open')
+			""")
+	List<Opportunity> findLiveOnPipelinesOpenOrTouchedSince(@Param("brandId") UUID brandId,
+			@Param("pipelineIds") Collection<UUID> pipelineIds, @Param("since") java.time.Instant since);
+
 	Optional<Opportunity> findByBrandIdAndGhlId(UUID brandId, String ghlId);
 
 	/**

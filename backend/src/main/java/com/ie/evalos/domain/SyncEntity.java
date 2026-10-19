@@ -20,5 +20,11 @@ public enum SyncEntity {
 
 	CONTACT,
 
-	OPPORTUNITY_NOTE
+	OPPORTUNITY_NOTE,
+
+	/**
+	 * Outbox only: a client account whose GHL contact link a sign-in found missing. The drain links
+	 * it, so sign-in never waits on GHL. {@code sync_outbox.entity_type} has no CHECK, so no migration.
+	 */
+	CLIENT_ACCOUNT
 }

@@ -392,8 +392,7 @@ export type GmEvaluation = {
 /** One slice of the period and the same slice of the previous one (`GmOverviewService.TrendPoint`). */
 export type GmTrendPoint = { start: string; leads: number; won: number; previousLeads: number; previousWon: number }
 
-/** `comparable` is false when the previous period reaches back past the won lookback — then its wins are partial. */
-export type GmTrend = { comparable: boolean; bucketDays: number; points: GmTrendPoint[] }
+export type GmTrend = { bucketDays: number; points: GmTrendPoint[] }
 
 export type GmOverview = {
   headline: GmHeadline | null
@@ -412,6 +411,9 @@ export type GmOverview = {
   today: GmToday | null
 }
 
+/** Open deals in one kind of stage right now, and what they are worth. */
+export type GmStageNow = { deals: number; value: number }
+
 export type GmToday = {
   salesLeads: number
   salesLeadValue: number
@@ -428,6 +430,10 @@ export type GmToday = {
   monthMarketingLeadValue: number
   monthOpenLeads: number
   monthOpenLeadValue: number
+  /** Open deals standing in a Lead / Hot / Invoice Sent stage right now. Absent from a server older than these tiles. */
+  newLeads?: GmStageNow
+  hot?: GmStageNow
+  invoiceSent?: GmStageNow
   /** Whole-percentage arrows: today vs yesterday, this month vs the same days of last month. Null = no arrow. */
   changes: {
     wonValue: number | null
@@ -453,14 +459,6 @@ export async function fetchGmOverview(
 /** The GM sets a month's sales target. Append-only on the server: the newest one counts. */
 export async function setGmGoal(month: string, amount: number): Promise<void> {
   await unwrap<null>(api.put('/metrics/gm/goal', { month, amount }))
-}
-
-/** A member's target for a month. A member with none is absent from the list: "not set", not 0. */
-export type TargetAmount = { memberId: string; target: number }
-
-/** The month's targets (the month is the overview's `goalMonth`, `YYYY-MM-01`). Amounts only; progress is on the overview. */
-export async function fetchTargets(month: string, signal?: AbortSignal): Promise<TargetAmount[]> {
-  return unwrap<TargetAmount[]>(api.get('/gm/targets', { params: { month: month.slice(0, 7) }, signal }))
 }
 
 /** The GM sets one member's target. Append-only on the server: the newest counts. */

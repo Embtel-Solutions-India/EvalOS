@@ -14,6 +14,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -63,6 +64,44 @@ class AppSettingsTest {
 		}
 
 		verify(jdbc, times(1)).query(anyString(), any(RowCallbackHandler.class));
+	}
+
+	/** Another instance's save, heard by the listener, makes the next lookup reload instead of waiting out the window. */
+	@Test
+	void anInvalidationMakesTheNextLookupReload() {
+		settings.app(Setting.GHL_TOKEN);
+		settings.app(Setting.GHL_TOKEN);
+		verify(jdbc, times(1)).query(anyString(), any(RowCallbackHandler.class));
+
+		settings.invalidate();
+		settings.app(Setting.GHL_TOKEN);
+		settings.app(Setting.GHL_TOKEN);
+
+		verify(jdbc, times(2)).query(anyString(), any(RowCallbackHandler.class));
+	}
+
+	/** A notice that lands while a read is in flight is not consumed by it: that read may predate the commit. */
+	@Test
+	void anInvalidationDuringAReadIsNotLost() {
+		willAnswer((call) -> {
+			settings.invalidate();
+			return null;
+		}).willDoNothing().given(jdbc).query(anyString(), any(RowCallbackHandler.class));
+
+		settings.app(Setting.GHL_TOKEN);
+		settings.app(Setting.GHL_TOKEN);
+		settings.app(Setting.GHL_TOKEN);
+
+		verify(jdbc, times(2)).query(anyString(), any(RowCallbackHandler.class));
+	}
+
+	/** Every save and reset is announced to the other instances. */
+	@Test
+	void aSaveAndAResetAreAnnounced() {
+		settings.save(Setting.MAIL_HOST, "smtp.example.com", null);
+		settings.clear(Setting.MAIL_HOST);
+
+		verify(jdbc, times(2)).execute("NOTIFY " + AppSettings.CHANNEL);
 	}
 
 	/** Outside a transaction a save is read back at once, so the next lookup sees it. */

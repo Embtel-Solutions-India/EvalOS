@@ -132,7 +132,7 @@
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
-			<scope>runtime</scope>
+			<!-- Compile scope: AppSettingsListener unwraps PGConnection for LISTEN/NOTIFY. -->
 		</dependency>
 		<!--
 			Unit 11's sheet import. Both parsers are here because the Expert Network

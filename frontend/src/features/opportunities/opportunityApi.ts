@@ -31,6 +31,8 @@ export type BoardColumn = {
   stageId: string
   stageName: string
   position: number
+  /** Moving a deal here wins it (D70) — the server's `pipeline_stage.won`, set on the Pipelines screen. */
+  won: boolean
   deals: readonly Deal[]
   total: number
 }
@@ -144,8 +146,8 @@ export function fetchDealContact(
 }
 
 /**
- * Two minutes, not the client's 15s: a GM's press syncs every live pipeline in the request and took
- * ~45s locally. At 15s the browser gave up while the server finished, so the board stayed "delayed".
+ * Two minutes, not the client's 15s: a one-pipeline sync of a large pipeline (the Master) can take tens
+ * of seconds. At 15s the browser gave up while the server finished, so the board stayed "delayed".
  */
 const REFRESH_TIMEOUT_MS = 120_000
 

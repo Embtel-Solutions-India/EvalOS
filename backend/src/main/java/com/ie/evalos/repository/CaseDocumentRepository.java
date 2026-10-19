@@ -1,5 +1,6 @@
 package com.ie.evalos.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,4 +42,10 @@ public interface CaseDocumentRepository extends ScopedRepository<CaseDocument> {
 	 * sequence, and two rows written in the same millisecond would order arbitrarily by time.
 	 */
 	Optional<CaseDocument> findFirstByCaseIdAndKindOrderByVersionDesc(UUID caseId, DocumentKind kind);
+
+	/**
+	 * Every version of one kind across a set of cases, in one query rather than one per case (the
+	 * expert portal's case list). Brand is a real predicate, so a foreign case id matches nothing.
+	 */
+	List<CaseDocument> findByBrandIdAndCaseIdInAndKind(UUID brandId, Collection<UUID> caseIds, DocumentKind kind);
 }

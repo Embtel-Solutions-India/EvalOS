@@ -716,4 +716,32 @@ class SyncOutboxServiceTest {
 		assertThat(service.drain().sent()).isEqualTo(1);
 		then(ghl).shouldHaveNoInteractions();
 	}
+
+	/**
+	 * A sign-in's queued contact link (the GHL call sign-in no longer makes itself): the drain hands
+	 * it to {@code ClientAccountService.linkCrmIdentity}, and a GHL failure there is retried like any
+	 * other push rather than swallowed.
+	 */
+	@Test
+	void aQueuedClientAccountLinkIsSentAndRetriedOnAGhlFailure() {
+		ClientAccountService clientAccounts = mock(ClientAccountService.class);
+		service.useClientAccounts(clientAccounts);
+		UUID accountId = UUID.randomUUID();
+		SyncOutboxEntry entry = new SyncOutboxEntry(BRAND, SyncEntity.CLIENT_ACCOUNT, accountId,
+				SyncOutboxEntry.Intent.UPSERT);
+		ReflectionTestUtils.setField(entry, "id", UUID.randomUUID());
+		given(outbox.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(eq(BRAND), any(Limit.class)))
+				.willReturn(List.of(entry));
+		willThrow(new GhlUnavailableException("GHL did not answer", null, GhlFailure.NO_ANSWER, null))
+				.willDoNothing()
+				.given(clientAccounts).linkCrmIdentity(BRAND, accountId);
+
+		assertThat(service.drain().retrying()).isEqualTo(1);
+		assertThat(entry.isPending()).isTrue();
+
+		assertThat(service.drain().sent()).isEqualTo(1);
+		assertThat(entry.getSentAt()).isNotNull();
+		then(clientAccounts).should(org.mockito.Mockito.times(2)).linkCrmIdentity(BRAND, accountId);
+		then(ghl).shouldHaveNoInteractions();
+	}
 }

@@ -250,16 +250,24 @@ class GhlWriteClientTest {
 
 	@Test
 	void closingADealPutsItsStatusAndAuditsTheChange() {
-		responses.add("{\"opportunity\":{\"id\":\"o1\",\"name\":\"Acme\",\"contactId\":\"c1\","
-				+ "\"pipelineStageId\":\"s2\",\"status\":\"won\",\"monetaryValue\":1200}}");
+		// GHL's documented 200 for this endpoint: no opportunity, just a success flag.
+		responses.add("{\"success\":true}");
 
-		GhlWriteClient.UpsertedOpportunity closed = client().setStatus("o1", PIPELINE, "won");
+		client().setStatus("o1", PIPELINE, "won");
 
 		assertThat(paths).containsExactly("PUT /opportunities/o1/status");
 		assertThat(bodies.get(0)).contains("\"status\":\"won\"");
-		assertThat(closed.status()).isEqualTo("won");
 		verify(audit).recordEvent(eq("GHL_OPPORTUNITY"), any(UUID.class), eq(AuditAction.STAGE_CHANGED),
 				any(), any(), any());
+	}
+
+	@Test
+	void aCloseGhlDidNotConfirmIsAFailure() {
+		responses.add("{\"success\":false}");
+
+		assertThatThrownBy(() -> client().setStatus("o1", PIPELINE, "won"))
+				.isInstanceOf(GhlUnavailableException.class);
+		verify(audit, never()).recordEvent(any(), any(), any(), any(), any(), any());
 	}
 
 	/**

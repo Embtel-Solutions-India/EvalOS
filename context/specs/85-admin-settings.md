@@ -15,7 +15,7 @@ selling-brand id). Rotating an SMTP password or a GHL token meant editing the de
 | Email | host, port, username, password (secret), from address, **outbound email on/off** | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `EVALOS_MAIL_FROM` |
 | GoHighLevel | Private Integration Token (secret), location id, opportunity correlation field, **GHL writes on/off** | `GHL_API_TOKEN`, `GHL_LOCATION_ID`, `GHL_OPPORTUNITY_CORRELATION_FIELD` |
 | Selling brand | the brand that owns the GHL location (slug or id) | `GHL_SALES_BRAND_ID` |
-| Business targets | cases per Case Manager, monthly expert-onboarding target, won-deal lookback days | `WORKLOAD_CASES_PER_CM`, `ROSTER_MONTHLY_TARGET`, `SALES_WON_LOOKBACK_DAYS` |
+| Business targets | cases per Case Manager, monthly expert-onboarding target (won-deal lookback retired 2026-10-14) | `WORKLOAD_CASES_PER_CM`, `ROSTER_MONTHLY_TARGET` |
 | Brands (Brands page) | name, currency, payout term days | — (was migration-only) |
 
 **Precedence:** a value saved in the app wins; "Reset to environment" deletes it and the env var applies again.

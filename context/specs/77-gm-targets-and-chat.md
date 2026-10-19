@@ -63,8 +63,9 @@ look like an absent one.
 
 ### 1.4 Screens
 
-- **GM overview, "By desk"**: each desk row gets a target cell for the selected month: the amount,
-  progress and a percentage; the GM edits it inline. Month is the page's existing month filter.
+- **Where the GM sets it** (edited 2026-10-15): on one member's dashboard (the GM opens it from the overview's
+  Team card), the Target tile carries "Set target" or a pen to edit, for the current month. The overview's
+  Team card lists people only — no figures, no targets.
 - **Sales and Marketing desk pages**: the member's own target and progress beside the figure they
   already see. Read-only.
 

@@ -40,6 +40,13 @@ _Nothing open here: Q6b (unknown-email mail) was answered on 2026-09-28 — no m
 
 _Q17 (expert offer mail) was answered on 2026-09-30 — yes, D67, built with Unit 64c._
 
+## Raised by the ponytail-debt upgrades (2026-10-15)
+
+_Q23–Q25 were all answered on 2026-10-15. Q23: the Admin is view-only on Pipelines; the GM sets purpose and won
+stages, so both changes are audited with the GM's brand (D78 edited). Q24: one brand only for now, so the
+selling-brand-only outbox drain stays; a per-brand drain comes with Unit 25. Q25: the unused all-pipelines
+`POST /board/refresh` was deleted._
+
 ## Carried forward from `00d` §12, still unresolved
 
 _Item h was settled by Unit 57 (2026-09-26): the client sees the case team by name in the Client

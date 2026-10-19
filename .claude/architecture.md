@@ -159,9 +159,12 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 ## Configuration
 
 **Precedence since D83 (2026-10-10, spec 85):** for the settings in `config/Setting.java` — SMTP host/port/username/
-password/from, GHL token/location/correlation field, the selling brand and three targets, plus the outbound-email and
-GHL-writes switches — **a value the Administrator saved in Settings (`app_setting`) beats every file and env var below**,
-and applies on the next use with no restart (`AppSettings.app()`, ≤30 s stale on another instance). Everything else
+password/from, GHL token/location/correlation field/Refresh floor, the selling brand and two targets, plus the
+outbound-email and GHL-writes switches — **a value the Administrator saved in Settings (`app_setting`) beats every file
+and env var below**, and applies on the next use with no restart (`AppSettings.app()`). Another instance hears it within
+about a second (2026-10-15): save/reset run `NOTIFY evalos_app_setting`, and `AppSettingsListener` holds one dedicated
+non-pool connection on `LISTEN` (reconnects with backoff; the PostgreSQL driver is compile scope for `PGConnection`). If
+the listener is down, the ≤30 s cache window still applies. Everything else
 still follows the order below, read once at boot.
 
 Precedence that actually decides on a dev machine: `.env` (loaded by `.vscode/launch.json` as real

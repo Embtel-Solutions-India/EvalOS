@@ -39,12 +39,11 @@ export function TrendCard({
   state: CardState;
   period: string;
 }) {
-  const [metric, setMetric] = useState<"leads" | "won">("leads");
+  const [metric, setMetric] = useState<"leads" | "won">("won");
   const [compare, setCompare] = useState(true);
   const money = metric === "won";
   const format = (n: number) =>
     money ? formatMoney(Math.round(n)) : formatCount(n);
-  const comparing = compare && !!trend?.comparable;
 
   const rows = (trend?.points ?? []).map((p) => ({
     name: day(p.start),
@@ -53,7 +52,7 @@ export function TrendCard({
   }));
   const total = rows.reduce((n, r) => n + r.current, 0);
   const before = rows.reduce((n, r) => n + r.previous, 0);
-  const change = trend?.comparable ? changePct(total, before) : null;
+  const change = changePct(total, before);
 
   return (
     <Card
@@ -77,14 +76,8 @@ export function TrendCard({
             label="Trend measure"
           />
           <PillButton
-            on={comparing}
-            disabled={!trend?.comparable}
+            on={compare}
             onClick={() => setCompare((on) => !on)}
-            title={
-              trend?.comparable
-                ? undefined
-                : "The previous period reaches back further than the won-deal lookback"
-            }
           >
             vs previous period
           </PillButton>
@@ -94,7 +87,7 @@ export function TrendCard({
       <p className="font-num mb-2 flex flex-wrap items-baseline gap-x-2 text-sm tabular-nums">
         <span className="text-xl font-semibold">{format(total)}</span>
         <span style={MUTED}>{period}</span>
-        {comparing && (
+        {compare && (
           <span style={MUTED}>
             vs {format(before)}
             {change !== null && (
@@ -114,7 +107,7 @@ export function TrendCard({
       <div
         className="h-52 w-full"
         role="img"
-        aria-label={`${money ? "Won value" : "New leads"} ${period}: ${format(total)}${comparing ? `, previous period ${format(before)}` : ""}`}
+        aria-label={`${money ? "Won value" : "New leads"} ${period}: ${format(total)}${compare ? `, previous period ${format(before)}` : ""}`}
       >
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart
@@ -176,7 +169,7 @@ export function TrendCard({
               }}
             />
             {/* Drawn first, so this period's line and shadow sit over it. */}
-            {comparing && (
+            {compare && (
               <Area
                 type="monotone"
                 dataKey="previous"
