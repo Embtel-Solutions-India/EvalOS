@@ -119,13 +119,14 @@ export default function DealNotes({ opportunityId }: { opportunityId: string }) 
       {/* A left rule rather than a filled block: a stream of tinted boxes on a white panel is
           the striping `tokens.css` warns about, and the accent edge reads as one conversation
           instead of a stack of unrelated cards. */}
-      <ul className="space-y-2">
+      {/* Scrolls on its own (2026-10-29) so a long history never stretches the page; the cap leaves the form in view. */}
+      <ul className="max-h-[60vh] min-w-0 space-y-2 overflow-y-auto pr-1 xl:max-h-[calc(100vh-16rem)]">
         {notes?.map((note) => {
           const mine = note.origin === 'EVALOS' && note.authorId === me.id
           return (
             <li
               key={note.id}
-              className="border-l-2 py-0.5 pl-3 text-xs"
+              className="min-w-0 border-l-2 py-0.5 pl-3 text-xs [overflow-wrap:anywhere]"
               style={{ borderColor: 'var(--accent-soft)' }}
             >
               {editing?.id === note.id ? (

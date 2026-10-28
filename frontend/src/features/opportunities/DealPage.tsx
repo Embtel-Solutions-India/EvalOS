@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
+import { DialogContent, DialogRoot } from '../../components/ui/dialog'
 import { Panel, Surface } from '../../components/ui/panel'
 import { useMe } from '../../lib/authContext'
 import { stageColor } from '../board/stageColors'
@@ -72,6 +73,8 @@ export default function DealPage() {
   const { opportunityId = '' } = useParams()
   const role = useMe().role
   const [editing, setEditing] = useState(false)
+  // The actions open in a centred dialog (2026-10-29), so the right column is the notes' alone.
+  const [acting, setActing] = useState(false)
   const navigate = useNavigate()
 
   const { data: contact, state: contactState } = useMetrics<DealContact | null>(
@@ -105,7 +108,7 @@ export default function DealPage() {
 
       {/* `items-start` so the sidebar does not stretch to the left column's height: the two are
           independent stacks, not a grid of equal cells. */}
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
 
         <div className="min-w-0 space-y-4">
 
@@ -156,12 +159,20 @@ export default function DealPage() {
               {/* Only the desk that owns the deal may edit it, so only they are offered the
                   control — the server refuses anyone else, and a button that always 403s is a
                   worse answer than no button. */}
-              {role === 'SALES' && deal && (
-                <button type="button" className="btn" onClick={() => setEditing(true)}>
-                  <Pencil className="h-3.5 w-3.5" aria-hidden />
-                  Edit or delete
-                </button>
-              )}
+              <div className="flex flex-wrap gap-2">
+                {((role === 'SALES' || hiring) && deal) && (
+                  <button type="button" className="btn btn-primary" onClick={() => setActing(true)}>
+                    <Zap className="h-3.5 w-3.5" aria-hidden />
+                    Actions
+                  </button>
+                )}
+                {role === 'SALES' && deal && (
+                  <button type="button" className="btn" onClick={() => setEditing(true)}>
+                    <Pencil className="h-3.5 w-3.5" aria-hidden />
+                    Edit or delete
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Who the deal is with, on the record itself (2026-09-30): a salesperson opening a
@@ -213,34 +224,38 @@ export default function DealPage() {
           </Panel>
         </div>
 
-        <div className="space-y-4 xl:sticky xl:top-4">
-          {hiring && deal && (
-            <Panel title="Candidate" icon={<Zap />} tint={hue}>
+        {/* The whole right column is the notes (2026-10-29): `min-w-0` so a long word cannot widen the grid track. */}
+        <div className="min-w-0 xl:sticky xl:top-4">
+          <Panel title="Notes" icon={<StickyNote />} tint="var(--accent-primary)">
+            <DealNotes opportunityId={opportunityId} />
+          </Panel>
+        </div>
+      </div>
+
+      {acting && deal && (
+        <DialogRoot open onOpenChange={(next) => !next && setActing(false)}>
+          <DialogContent
+            title={hiring ? 'Candidate' : 'Actions'}
+            description={hiring ? 'Move this candidate or add them to the expert database.' : 'Move, book, follow up or close this deal.'}
+          >
+            {hiring ? (
               <HiringActions
                 opportunityId={opportunityId}
                 stages={stages}
                 candidate={{ name, email: contact?.email ?? null, phone: contact?.phone ?? null }}
                 onChanged={() => window.location.reload()}
               />
-            </Panel>
-          )}
-
-          {role === 'SALES' && deal && (
-            <Panel title="Actions" icon={<Zap />} tint={hue}>
+            ) : (
               <DealActions
                 opportunityId={opportunityId}
                 contactId={deal.contactId}
                 stages={stages}
                 onChanged={() => window.location.reload()}
               />
-            </Panel>
-          )}
-
-          <Panel title="Notes" icon={<StickyNote />} tint="var(--accent-primary)">
-            <DealNotes opportunityId={opportunityId} />
-          </Panel>
-        </div>
-      </div>
+            )}
+          </DialogContent>
+        </DialogRoot>
+      )}
 
       {/* Not while the contact read is in flight: the dialog seeds owner and custom fields from it. */}
       {editing && deal && contactState.kind !== 'loading' && (
