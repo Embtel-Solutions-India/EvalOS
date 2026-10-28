@@ -388,6 +388,14 @@ class LocalPostgresIntegrationTest {
 		assertThat(days.stream().mapToLong((d) -> d.getOk() + d.getFailed()).sum()).isEqualTo(before + 2);
 	}
 
+	/** The guard the chart asks before bucketing: a real name is known, a made-up one is not. */
+	@Test
+	void theDatabaseSaysWhichZoneNamesItKnows() {
+		assertThat(jobRuns.knowsZone("Asia/Kolkata")).isTrue();
+		assertThat(jobRuns.knowsZone("UTC")).isTrue();
+		assertThat(jobRuns.knowsZone("Not/AZone")).isFalse();
+	}
+
 	/** Spec 86 §4: the bulk close runs against the real schema and touches only open MISSING_LOCALLY rows. */
 	@Test
 	void theMissingLocallyCloseRunsAgainstTheSchema() {

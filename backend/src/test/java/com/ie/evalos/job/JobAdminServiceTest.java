@@ -134,6 +134,7 @@ class JobAdminServiceTest {
 		};
 		when(runs.countByDaySince(today.minusDays(6).atStartOfDay(zone).toInstant(), "Asia/Kolkata"))
 				.thenReturn(List.of(yesterday));
+		when(runs.knowsZone("Asia/Kolkata")).thenReturn(true);
 		JobAdminService jobs = new JobAdminService(List.of(sweepNamed("DOC_CHASE", false)), runs, runner, SCHEDULE);
 
 		List<JobAdminService.DayRuns> week = jobs.runsByDay(zone, 7);
@@ -143,5 +144,33 @@ class JobAdminServiceTest {
 		assertThat(week.getLast().day()).isEqualTo(today);
 		assertThat(week.get(5)).isEqualTo(new JobAdminService.DayRuns(today.minusDays(1), 700, 3));
 		assertThat(week.getLast()).isEqualTo(new JobAdminService.DayRuns(today, 0, 0));
+	}
+
+	/** A browser's old alias the database does not know is asked under its current name — production's 500. */
+	@Test
+	void anAliasTheDatabaseLacksIsAskedUnderItsCurrentName() {
+		java.time.ZoneId kolkata = java.time.ZoneId.of("Asia/Kolkata");
+		java.time.LocalDate today = java.time.LocalDate.now(kolkata);
+		when(runs.knowsZone("Asia/Calcutta")).thenReturn(false);
+		when(runs.knowsZone("Asia/Kolkata")).thenReturn(true);
+		JobAdminService jobs = new JobAdminService(List.of(sweepNamed("DOC_CHASE", false)), runs, runner, SCHEDULE);
+
+		jobs.runsByDay(java.time.ZoneId.of("Asia/Calcutta"), 7);
+
+		org.mockito.Mockito.verify(runs).countByDaySince(today.minusDays(6).atStartOfDay(kolkata).toInstant(),
+				"Asia/Kolkata");
+	}
+
+	/** A name the database cannot place at all falls back to UTC for buckets and labels together, never a 500. */
+	@Test
+	void aZoneTheDatabaseCannotPlaceFallsBackToUtc() {
+		when(runs.knowsZone(org.mockito.ArgumentMatchers.anyString())).thenReturn(false);
+		JobAdminService jobs = new JobAdminService(List.of(sweepNamed("DOC_CHASE", false)), runs, runner, SCHEDULE);
+
+		List<JobAdminService.DayRuns> week = jobs.runsByDay(java.time.ZoneId.of("Pacific/Chatham"), 7);
+
+		assertThat(week).hasSize(7);
+		assertThat(week.getLast().day()).isEqualTo(java.time.LocalDate.now(java.time.ZoneId.of("UTC")));
+		org.mockito.Mockito.verify(runs).countByDaySince(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq("UTC"));
 	}
 }

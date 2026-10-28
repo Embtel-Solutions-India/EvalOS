@@ -77,7 +77,9 @@ public class JobAdminService {
 	 * runs is a zero bar, not a gap, because a sweep that stopped is exactly what the chart is for.
 	 */
 	@Transactional(readOnly = true)
-	public List<DayRuns> runsByDay(java.time.ZoneId zone, int days) {
+	public List<DayRuns> runsByDay(java.time.ZoneId asked, int days) {
+		// One zone for the labels and the buckets alike, so a fallback can shift the days but never mislabel them.
+		java.time.ZoneId zone = postgresZone(asked);
 		java.time.LocalDate today = java.time.LocalDate.now(zone);
 		java.time.LocalDate first = today.minusDays(days - 1L);
 		java.util.Map<String, ScheduledJobRepository.DayCount> counted = new java.util.HashMap<>();
@@ -90,6 +92,27 @@ public class JobAdminService {
 			out.add(new DayRuns(day, row == null ? 0 : row.getOk(), row == null ? 0 : row.getFailed()));
 		}
 		return out;
+	}
+
+	/**
+	 * Old IANA aliases a browser still reports (Chrome on Windows says "Asia/Calcutta") mapped to their current names.
+	 * Java knows both, but a database's tzdata may hold only the current one — production's did, and the chart 500'd.
+	 */
+	private static final Map<String, String> CURRENT_NAME = Map.of("Asia/Calcutta", "Asia/Kolkata",
+			"Asia/Katmandu", "Asia/Kathmandu", "Asia/Saigon", "Asia/Ho_Chi_Minh", "Asia/Rangoon", "Asia/Yangon",
+			"Europe/Kiev", "Europe/Kyiv", "America/Buenos_Aires", "America/Argentina/Buenos_Aires",
+			"Atlantic/Faeroe", "Atlantic/Faroe", "Asia/Dacca", "Asia/Dhaka");
+
+	/** The zone as this database names it: as asked, else its current name, else UTC. */
+	private java.time.ZoneId postgresZone(java.time.ZoneId asked) {
+		if (runs.knowsZone(asked.getId())) {
+			return asked;
+		}
+		String current = CURRENT_NAME.get(asked.getId());
+		if (current != null && runs.knowsZone(current)) {
+			return java.time.ZoneId.of(current);
+		}
+		return java.time.ZoneId.of("UTC");
 	}
 
 	/** One line per sweep, whether or not it has ever run. */

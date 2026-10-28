@@ -47,6 +47,11 @@ public interface ScheduledJobRepository extends JpaRepository<ScheduledJob, UUID
 	List<DayCount> countByDaySince(@org.springframework.data.repository.query.Param("since") java.time.Instant since,
 			@org.springframework.data.repository.query.Param("zone") String zone);
 
+	/** Whether this database's time zone list holds the name — a server's tzdata may lack the old aliases. */
+	@org.springframework.data.jpa.repository.Query(nativeQuery = true,
+			value = "SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = :zone)")
+	boolean knowsZone(@org.springframework.data.repository.query.Param("zone") String zone);
+
 	/** The latest run of one sweep, for "when did this last work". */
 	List<ScheduledJob> findTop1ByJobTypeOrderByStartedAtDesc(String jobType);
 }
