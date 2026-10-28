@@ -303,7 +303,8 @@ public class ExpertNetworkMetricsService {
 	}
 
 	private Onboarding onboarding(List<Expert> roster) {
-		LocalDate monthStart = LocalDate.now().withDayOfMonth(1);
+		// The business month, not the server's: the JVM runs in UTC, which turns the month 7–8 hours early.
+		LocalDate monthStart = LocalDate.now(BusinessCalendar.clock()).withDayOfMonth(1);
 		int thisMonth = (int) roster.stream()
 				.filter(expert -> expert.getDateOnboarded() != null
 						&& !expert.getDateOnboarded().isBefore(monthStart))
