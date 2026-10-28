@@ -170,10 +170,16 @@ public class ContactDirectoryRepository {
 			java.math.BigDecimal dealValue, Instant deadline, Instant deliveryDate, Instant createdAt) {
 	}
 
-	/** One contact by EvalOS id, with its brand-wide deal count. Scope is the caller's to check. */
+	/** {@code Tier.ALL} — one contact by EvalOS id in any brand, with its brand-wide deal count. */
 	public java.util.Optional<Row> contact(UUID id) {
 		return jdbc.query(SELECT + LEFT_JOIN_DEALS + " WHERE c.id = ?" + GROUP_BY, ContactDirectoryRepository::map, id)
 				.stream().findFirst();
+	}
+
+	/** {@code Tier.BRAND} and below — one contact by EvalOS id, only if it is in {@code brandId}. */
+	public java.util.Optional<Row> contactInBrand(UUID id, UUID brandId) {
+		return jdbc.query(SELECT + LEFT_JOIN_DEALS + " WHERE c.id = ? AND c.brand_id = ?" + GROUP_BY,
+				ContactDirectoryRepository::map, id, brandId).stream().findFirst();
 	}
 
 	/**

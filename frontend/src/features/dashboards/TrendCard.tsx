@@ -59,7 +59,7 @@ export function TrendCard({
 
   return (
     <Card
-      title="Performance"
+      title="Business Performance"
       state={
         state.kind === "ok" && trend === null
           ? { kind: "error", note: "The server sent no trend for this period." }
@@ -79,10 +79,7 @@ export function TrendCard({
             ]}
             label="Trend measure"
           />
-          <PillButton
-            on={compare}
-            onClick={() => setCompare((on) => !on)}
-          >
+          <PillButton on={compare} onClick={() => setCompare((on) => !on)}>
             vs previous period
           </PillButton>
         </div>

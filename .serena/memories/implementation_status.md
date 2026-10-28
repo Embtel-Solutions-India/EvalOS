@@ -205,7 +205,7 @@ JDBC rather than `ScopePredicate` ONLY because the pipeline arm needs a join and
 vocabulary for one; do not add a join axis there for one screen. The contact→deal join is
 BRAND-MATCHED as well as id-matched (`ghl_contact_id` is unique per brand, not globally).
 PAGED server-side (`?page=&size=`, 15 default, clamp 100); offset not keyset because the pages are numbered and jumped between; total is a separate count wrapping the GROUPED query, since a bare count over the join counts DEALS. `ORDER BY full_name, id` — the id tiebreak is what stops a row showing on two pages. `ContactDirectoryScopeTest` pins every arm and both refusals.
-**Contact page 2026-10-28:** `GET /api/contacts/{id}`, screen `/contacts/:contactId` (click a row's name): details, opportunities (→ deal page), Recent cases, Delivered cases. Same widths as the list; a desk sees only its pipelines' deals and no cases (D19c); out of scope = one 403.
+**Contact page 2026-10-28:** `GET /api/contacts/{id}`, screen `/contacts/:contactId` (click a row's name): details, opportunities (→ deal page), Recent cases, Delivered cases. Same widths as the list; a desk sees only its pipelines' deals and no cases (D19c); out of scope = one 403; the lookup is brand-scoped in SQL (`contactInBrand`) for all but the GM.
 
 **Deal screen rebuilt 2026-09-23 (two columns).** Left = the record, right = Actions +
 Contact details (sticky at `xl`). `DealApplication`/`DealDocuments` became tables (`.tbl`);

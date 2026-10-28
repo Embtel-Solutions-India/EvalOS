@@ -336,6 +336,7 @@ class LocalPostgresIntegrationTest {
 		UUID nobody = UUID.randomUUID();
 
 		assertThat(directory.contact(nobody)).isEmpty();
+		assertThat(directory.contactInBrand(nobody, BRAND_IE)).isEmpty();
 		assertThat(directory.deals(nobody, BRAND_IE, null)).isEmpty();
 		assertThat(directory.deals(nobody, BRAND_IE, List.of("p1", "p2"))).isEmpty();
 		assertThat(directory.cases(nobody, BRAND_IE)).isEmpty();

@@ -67,9 +67,15 @@ public class ContactDirectoryService {
 	public Detail detail(UUID contactId) {
 		TenantContext caller = TenantContext.current();
 		Role.Tier tier = caller.role().tier();
-		ContactDirectoryRepository.Row contact = contacts.contact(contactId)
-				.filter(row -> tier == Role.Tier.ALL
-						|| (tier == Role.Tier.BRAND || tier == Role.Tier.PIPELINE) && row.brandId().equals(caller.brandId()))
+		// Scoped in the query, like the list: a brand-locked caller with no brand, or a tier this page has no
+		// answer for, reads nothing — the same 403 as an id outside their brand.
+		java.util.Optional<ContactDirectoryRepository.Row> found = switch (tier) {
+			case ALL -> contacts.contact(contactId);
+			case BRAND, PIPELINE -> caller.brandId() == null ? java.util.Optional.empty()
+					: contacts.contactInBrand(contactId, caller.brandId());
+			default -> java.util.Optional.empty();
+		};
+		ContactDirectoryRepository.Row contact = found
 				.orElseThrow(() -> new ForbiddenException("That contact is not one you can see."));
 		if (tier == Role.Tier.PIPELINE) {
 			if (caller.ghlPipelineIds().isEmpty()) {

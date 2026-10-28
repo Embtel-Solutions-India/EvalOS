@@ -133,8 +133,22 @@ class ContactDirectoryScopeTest {
 	private static final UUID CONTACT = UUID.randomUUID();
 
 	private void contactIn(UUID brand) {
-		given(contacts.contact(CONTACT)).willReturn(java.util.Optional.of(new ContactDirectoryRepository.Row(
-				CONTACT, brand, "IE", "Rao", null, null, null, null, 1, null)));
+		ContactDirectoryRepository.Row row = new ContactDirectoryRepository.Row(CONTACT, brand, "IE", "Rao", null, null,
+				null, null, 1, null);
+		given(contacts.contact(CONTACT)).willReturn(java.util.Optional.of(row));
+		given(contacts.contactInBrand(CONTACT, brand)).willReturn(java.util.Optional.of(row));
+	}
+
+	/** A Brand Manager's lookup is scoped in SQL — the unscoped GM read is never used for them. */
+	@Test
+	void aBrandManagersLookupIsScopedInTheQuery() {
+		authenticate(Role.BRAND_MANAGER, BRAND, List.of());
+		contactIn(BRAND);
+
+		directory.detail(CONTACT);
+
+		verify(contacts).contactInBrand(CONTACT, BRAND);
+		verify(contacts, never()).contact(any());
 	}
 
 	@Test
