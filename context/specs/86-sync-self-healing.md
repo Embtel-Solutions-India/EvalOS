@@ -17,7 +17,10 @@ resolve the conflict between both." Edits D43's surroundings and the outbox rule
 
 When a desk edits a shared field (name, amount, stage), the opportunity remembers the **base** — the value
 the mirror held before the first unconfirmed edit of that field (`opportunity.ghl_base`, V96, JSON
-field → value). A later edit of the same field keeps the original base.
+field → value). A later edit of the same field keeps the original base. An empty field is a base too
+(stored as null), and an unset amount compares equal to 0 — GHL reports a deal without a value either way.
+Without that, GHL's deal-wide `updatedAt` alone would decide, and any unrelated GHL change after the edit
+would discard it.
 
 Before an `UPSERT` reaches GHL, the outbox reads the deal's current GHL copy (the opportunity search by
 contact — already used live, returns `updatedAt` and every field). Per edited field:
@@ -33,14 +36,16 @@ rule alone. A deal GHL no longer returns is pushed as before (GHL refuses; it de
 `MISSING_IN_GHL` is the human's).
 
 Every conflict is audited (`GHL_OPPORTUNITY`, `UPDATED`, `{"conflict": field, "winner": "GHL"|"EVALOS", …}`)
-and logged. Cost: one extra GHL read per push.
+and logged. The audit row is written only once the push has landed, so a failed attempt and its retry
+record the conflict once. Cost: one extra GHL read per push.
 
 `CLOSE` gets the agree-check only: if GHL already holds the status, nothing is sent. A won close is never
 discarded by timestamp — it is what opens the case.
 
 ## 3. Automatic recovery of dead pushes
 
-Each drain first re-queues dead pushes, without a person, when **all** hold:
+Each drain first re-queues dead pushes, without a person, when **all** hold (the failure filter is in the
+query, so a refused push is not re-read on every drain):
 
 - dead within the last 7 days and at least **1 hour** ago, not already retried;
 - the failure is one a later attempt can fix: `NO_ANSWER`, `UPSTREAM_ERROR`, `RATE_LIMITED` (attempts ran

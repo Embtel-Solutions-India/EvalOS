@@ -405,6 +405,42 @@ class SyncOutboxServiceTest {
 		then(ghl).should().updateOpportunity(eq("opp-1"), any(), eq(null), eq(new BigDecimal("150")), eq(null));
 	}
 
+	/**
+	 * A deal with no amount, priced by a desk, while an unrelated GHL change bumps the deal's
+	 * {@code updatedAt}. The empty amount is the base, GHL still holds it, so EvalOS's price is sent —
+	 * not discarded because GHL's deal-wide timestamp is newer.
+	 */
+	@Test
+	void anEditOfAnEmptyFieldIsSentDespiteANewerUnrelatedGhlChange() {
+		Opportunity row = new Opportunity(BRAND, "opp-1", pipeline.getId());
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		row.syncFromGhl("contact-1", pipeline.getId(), "s1", "Ana", null, "open", null, null, null, null, null, null);
+		row.editedLocally(null, new BigDecimal("150"), null, null);
+		given(opportunities.findById(row.getId())).willReturn(Optional.of(row));
+		queued(row);
+		ghlHolds("opp-1", "0", row.getLocalUpdatedAt().plusSeconds(30));
+
+		service.drain();
+
+		then(ghl).should().updateOpportunity(eq("opp-1"), any(), eq(null), eq(new BigDecimal("150")), eq(null));
+	}
+
+	/** A conflict is audited when its push lands, so a failed attempt and its retry record it once. */
+	@Test
+	void aConflictIsAuditedOnlyOnceThePushLands() {
+		AuditService audit = mock(AuditService.class);
+		service.useAudit(audit);
+		Opportunity row = repricedTo150("opp-1");
+		queued(row);
+		ghlHolds("opp-1", "200", row.getLocalUpdatedAt().minusSeconds(30));
+		willThrow(new GhlUnavailableException("GHL did not answer", null, GhlFailure.NO_ANSWER, null))
+				.given(ghl).updateOpportunity(any(), any(), any(), any(), any());
+
+		service.drain();
+
+		verify(audit, never()).recordSystemEvent(any(), any(), any(), any(), any(), any());
+	}
+
 	@Test
 	void aCloseGhlAlreadyHoldsIsNotSentAgain() {
 		Opportunity row = local("opp-1");
@@ -428,7 +464,9 @@ class SyncOutboxServiceTest {
 		ReflectionTestUtils.setField(dead, "id", UUID.randomUUID());
 		dead.dead(failure, "x");
 		ReflectionTestUtils.setField(dead, "deadAt", java.time.Instant.now().minus(java.time.Duration.ofHours(2)));
-		given(outbox.findByBrandIdAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(eq(BRAND), any(), any()))
+		given(outbox.findByBrandIdAndLastFailureInAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(eq(BRAND),
+				org.mockito.ArgumentMatchers.argThat((java.util.Collection<GhlFailure> failures) -> failures.contains(failure)),
+				any(), any()))
 				.willReturn(List.of(dead));
 		return dead;
 	}

@@ -405,20 +405,29 @@ public class SyncOutboxService {
 				? row.getAmount() : null;
 		String stage = edited.contains(FieldOwnership.STAGE) ? row.getGhlStageId() : null;
 
+		// Conflicts are audited only once the push has landed: a GHL failure below retries, and the retry
+		// decides the same conflict again — recorded then, once, rather than once per attempt.
+		List<java.util.Map<String, Object>> conflicts = new java.util.ArrayList<>();
 		if (inGhl != null) {
-			name = merged(row, inGhl, FieldOwnership.NAME, name, inGhl.name()) ? name : null;
+			name = merged(row, inGhl, FieldOwnership.NAME, name, inGhl.name(), conflicts) ? name : null;
 			amount = merged(row, inGhl, FieldOwnership.AMOUNT, amount == null ? null : amount.toPlainString(),
-					inGhl.monetaryValue() == null ? null : inGhl.monetaryValue().toPlainString()) ? amount : null;
-			stage = merged(row, inGhl, FieldOwnership.STAGE, stage, inGhl.pipelineStageId()) ? stage : null;
+					inGhl.monetaryValue() == null ? null : inGhl.monetaryValue().toPlainString(), conflicts)
+							? amount : null;
+			stage = merged(row, inGhl, FieldOwnership.STAGE, stage, inGhl.pipelineStageId(), conflicts) ? stage : null;
 		}
 
 		if (name == null && amount == null && stage == null) {
 			// Nothing outstanding to say. GHL answers 422 to an empty body, and "they already
 			// agree" is success rather than a failure worth retrying.
 			log.info("Outbox UPSERT for opportunity {} has no unconfirmed edit left to send", row.getId());
-			return;
 		}
-		ghl.updateOpportunity(row.getGhlId(), ghlPipelineOf(row), name, amount, stage);
+		else {
+			ghl.updateOpportunity(row.getGhlId(), ghlPipelineOf(row), name, amount, stage);
+		}
+		if (audit != null) {
+			conflicts.forEach((after) -> audit.recordSystemEvent(row.getBrandId(), "GHL_OPPORTUNITY", row.getId(),
+					com.ie.evalos.domain.AuditAction.UPDATED, null, after));
+		}
 	}
 
 	/**
@@ -447,7 +456,7 @@ public class SyncOutboxService {
 	 * </ul>
 	 */
 	private boolean merged(Opportunity row, GhlPipelineClient.Opportunity inGhl, String field, String mine,
-			String theirs) {
+			String theirs, List<java.util.Map<String, Object>> conflicts) {
 		if (mine == null) {
 			return false;
 		}
@@ -455,7 +464,7 @@ public class SyncOutboxService {
 			return false;
 		}
 		String base = row.ghlBaseOf(field);
-		if (base != null && sameValue(field, base, theirs)) {
+		if (row.hasGhlBase(field) && sameValue(field, base, theirs)) {
 			return true;
 		}
 		boolean ghlNewer = inGhl.updatedAt() != null && row.getLocalUpdatedAt() != null
@@ -463,31 +472,32 @@ public class SyncOutboxService {
 		String winner = ghlNewer ? "GHL" : "EVALOS";
 		log.info("Sync conflict on opportunity {} field {}: EvalOS '{}', GHL '{}', base '{}' — {} wins",
 				row.getId(), field, mine, theirs, base, winner);
-		if (audit != null) {
-			java.util.Map<String, Object> after = new java.util.LinkedHashMap<>();
-			after.put("conflict", field);
-			after.put("evalos", mine);
-			after.put("ghl", String.valueOf(theirs));
-			after.put("base", String.valueOf(base));
-			after.put("winner", winner);
-			audit.recordSystemEvent(row.getBrandId(), "GHL_OPPORTUNITY", row.getId(),
-					com.ie.evalos.domain.AuditAction.UPDATED, null, after);
-		}
+		java.util.Map<String, Object> after = new java.util.LinkedHashMap<>();
+		after.put("conflict", field);
+		after.put("evalos", mine);
+		after.put("ghl", String.valueOf(theirs));
+		after.put("base", String.valueOf(base));
+		after.put("winner", winner);
+		conflicts.add(after);
 		return !ghlNewer;
 	}
 
-	/** Money compares by value (150 = 150.00); text and ids by their trimmed form. */
+	/**
+	 * Money compares by value (150 = 150.00), and an unset amount is 0 — GHL reports a deal without a
+	 * value either way. Text and ids compare by their trimmed form.
+	 */
 	private static boolean sameValue(String field, String a, String b) {
-		if (a == null || b == null) {
-			return a == null && b == null;
-		}
 		if (FieldOwnership.AMOUNT.equals(field)) {
 			try {
-				return new java.math.BigDecimal(a.trim()).compareTo(new java.math.BigDecimal(b.trim())) == 0;
+				return new java.math.BigDecimal(a == null ? "0" : a.trim())
+						.compareTo(new java.math.BigDecimal(b == null ? "0" : b.trim())) == 0;
 			}
 			catch (NumberFormatException notMoney) {
-				return a.trim().equals(b.trim());
+				// fall through to the text comparison
 			}
+		}
+		if (a == null || b == null) {
+			return a == null && b == null;
 		}
 		return a.trim().equals(b.trim());
 	}
@@ -756,10 +766,9 @@ public class SyncOutboxService {
 		Instant now = Instant.now();
 		Instant since = now.minus(RECENT_FAILURES);
 		int requeued = 0;
-		for (SyncOutboxEntry dead : outbox.findByBrandIdAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(
-				sellingBrand.id(), since, now.minus(RECOVERY_DELAY))) {
-			if (!recoverable(dead.getLastFailure())
-					|| outbox.countByBrandIdAndEntityTypeAndEntityIdAndIntentAndDeadAtAfter(dead.getBrandId(),
+		for (SyncOutboxEntry dead : outbox.findByBrandIdAndLastFailureInAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(
+				sellingBrand.id(), RECOVERABLE, since, now.minus(RECOVERY_DELAY))) {
+			if (outbox.countByBrandIdAndEntityTypeAndEntityIdAndIntentAndDeadAtAfter(dead.getBrandId(),
 							dead.getEntityType(), dead.getEntityId(), dead.getIntent(), since) >= MAX_AUTOMATIC_DEATHS) {
 				continue;
 			}
@@ -775,10 +784,9 @@ public class SyncOutboxService {
 		return requeued;
 	}
 
-	private static boolean recoverable(GhlFailure failure) {
-		return failure == GhlFailure.NO_ANSWER || failure == GhlFailure.UPSTREAM_ERROR
-				|| failure == GhlFailure.RATE_LIMITED || failure == GhlFailure.EMPTY_RESPONSE;
-	}
+	/** The failures a later attempt can fix (spec 86 §3); {@code REFUSED} is not one of them. */
+	static final java.util.Set<GhlFailure> RECOVERABLE = java.util.EnumSet.of(GhlFailure.NO_ANSWER,
+			GhlFailure.UPSTREAM_ERROR, GhlFailure.RATE_LIMITED, GhlFailure.EMPTY_RESPONSE);
 
 	private AuditService audit;
 

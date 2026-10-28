@@ -304,10 +304,11 @@ public class Opportunity extends ScopedEntity {
 	/**
 	 * Keeps the value a field held before its <em>first</em> unconfirmed edit (spec 86). A second edit of
 	 * the same field before the push keeps the original base, because that is what GHL was last known to
-	 * hold. A field never held locally has no base; the outbox then decides by timestamp alone.
+	 * hold. An empty field is a base too (stored as null): without it, GHL's deal-wide {@code updatedAt}
+	 * alone would decide, and any unrelated GHL change after the edit would discard it.
 	 */
 	private void rememberBase(java.util.Set<String> alreadyEdited, String field, String before) {
-		if (alreadyEdited.contains(field) || before == null) {
+		if (alreadyEdited.contains(field)) {
 			return;
 		}
 		java.util.Map<String, String> base = ghlBase == null ? new java.util.LinkedHashMap<>()
@@ -316,9 +317,14 @@ public class Opportunity extends ScopedEntity {
 		this.ghlBase = base;
 	}
 
-	/** The value {@code field} held before the desk's unconfirmed edit, or null when unknown (spec 86). */
+	/** The value {@code field} held before the desk's unconfirmed edit; null when empty or unknown (spec 86). */
 	public String ghlBaseOf(String field) {
 		return ghlBase == null ? null : ghlBase.get(field);
+	}
+
+	/** Whether a base was recorded for {@code field} — false for an edit queued before V96. */
+	public boolean hasGhlBase(String field) {
+		return ghlBase != null && ghlBase.containsKey(field);
 	}
 
 	/**

@@ -115,7 +115,7 @@ screen after Unit 25 puts the location on `brand`, and that one can admit Market
 
 BUILT 2026-09-16 (Unit 45, SLICE C): `sync_outbox` (`V57`/`V58`) — the durable EvalOS→GHL push.
 **2026-10-28:** Sync health lists failed pushes from the last 7 days only (`SyncOutboxService.RECENT_FAILURES`, tile + table); the Admin can **Retry** a failed push — `POST /api/sync/outbox/{id}/retry` (`SyncOutboxService.retry`): stamps the dead row `retried_at/by` (`V95`), queues a NEW row for the same entity+intent (collapses onto a pending one), audited `SYNC_OUTBOX` UPDATED; once per row; EMPTY_RESPONSE rows ask for a second click (GHL may already hold it). `SyncOutboxServiceTest` +5.
-**Spec 86 (2026-10-28):** push reads GHL first, three-way per field vs `ghl_base` (V96), newer edit wins, audited; drain auto-re-queues recoverable dead pushes (1h, max 3 deaths/week); MISSING_LOCALLY drift closes on absorb. Tests +13.
+**Spec 86 (2026-10-28):** push reads GHL first, three-way per field vs `ghl_base` (V96; an empty field is a null base, unset amount = 0), newer edit wins, audited once the push lands; drain auto-re-queues recoverable dead pushes (1h, max 3 deaths/week); MISSING_LOCALLY drift closes on absorb. Tests +16.
 `00c` §4d: invariant 2 said "writes do not retry" PRECISELY because EvalOS had no key scheme, and
 44d's correlation key is that scheme.
 

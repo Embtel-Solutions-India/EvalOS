@@ -70,9 +70,13 @@ public interface SyncOutboxRepository
 			@org.springframework.data.repository.query.Param("entityId") UUID entityId,
 			@org.springframework.data.repository.query.Param("intent") String intent);
 
-	/** Spec 86 §3: dead pushes in a window that nobody has re-queued yet, oldest first. */
-	List<SyncOutboxEntry> findByBrandIdAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(UUID brandId,
-			java.time.Instant from, java.time.Instant to);
+	/**
+	 * Spec 86 §3: dead pushes in a window, failed in one of {@code failures}, that nobody has re-queued
+	 * yet, oldest first. Filtered here so a refused push is not re-read on every drain for a week.
+	 */
+	List<SyncOutboxEntry> findByBrandIdAndLastFailureInAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(
+			UUID brandId, java.util.Collection<com.ie.evalos.integration.GhlFailure> failures, java.time.Instant from,
+			java.time.Instant to);
 
 	/** Spec 86 §3: how often this push has died lately — the automatic retry stops at three. */
 	long countByBrandIdAndEntityTypeAndEntityIdAndIntentAndDeadAtAfter(UUID brandId,
