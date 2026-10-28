@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { noteText } from '../../lib/noteText'
 import { useMe } from '../../lib/authContext'
 import { addNote, deleteNote, editNote, fetchNotes, type Note } from './opportunityApi'
 
@@ -149,7 +150,8 @@ export default function DealNotes({ opportunityId }: { opportunityId: string }) 
               ) : (
                 <>
                   {note.title && <p className="font-medium">{note.title}</p>}
-                  <p className="whitespace-pre-wrap">{note.body}</p>
+                  {/* GHL stores some notes as HTML (its AI call notes); shown as text, never rendered. */}
+                  <p className="whitespace-pre-wrap">{note.origin === 'GHL' ? noteText(note.body) : note.body}</p>
                 </>
               )}
               <p

@@ -82,7 +82,7 @@ public interface OpportunityRepository
 	 */
 	@Modifying(clearAutomatically = true)
 	@Transactional
-	@Query("update Opportunity o set o.localUpdatedAt = null, o.locallyEditedFields = null "
+	@Query("update Opportunity o set o.localUpdatedAt = null, o.locallyEditedFields = null, o.ghlBase = null "
 			+ "where o.id = :opportunityId and o.localUpdatedAt = :seen")
 	int confirmPushed(@Param("opportunityId") UUID opportunityId,
 			@Param("seen") java.time.Instant seen);

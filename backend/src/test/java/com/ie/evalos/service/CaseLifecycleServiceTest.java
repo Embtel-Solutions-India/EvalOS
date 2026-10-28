@@ -1662,6 +1662,30 @@ class CaseLifecycleServiceTest {
 		assertEquals(created, subject.getStageEnteredAt(), "and a second coordinator does not buy it more time");
 	}
 
+	/** D51 edited 2026-10-28: a PDF alone is a whole draft — no Word file is stored or required. */
+	@Test
+	void aDraftMayBeSubmittedAsAPdfAlone() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+
+		lifecycle.submitDraft(CASE_ID, null, PDF);
+
+		verify(store).put(org.mockito.ArgumentMatchers.startsWith(BRAND + "/case/"), eq(PDF.body()), eq(5L),
+				eq("application/pdf"));
+		verify(store, times(1)).put(any(), any(), org.mockito.ArgumentMatchers.anyLong(), any());
+		CaseDocument version = lastSavedDraft();
+		assertTrue(version.hasPdf());
+		assertFalse(version.hasWord());
+	}
+
+	@Test
+	void aDraftWithNeitherFileIsRefused() {
+		walkToDraftGeneration();
+		actAs(Role.CASE_MANAGER);
+
+		assertThrows(com.ie.evalos.common.InvalidRequestException.class, () -> lifecycle.submitDraft(CASE_ID, null, null));
+	}
+
 	/** Unit 58 §1: the version row carries both files, and both go to S3 under the case. */
 	@Test
 	void aSubmittedDraftStoresItsWordAndPdfOnTheVersion() {

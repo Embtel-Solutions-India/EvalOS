@@ -17,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -259,6 +260,15 @@ public class ApiExceptionHandler {
 	public ResponseEntity<ApiResponse<Void>> onNoSuchRoute(NoResourceFoundException ex) {
 		return ResponseEntity.status(HttpStatus.NOT_FOUND)
 				.body(ApiResponse.error("NOT_FOUND", "No such endpoint"));
+	}
+
+	/**
+	 * The client went away mid-response (closed tab, navigated, aborted fetch): a broken pipe on
+	 * write. Not a server fault and nothing can be written back, so no ERROR line and no body.
+	 */
+	@ExceptionHandler(AsyncRequestNotUsableException.class)
+	public void onClientGone(AsyncRequestNotUsableException ex) {
+		log.debug("Client disconnected before the response was written: {}", ex.getMessage());
 	}
 
 	@ExceptionHandler(Exception.class)

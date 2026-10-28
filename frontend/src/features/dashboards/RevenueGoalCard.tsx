@@ -20,6 +20,7 @@ export default function RevenueGoalCard({
   pctToGoal,
   goalMonth,
   change,
+  todayWon,
   onSaved,
   className,
 }: {
@@ -30,6 +31,8 @@ export default function RevenueGoalCard({
   goalMonth: string | null
   /** Whole-percentage change against the previous period; null draws no arrow. */
   change: number | null
+  /** Today's won revenue, shown above the bar where its end is (2026-10-28); null hides it. */
+  todayWon?: number | null
   onSaved: () => void
   className?: string
 }) {
@@ -115,23 +118,48 @@ export default function RevenueGoalCard({
 
           {hasGoal ? (
             <>
-              <div className="relative mt-7">
-                <span
-                  className="font-num absolute -top-6 text-sm font-semibold tabular-nums"
-                  style={{ left: `min(max(${fill}%, 1.5rem), calc(100% - 1.5rem))`, transform: 'translateX(-50%)', color }}
-                >
-                  {pctToGoal}%
-                </span>
+              {/* Today's revenue rides above the bar's end, and the progress percentage sits inside the bar
+                  (2026-10-28). The label is placed at the fill and shifted back by the same share of its own width
+                  (`translateX(-fill%)`), so it starts at the left edge on an empty bar and ends at the right edge at
+                  100% and above — it can never run out of the card. */}
+              <div className={`relative ${todayWon != null ? 'mt-8' : 'mt-4'}`}>
+                {todayWon != null && (
+                  <span
+                    className="font-num absolute -top-7 inline-flex items-baseline gap-1.5 text-sm font-semibold whitespace-nowrap tabular-nums"
+                    style={{ left: `${fill}%`, transform: `translateX(-${fill}%)`, color: 'var(--status-green)' }}
+                    title="Won today"
+                  >
+                    +{formatMoney(Math.round(todayWon))}
+                  </span>
+                )}
                 <div
                   role="progressbar"
                   aria-label="Progress to the monthly target"
                   aria-valuemin={0}
                   aria-valuemax={Math.max(100, pctToGoal)}
                   aria-valuenow={Math.max(0, pctToGoal)}
-                  className="relative h-3 w-full overflow-hidden rounded-full"
+                  className="relative h-6 w-full overflow-hidden rounded-full"
                   style={{ background: 'var(--bg-raised)' }}
                 >
-                  <div className="h-full rounded-full" style={{ width: `${fill}%`, background: color }} />
+                  <div
+                    className="flex h-full items-center justify-end rounded-full pr-2"
+                    style={{ width: `${fill}%`, background: color }}
+                  >
+                    {/* Inside the fill once there is room for it; just past the fill's end before then. */}
+                    {fill >= 18 && (
+                      <span className="font-num text-xs font-semibold tabular-nums" style={{ color: 'var(--text-on-accent, #fff)' }}>
+                        {pctToGoal}%
+                      </span>
+                    )}
+                  </div>
+                  {fill < 18 && (
+                    <span
+                      className="font-num absolute inset-y-0 flex items-center pl-1.5 text-xs font-semibold tabular-nums"
+                      style={{ left: `${fill}%`, color }}
+                    >
+                      {pctToGoal}%
+                    </span>
+                  )}
                   {targetAt !== null && (
                     <span
                       aria-hidden

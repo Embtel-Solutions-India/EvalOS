@@ -121,4 +121,27 @@ class JobAdminServiceTest {
 		ScheduledJob run = new ScheduledJob("DOC_CHASE", startedAt);
 		when(runs.findTop1ByJobTypeOrderByStartedAtDesc("DOC_CHASE")).thenReturn(List.of(run));
 	}
+
+	/** The chart's week is every day, oldest first; a day with no runs is a zero bar, not a missing one. */
+	@Test
+	void runsByDayFillsEveryDayOfTheWeek() {
+		java.time.ZoneId zone = java.time.ZoneId.of("Asia/Kolkata");
+		java.time.LocalDate today = java.time.LocalDate.now(zone);
+		ScheduledJobRepository.DayCount yesterday = new ScheduledJobRepository.DayCount() {
+			public String getDay() { return today.minusDays(1).toString(); }
+			public long getOk() { return 700; }
+			public long getFailed() { return 3; }
+		};
+		when(runs.countByDaySince(today.minusDays(6).atStartOfDay(zone).toInstant(), "Asia/Kolkata"))
+				.thenReturn(List.of(yesterday));
+		JobAdminService jobs = new JobAdminService(List.of(sweepNamed("DOC_CHASE", false)), runs, runner, SCHEDULE);
+
+		List<JobAdminService.DayRuns> week = jobs.runsByDay(zone, 7);
+
+		assertThat(week).hasSize(7);
+		assertThat(week.getFirst().day()).isEqualTo(today.minusDays(6));
+		assertThat(week.getLast().day()).isEqualTo(today);
+		assertThat(week.get(5)).isEqualTo(new JobAdminService.DayRuns(today.minusDays(1), 700, 3));
+		assertThat(week.getLast()).isEqualTo(new JobAdminService.DayRuns(today, 0, 0));
+	}
 }

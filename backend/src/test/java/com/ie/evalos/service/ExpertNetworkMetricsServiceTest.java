@@ -108,6 +108,28 @@ class ExpertNetworkMetricsServiceTest {
 		assertThat(result.onboarding().thisMonth()).isZero();
 	}
 
+	/** The GM's arrow: last month counts only its first N days, N being today's day of the month. */
+	@Test
+	void lastMonthSoFarStopsAtTodaysDayOfTheMonth() {
+		java.time.LocalDate today = java.time.LocalDate.now(BusinessCalendar.clock());
+		java.time.LocalDate lastMonth = today.minusMonths(1);
+		java.util.List<Expert> roster = new java.util.ArrayList<>();
+		for (java.time.LocalDate date : List.of(today, lastMonth.withDayOfMonth(1), lastMonth,
+				lastMonth.plusDays(1), lastMonth.withDayOfMonth(1).minusDays(1))) {
+			Expert expert = new Expert(BRAND_IE, "Onboarded " + date);
+			ReflectionTestUtils.setField(expert, "dateOnboarded", date);
+			roster.add(expert);
+		}
+		given(experts.findScoped(any(TenantContext.class))).willReturn(roster);
+
+		ExpertNetworkMetricsService.Onboarding onboarding = metrics.forCaller().onboarding();
+
+		assertThat(onboarding.thisMonth()).isGreaterThanOrEqualTo(1);
+		// The 1st and today's date last month count (two rows even when they are the same day); the day after, and the
+		// month before, do not.
+		assertThat(onboarding.lastMonthSoFar()).isEqualTo(2);
+	}
+
 	// --- G9: turnaround, derived from the offer ledger -------------------------
 
 	/**

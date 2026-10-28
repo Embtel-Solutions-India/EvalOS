@@ -129,9 +129,9 @@ Legend: **✓** built · **⚠** built, but a definition or a setting is the bus
 | PDF widget | Status | Source | How it is computed |
 |---|---|---|---|
 | **Total experts** — `412 / 63 active / inactive` | ✓ | `expert.availability` | `AVAILABLE + AT_CAPACITY` against `INACTIVE + ON_LEAVE`, from `/metrics/expert-network`. |
-| **Onboarded** — `4`, `up 2` | ⚠ | `expert.date_onboarded` | Count in the calendar month, against `evalos.roster.monthly-onboarding-target`. **The `up 2` delta is not built** — the existing endpoint returns this month against a target, not against last month, and adding a second comparison to a shipped payload for one arrow is not worth the drift. |
-| **New interested** — `14 this month` | ✗ | — | There is no expert *application*. `Expert` has `agreement_status` (`SENT`/`SIGNED`/`EXPIRED`) and `date_onboarded`, which describe somebody already on the roster. A recruitment funnel — application → screened → meeting → agreement → onboarded — is **Unit 50** (`00d` §7, ENM as a function), which exists precisely because these three widgets have nowhere to come from. |
-| **Meeting done** — `6 of 14 interested` | ✗ | — | Same: Unit 50. `meeting` is opportunity-scoped and client-facing; there is no expert meeting. |
+| **Onboarded** — `4`, `up 2` | ✓ | `expert.date_onboarded` | Count in the calendar month, against `evalos.roster.monthly-onboarding-target`. **Edited 2026-10-29:** the arrow is built — `Onboarding.lastMonthSoFar` counts last month's first N days (N = today's day of the month, the GM's other month arrows' rule), and the tile shows the difference as a count. |
+| **New interested** — `14 this month` | ✓ | GHL hiring pipeline | **Edited 2026-10-29:** Unit 63 gave the brand an `EXPERT_HIRING` pipeline (New Lead → Meeting Scheduled → Meeting Done → In Process → Onboarded → Dropped), so a candidate is an opportunity there. Candidates opened this calendar month (`ghl_created_at`, business zone), `GmOverviewService.HIRING_THIS_MONTH`, carried as `today.hiringInterested`. |
+| **Meeting done** — `6 of 14 interested` | ✓ | GHL hiring pipeline | **Edited 2026-10-29:** of this month's candidates, those whose stage now sits at or after "Meeting Done" by position and is not "Dropped" (`today.hiringMet`). The stage held now, not a history: a candidate dropped after the meeting is not counted. |
 | *(added)* **Offer acceptance**, **Coverage gaps** | ✓ | existing endpoint | Already computed for the ENM and free to show here — they are the two supply figures a GM acts on. |
 
 ### 3.5 EVALUATION DEPARTMENT

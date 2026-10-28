@@ -2,7 +2,6 @@ package com.ie.evalos.service;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -324,7 +323,8 @@ public class CaseIntakeService {
 	}
 
 	/**
-	 * Human-facing case id: brand initials, year, and six hex characters.
+	 * Human-facing case id: brand initials, year, and six hex characters. The year is the business
+	 * year ({@link BusinessCalendar#ZONE}), so a case opened on the evening of 31 December is that year's.
 	 *
 	 * <p>ponytail: random suffix rather than a per-brand sequence, which would need a
 	 * counter table and a lock. A collision is caught by the unique constraint and
@@ -334,7 +334,7 @@ public class CaseIntakeService {
 	private static String caseCode(Brand brand) {
 		return "%s-%d-%s".formatted(
 				brandPrefix(brand.getSlug()),
-				Instant.now().atZone(ZoneOffset.UTC).getYear(),
+				java.time.Year.now(BusinessCalendar.clock()).getValue(),
 				UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase());
 	}
 

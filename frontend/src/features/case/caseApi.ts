@@ -163,7 +163,9 @@ export type DraftVersion = {
   reviewComment: string | null
   /** As uploaded. Null for a draft submitted before Unit 30, which carried a link and no file. */
   filename: string | null
-  /** A draft's second file (Unit 58). False on every other kind and on link-only drafts. */
+  /** A draft's Word file (or any other kind's one file). False on a PDF-only or link-only draft. */
+  hasWord: boolean
+  /** A draft's PDF (Unit 58). False on every other kind, on Word-only and on link-only drafts. */
   hasPdf: boolean
 }
 
@@ -215,10 +217,11 @@ export async function changeDeadline(caseId: string, deadline: string): Promise<
   await unwrap(api.patch(`/cases/${caseId}/deadline`, { deadline }))
 }
 
-export async function uploadDraft(caseId: string, docx: File, pdf: File): Promise<void> {
+/** Word, PDF or both (D51, edited 2026-10-28) — at least one; the server refuses neither. */
+export async function uploadDraft(caseId: string, docx: File | null, pdf: File | null): Promise<void> {
   const body = new FormData()
-  body.append('docx', docx)
-  body.append('pdf', pdf)
+  if (docx) body.append('docx', docx)
+  if (pdf) body.append('pdf', pdf)
   await unwrap(api.post(`/cases/${caseId}/drafts`, body, { headers: { 'Content-Type': undefined } }))
 }
 

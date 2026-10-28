@@ -272,6 +272,141 @@ class LocalPostgresIntegrationTest {
 	@Autowired
 	TeamMemberPipelineRepository pipelineAssignments;
 
+	@Autowired
+	SyncDriftRepository syncDrifts;
+
+	@Autowired
+	PipelineRepository mirroredPipelines;
+
+	@Autowired
+	OpportunityRepository mirroredDeals;
+
+	/** The GM's Team card (2026-10-28): every deal on a pipeline and every win's value, whatever their dates. */
+	@Test
+	void theTeamCardCountsThisMonthsLeadsAndWins() {
+		com.ie.evalos.domain.Pipeline pipe = mirroredPipelines.save(
+				new com.ie.evalos.domain.Pipeline(BRAND_IE, "pipe-" + UUID.randomUUID(), "Team card", 0));
+		java.time.Instant now = java.time.Instant.now();
+		java.time.Instant old = java.time.Instant.parse("2020-01-01T00:00:00Z");
+		// status, amount, opened, status changed: two opened now, two wins now (one opened in 2020), an old win, a lost.
+		Object[][] deals = { { "open", "100", now, null }, { "won", "250", now, now }, { "WON", "50", old, now },
+				{ "won", "999", old, old }, { "lost", "75", old, now } };
+		for (Object[] deal : deals) {
+			com.ie.evalos.domain.Opportunity row = new com.ie.evalos.domain.Opportunity(BRAND_IE,
+					"opp-" + UUID.randomUUID(), pipe.getId());
+			row.syncFromGhl("c", pipe.getId(), "s", "Deal", new java.math.BigDecimal((String) deal[1]), (String) deal[0],
+					null, null, (java.time.Instant) deal[2], null, (java.time.Instant) deal[3], null);
+			mirroredDeals.saveAndFlush(row);
+		}
+
+		java.sql.Timestamp from = java.sql.Timestamp.from(now.minus(java.time.Duration.ofDays(1)));
+		java.sql.Timestamp to = java.sql.Timestamp.from(now.plus(java.time.Duration.ofDays(1)));
+		java.util.Map<String, Object> month = jdbc.queryForList(com.ie.evalos.service.GmOverviewService.TEAM_PIPELINE_MONTH,
+				from, to, from, to, BRAND_IE).stream().filter((r) -> pipe.getGhlId().equals(r.get("ghl_id"))).findFirst()
+				.orElseThrow();
+		assertThat(((Number) month.get("leads")).intValue()).isEqualTo(2);
+		assertThat((java.math.BigDecimal) month.get("won_value")).isEqualByComparingTo("300");
+		assertThat(jdbc.queryForList(com.ie.evalos.service.GmOverviewService.TEAM_MEETINGS_MONTH, BRAND_IE, from, to))
+				.isNotNull();
+	}
+
+	/** The GM's Expert management tiles: this month's candidates, and those at "Meeting Done" or later but not dropped. */
+	@Test
+	void hiringThisMonthCountsCandidatesAndThoseWhoHaveMet() {
+		java.time.Instant monthStart = java.time.Instant.now().minus(java.time.Duration.ofDays(1));
+		java.time.Instant end = java.time.Instant.now().plus(java.time.Duration.ofDays(1));
+		java.util.function.Supplier<java.util.Map<String, Object>> read = () -> jdbc.queryForMap(
+				com.ie.evalos.service.GmOverviewService.HIRING_THIS_MONTH, BRAND_IE, java.sql.Timestamp.from(monthStart),
+				java.sql.Timestamp.from(end));
+		java.util.Map<String, Object> before = read.get();
+
+		com.ie.evalos.domain.Pipeline pipe = mirroredPipelines.save(
+				new com.ie.evalos.domain.Pipeline(BRAND_IE, "pipe-" + UUID.randomUUID(), "Expert Network", 0));
+		jdbc.update("UPDATE pipeline SET purpose = 'EXPERT_HIRING' WHERE id = ?", pipe.getId());
+		String[] stages = { "New Lead", "Meeting Scheduled", "Meeting Done", "In Process", "Onboarded", "Dropped" };
+		String[] stageIds = new String[stages.length];
+		for (int i = 0; i < stages.length; i++) {
+			stageIds[i] = "stage-" + UUID.randomUUID();
+			jdbc.update("INSERT INTO pipeline_stage (id, brand_id, pipeline_id, ghl_id, name, position, synced_at)"
+					+ " VALUES (?, ?, ?, ?, ?, ?, now())", UUID.randomUUID(), BRAND_IE, pipe.getId(), stageIds[i], stages[i], i);
+		}
+		// New Lead, Meeting Done, In Process and Dropped this month; In Process again, but opened in 2020.
+		int[] at = { 0, 2, 3, 5, 3 };
+		for (int i = 0; i < at.length; i++) {
+			com.ie.evalos.domain.Opportunity row = new com.ie.evalos.domain.Opportunity(BRAND_IE,
+					"opp-" + UUID.randomUUID(), pipe.getId());
+			row.syncFromGhl("c", pipe.getId(), stageIds[at[i]], "Candidate", null, "open", null, null,
+					i == 4 ? java.time.Instant.parse("2020-01-01T00:00:00Z") : java.time.Instant.now(), null, null, null);
+			mirroredDeals.saveAndFlush(row);
+		}
+
+		java.util.Map<String, Object> after = read.get();
+		assertThat(((Number) after.get("interested")).intValue() - ((Number) before.get("interested")).intValue())
+				.isEqualTo(4);
+		assertThat(((Number) after.get("met")).intValue() - ((Number) before.get("met")).intValue()).isEqualTo(2);
+	}
+
+	/** Spec 86: the base survives a round trip as JSON, and a confirmed push clears it with the edit flags. */
+	@Test
+	void anOpportunitysBaseIsStoredAndClearedWithTheEdit() {
+		com.ie.evalos.domain.Pipeline pipe = mirroredPipelines.save(
+				new com.ie.evalos.domain.Pipeline(BRAND_IE, "pipe-" + UUID.randomUUID(), "Spec 86", 0));
+		com.ie.evalos.domain.Opportunity deal = new com.ie.evalos.domain.Opportunity(BRAND_IE,
+				"opp-" + UUID.randomUUID(), pipe.getId());
+		deal.syncFromGhl("c", pipe.getId(), "s", "Deal", new java.math.BigDecimal("500"), "open", null, null, null,
+				null, null, null);
+		deal.editedLocally(null, new java.math.BigDecimal("150"), null, null);
+		deal = mirroredDeals.saveAndFlush(deal);
+
+		assertThat(mirroredDeals.findById(deal.getId()).orElseThrow().ghlBaseOf("amount")).isEqualTo("500");
+		assertThat(mirroredDeals.confirmPushed(deal.getId(), deal.getLocalUpdatedAt())).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT ghl_base IS NULL FROM opportunity WHERE id = ?", Boolean.class,
+				deal.getId())).isTrue();
+	}
+
+	@Autowired
+	ScheduledJobRepository jobRuns;
+
+	/** The Background jobs chart's per-day count buckets in the viewer's zone and splits failures out. */
+	@Test
+	void sweepRunsAreCountedPerLocalDay() {
+		java.time.Instant since = java.time.Instant.now().minus(java.time.Duration.ofDays(30));
+		long before = jobRuns.countByDaySince(since, "Asia/Kolkata").stream()
+				.mapToLong((d) -> d.getOk() + d.getFailed()).sum();
+		// 20:00 UTC is already tomorrow in India: the bucket must follow the zone, not UTC.
+		java.time.Instant evening = java.time.LocalDate.now(java.time.ZoneOffset.UTC).minusDays(2)
+				.atTime(20, 0).toInstant(java.time.ZoneOffset.UTC);
+		jdbc.update("INSERT INTO scheduled_job (job_type, started_at, status) VALUES ('T', ?, 'OK'), ('T', ?, 'FAILED')",
+				java.sql.Timestamp.from(evening), java.sql.Timestamp.from(evening));
+
+		List<ScheduledJobRepository.DayCount> days = jobRuns.countByDaySince(since, "Asia/Kolkata");
+
+		String indiaDay = evening.atZone(java.time.ZoneId.of("Asia/Kolkata")).toLocalDate().toString();
+		ScheduledJobRepository.DayCount that = days.stream().filter((d) -> d.getDay().equals(indiaDay)).findFirst()
+				.orElseThrow();
+		assertThat(that.getFailed()).isGreaterThanOrEqualTo(1);
+		assertThat(days.stream().mapToLong((d) -> d.getOk() + d.getFailed()).sum()).isEqualTo(before + 2);
+	}
+
+	/** Spec 86 §4: the bulk close runs against the real schema and touches only open MISSING_LOCALLY rows. */
+	@Test
+	void theMissingLocallyCloseRunsAgainstTheSchema() {
+		assertThat(syncDrifts.resolveMissingLocally(BRAND_IE, List.of("no-such-" + UUID.randomUUID()))).isZero();
+	}
+
+	/** The contact page's three reads run against the real schema (column names, joins, the IN list). */
+	@Test
+	void theContactPageReadsRunAgainstTheSchema() {
+		ContactDirectoryRepository directory = new ContactDirectoryRepository(jdbc);
+		UUID nobody = UUID.randomUUID();
+
+		assertThat(directory.contact(nobody)).isEmpty();
+		assertThat(directory.contactInBrand(nobody, BRAND_IE)).isEmpty();
+		assertThat(directory.deals(nobody, BRAND_IE, null)).isEmpty();
+		assertThat(directory.deals(nobody, BRAND_IE, List.of("p1", "p2"))).isEmpty();
+		assertThat(directory.cases(nobody, BRAND_IE)).isEmpty();
+	}
+
 	@Test
 	void everyMigrationApplied() {
 		List<String> versions = jdbc.queryForList(

@@ -1,6 +1,10 @@
 package com.ie.evalos.service;
 
+import java.util.List;
+import java.util.UUID;
+
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.domain.Role;
 import com.ie.evalos.repository.ContactDirectoryRepository;
 import com.ie.evalos.security.TenantContext;
 
@@ -47,6 +51,44 @@ public class ContactDirectoryService {
 					"The contacts list is for the GM, a Brand Manager, and the sales and marketing "
 							+ "desks. Your role reads cases, not the CRM.");
 		};
+	}
+
+	/** One contact's page. {@code cases} is null for a desk: Sales and Marketing read no case (D19c). */
+	public record Detail(ContactDirectoryRepository.Row contact, List<ContactDirectoryRepository.Deal> deals,
+			List<ContactDirectoryRepository.CaseRow> cases) {
+	}
+
+	/**
+	 * The contact page, at the same width as the list: a GM any brand, a Brand Manager their own, a
+	 * desk only a contact with a deal on its pipelines (and only those deals). Anything outside that is
+	 * one 403 whether or not the id exists, so the answer leaks nothing.
+	 */
+	@Transactional(readOnly = true)
+	public Detail detail(UUID contactId) {
+		TenantContext caller = TenantContext.current();
+		Role.Tier tier = caller.role().tier();
+		// Scoped in the query, like the list: a brand-locked caller with no brand, or a tier this page has no
+		// answer for, reads nothing — the same 403 as an id outside their brand.
+		java.util.Optional<ContactDirectoryRepository.Row> found = switch (tier) {
+			case ALL -> contacts.contact(contactId);
+			case BRAND, PIPELINE -> caller.brandId() == null ? java.util.Optional.empty()
+					: contacts.contactInBrand(contactId, caller.brandId());
+			default -> java.util.Optional.empty();
+		};
+		ContactDirectoryRepository.Row contact = found
+				.orElseThrow(() -> new ForbiddenException("That contact is not one you can see."));
+		if (tier == Role.Tier.PIPELINE) {
+			if (caller.ghlPipelineIds().isEmpty()) {
+				throw new ForbiddenException("You have no GHL pipeline assigned. A GM assigns one.");
+			}
+			List<ContactDirectoryRepository.Deal> mine = contacts.deals(contactId, contact.brandId(), caller.ghlPipelineIds());
+			if (mine.isEmpty()) {
+				throw new ForbiddenException("That contact is not one you can see.");
+			}
+			return new Detail(contact, mine, null);
+		}
+		return new Detail(contact, contacts.deals(contactId, contact.brandId(), null),
+				contacts.cases(contactId, contact.brandId()));
 	}
 
 	private ContactDirectoryRepository.Page scopedToBrand(TenantContext caller, String search,

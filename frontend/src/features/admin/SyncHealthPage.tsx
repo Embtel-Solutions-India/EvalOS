@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { stateOf } from '../dashboards/useMetrics'
-import { fetchSyncHealth } from './adminApi'
+import { fetchSyncHealth, retryPush, type SyncHealth } from './adminApi'
 import { SyncSummary } from './adminSummaries'
 
 /**
@@ -20,6 +21,16 @@ const INTENT_LABELS: Record<string, string> = {
 export default function SyncHealthPage() {
   const query = useQuery({ queryKey: ['admin', 'sync'], queryFn: ({ signal }) => fetchSyncHealth(signal) })
   const health = query.data
+  const queryClient = useQueryClient()
+  // A push GHL answered emptily may already have landed there, so its retry asks once more (EMPTY_RESPONSE).
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const retry = useMutation({
+    mutationFn: retryPush,
+    onSuccess: (fresh: SyncHealth) => {
+      setConfirming(null)
+      queryClient.setQueryData(['admin', 'sync'], fresh)
+    },
+  })
   const drifts = [...(health?.drifts ?? [])].sort(
     (a, b) => Number(b.resolution === 'NEEDS_A_HUMAN') - Number(a.resolution === 'NEEDS_A_HUMAN'),
   )
@@ -30,7 +41,8 @@ export default function SyncHealthPage() {
         <h1 className="text-xl font-semibold tracking-tight">Sync health</h1>
         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
           Where EvalOS and GHL disagree, and the pushes waiting to reach GHL. The nightly audit finds drift; most of it
-          fixes itself on the next sync.
+          fixes itself on the next sync. A failed push is retried automatically after an hour when the cause was a
+          timeout or GHL itself; Retry is for the rest, once you have fixed the cause.
         </p>
       </header>
       {query.isError && !health && <p className="text-sm" style={{ color: 'var(--status-red)' }}>{query.error.message}</p>}
@@ -45,7 +57,7 @@ export default function SyncHealthPage() {
               value={health.outbox.pending}
               hint={health.outbox.oldestPending ? `Oldest since ${new Date(health.outbox.oldestPending).toLocaleString()}` : 'Nothing is queued'}
             />
-            <Tile label="Pushes failed" value={health.outbox.dead} alarm={health.outbox.dead > 0} hint="Never reached GHL" />
+            <Tile label="Pushes failed" value={health.outbox.dead} alarm={health.outbox.dead > 0} hint="In the last 7 days" />
           </div>
 
           <SyncSummary health={health} state={stateOf(query)} />
@@ -63,7 +75,16 @@ export default function SyncHealthPage() {
             ))}
           </Table>
 
-          <Table title="Failed pushes" head={['Action', 'Record', 'Tries', 'Why it failed', 'Failed at']} empty="No push to GHL has failed recently.">
+          {retry.isError && (
+            <p role="alert" className="text-sm" style={{ color: 'var(--status-red)' }}>
+              The push was not re-queued: {retry.error.message}
+            </p>
+          )}
+          <Table
+            title="Failed pushes · last 7 days"
+            head={['Action', 'Record', 'Tries', 'Why it failed', 'Failed at', '']}
+            empty="No push to GHL has failed in the last 7 days."
+          >
             {health.outbox.recentlyDead.map((p) => (
               <tr key={p.id} className="border-t" style={{ borderColor: 'var(--border-default)' }}>
                 <td className="px-4 py-2 whitespace-nowrap">{INTENT_LABELS[p.intent] ?? p.intent.toLowerCase()}</td>
@@ -71,6 +92,29 @@ export default function SyncHealthPage() {
                 <td className="px-4 py-2 font-num text-xs tabular-nums">{p.attempts}</td>
                 <td className="px-4 py-2 text-xs">{p.reason ?? p.lastFailure ?? '—'}</td>
                 <td className="px-4 py-2 text-xs whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>{new Date(p.deadAt).toLocaleString()}</td>
+                <td className="px-4 py-2 text-xs whitespace-nowrap text-right">
+                  {p.retriedAt ? (
+                    <span style={{ color: 'var(--text-muted)' }} title={new Date(p.retriedAt).toLocaleString()}>
+                      {p.retriedAutomatically ? 'Retried automatically' : 'Retried'}
+                    </span>
+                  ) : confirming === p.id ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span style={{ color: 'var(--status-amber)' }}>GHL may already have this — checked?</span>
+                      <button type="button" className="btn" disabled={retry.isPending} onClick={() => retry.mutate(p.id)}>Retry anyway</button>
+                      <button type="button" className="btn" onClick={() => setConfirming(null)}>Cancel</button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={retry.isPending}
+                      title="Queue this push again; it sends the record as it is now"
+                      onClick={() => (p.lastFailure === 'EMPTY_RESPONSE' ? setConfirming(p.id) : retry.mutate(p.id))}
+                    >
+                      Retry
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </Table>

@@ -160,6 +160,77 @@ public class ContactDirectoryRepository {
 		return page(JOIN_MY_DEALS, where, args, page, size);
 	}
 
+	/** One deal on a contact's page. {@code ghlId} is the deal page's key; null for a deal not yet in GHL. */
+	public record Deal(String ghlId, String name, String pipelineName, String stageName, String status,
+			java.math.BigDecimal amount, Instant createdAt, Instant updatedAt) {
+	}
+
+	/** One case on a contact's page. */
+	public record CaseRow(UUID id, String caseCode, String stage, String serviceType, String serviceSubtype,
+			java.math.BigDecimal dealValue, Instant deadline, Instant deliveryDate, Instant createdAt) {
+	}
+
+	/** {@code Tier.ALL} — one contact by EvalOS id in any brand, with its brand-wide deal count. */
+	public java.util.Optional<Row> contact(UUID id) {
+		return jdbc.query(SELECT + LEFT_JOIN_DEALS + " WHERE c.id = ?" + GROUP_BY, ContactDirectoryRepository::map, id)
+				.stream().findFirst();
+	}
+
+	/** {@code Tier.BRAND} and below — one contact by EvalOS id, only if it is in {@code brandId}. */
+	public java.util.Optional<Row> contactInBrand(UUID id, UUID brandId) {
+		return jdbc.query(SELECT + LEFT_JOIN_DEALS + " WHERE c.id = ? AND c.brand_id = ?" + GROUP_BY,
+				ContactDirectoryRepository::map, id, brandId).stream().findFirst();
+	}
+
+	/**
+	 * A contact's live deals, newest activity first. {@code ghlPipelineIds} null means every pipeline
+	 * of the brand; a desk passes its own, never empty (same {@code IN ()} rule as {@link #onPipelines}).
+	 */
+	public List<Deal> deals(UUID contactId, UUID brandId, Collection<String> ghlPipelineIds) {
+		List<Object> args = new ArrayList<>(List.of(contactId, brandId));
+		String pipelines = "";
+		if (ghlPipelineIds != null) {
+			if (ghlPipelineIds.isEmpty()) {
+				throw new IllegalArgumentException("No pipelines: the caller should have been refused");
+			}
+			args.addAll(ghlPipelineIds);
+			pipelines = " AND p.ghl_id IN (" + String.join(", ", Collections.nCopies(ghlPipelineIds.size(), "?")) + ")";
+		}
+		return jdbc.query("""
+				SELECT o.ghl_id, o.name, p.name AS pipeline_name, s.name AS stage_name, o.status, o.amount,
+				       o.ghl_created_at, o.ghl_updated_at
+				  FROM contact_snapshot c
+				  JOIN opportunity o ON o.ghl_contact_id = c.ghl_contact_id AND o.brand_id = c.brand_id
+				  JOIN pipeline p ON p.id = o.pipeline_id
+				  LEFT JOIN pipeline_stage s ON s.pipeline_id = o.pipeline_id AND s.ghl_id = o.ghl_stage_id
+				 WHERE c.id = ? AND c.brand_id = ? AND o.missing_since IS NULL""" + pipelines
+				+ " ORDER BY o.ghl_updated_at DESC NULLS LAST, o.id",
+				(rs, n) -> new Deal(rs.getString("ghl_id"), rs.getString("name"), rs.getString("pipeline_name"),
+						rs.getString("stage_name"), rs.getString("status"), rs.getBigDecimal("amount"),
+						instant(rs, "ghl_created_at"), instant(rs, "ghl_updated_at")),
+				args.toArray());
+	}
+
+	/** A contact's cases in its brand, newest first. */
+	public List<CaseRow> cases(UUID contactId, UUID brandId) {
+		return jdbc.query("""
+				SELECT id, case_code, current_stage, service_type, service_subtype, deal_value, deadline,
+				       delivery_date, created_at
+				  FROM evalos_case
+				 WHERE contact_id = ? AND brand_id = ?
+				 ORDER BY created_at DESC, id""",
+				(rs, n) -> new CaseRow(rs.getObject("id", UUID.class), rs.getString("case_code"),
+						rs.getString("current_stage"), rs.getString("service_type"), rs.getString("service_subtype"),
+						rs.getBigDecimal("deal_value"), instant(rs, "deadline"),
+						instant(rs, "delivery_date"), instant(rs, "created_at")),
+				contactId, brandId);
+	}
+
+	private static Instant instant(ResultSet rs, String column) throws SQLException {
+		Timestamp at = rs.getTimestamp(column);
+		return at == null ? null : at.toInstant();
+	}
+
 	/**
 	 * One page of rows plus the total behind them, from one scope.
 	 *

@@ -198,3 +198,8 @@ export function riskLabel(risk: DeadlineRisk | null): string {
 export function deliveryQueue(data: BoardData): BoardCard[] {
   return data.stages.READY_TO_DELIVER
 }
+
+/** Delivered and not yet closed — shown under the queue so the Coordinator sees what has gone out (2026-10-28). */
+export function deliveredCases(data: BoardData): BoardCard[] {
+  return data.stages.DELIVERED ?? []
+}

@@ -68,6 +68,30 @@ public class JobAdminService {
 		return runs.findTop50ByOrderByStartedAtDesc();
 	}
 
+	/** One bar of the Background jobs chart. */
+	public record DayRuns(java.time.LocalDate day, long ok, long failed) {
+	}
+
+	/**
+	 * The last {@code days} local days in {@code zone}, oldest first, every day present — a day with no
+	 * runs is a zero bar, not a gap, because a sweep that stopped is exactly what the chart is for.
+	 */
+	@Transactional(readOnly = true)
+	public List<DayRuns> runsByDay(java.time.ZoneId zone, int days) {
+		java.time.LocalDate today = java.time.LocalDate.now(zone);
+		java.time.LocalDate first = today.minusDays(days - 1L);
+		java.util.Map<String, ScheduledJobRepository.DayCount> counted = new java.util.HashMap<>();
+		for (ScheduledJobRepository.DayCount row : runs.countByDaySince(first.atStartOfDay(zone).toInstant(), zone.getId())) {
+			counted.put(row.getDay(), row);
+		}
+		List<DayRuns> out = new java.util.ArrayList<>();
+		for (java.time.LocalDate day = first; !day.isAfter(today); day = day.plusDays(1)) {
+			ScheduledJobRepository.DayCount row = counted.get(day.toString());
+			out.add(new DayRuns(day, row == null ? 0 : row.getOk(), row == null ? 0 : row.getFailed()));
+		}
+		return out;
+	}
+
 	/** One line per sweep, whether or not it has ever run. */
 	@Transactional(readOnly = true)
 	public List<SweepStatus> statuses() {

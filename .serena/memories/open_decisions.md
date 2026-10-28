@@ -38,3 +38,7 @@ Plus eight carried forward from `context/specs/00d-platform-audit-and-alignment.
 **Q18 (2026-10-02):** staff passwords are set by the GM (D72). Mail a staff set-password link instead? Recommended: keep as built — a new mail under invariant 14, and the GM knows every hire.
 
 **Answered 2026-10-15 (from the ponytail-debt upgrades):** Q23 — Admin view-only on Pipelines; the GM sets purpose + won stages, both audited with the GM's brand (D78 edited). Q24 — one brand only for now, selling-brand-only outbox drain stays (per-brand with Unit 25). Q25 — unused `POST /board/refresh` deleted.
+
+**Raised 2026-10-28 (hard-coded-values audit):** Q26 — Admin-created roles? Recommended: not free-form; roles are an enum bound to scope tiers, so it needs a permission model spec first. Q27 — mail + portal branding is IE-only constants; move site/logo/support email onto `brand` before XP clients get mail. Q28 — GHL source labels and the `America/Los_Angeles` business clock: leave until a second brand/office needs different ones.
+
+**Q29 (2026-10-28):** Marketing "Replies" on the GM Team card has no data (no conversation mirror, no replied stage). Recommended: count a GHL "Replied" stage if Marketing has one; don't mirror conversations for one column.

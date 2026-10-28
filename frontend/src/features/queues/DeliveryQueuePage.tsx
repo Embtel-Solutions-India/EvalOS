@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { performAction } from '../board/boardApi'
 import { QUICK_ACTIONS, type BoardCard } from '../board/boardRules'
 import { useFilters } from '../shell/filtersContext'
-import { deliveryQueue, riskColor, riskLabel } from './queueRules'
+import { deliveredCases, deliveryQueue, riskColor, riskLabel } from './queueRules'
 import { DialogContent, DialogRoot, DialogTrigger } from '../../components/ui/dialog'
 import ViewToggle from './ViewToggle'
 import { useViewMode, type ViewMode } from './useViewMode'
@@ -29,6 +29,7 @@ export default function DeliveryQueuePage() {
   const [mode, setMode] = useViewMode('delivery-queue')
 
   const rows = data ? deliveryQueue(data) : []
+  const delivered = data ? deliveredCases(data) : []
 
   return (
     <section>
@@ -36,7 +37,7 @@ export default function DeliveryQueuePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Delivery queue</h1>
           <p className="font-num text-sm tabular-nums" style={{ color: 'var(--text-muted)' }}>
-            {data ? `${rows.length} ready` : ''}
+            {data ? `${rows.length} ready · ${delivered.length} delivered` : ''}
           </p>
         </div>
         <ViewToggle mode={mode} onChange={setMode} />
@@ -70,6 +71,51 @@ export default function DeliveryQueuePage() {
           <DeliveryRow key={card.id} card={card} mode={mode} onDelivered={load} />
         ))}
       </ul>
+
+      {data && (
+        <div className="mt-8">
+          <h2 className="text-sm font-semibold tracking-tight">
+            Delivered{' '}
+            <span className="font-num tabular-nums" style={{ color: 'var(--text-muted)' }}>
+              {delivered.length}
+            </span>
+          </h2>
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+            Sent to the client and not yet closed.
+          </p>
+          {delivered.length === 0 ? (
+            <p
+              className="mt-3 rounded-lg border p-6 text-sm"
+              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)', color: 'var(--text-muted)' }}
+            >
+              Nothing has been delivered and left open.
+            </p>
+          ) : (
+            <ul className={mode === 'cards' ? 'mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4' : 'mt-3 space-y-2'}>
+              {delivered.map((card) => (
+                <li
+                  key={card.id}
+                  className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border p-3"
+                  style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-default)' }}
+                >
+                  <div className="min-w-48 flex-1">
+                    <Link to={`/cases/${card.id}`} className="font-mono text-xs font-medium">
+                      {card.caseCode}
+                    </Link>
+                    <p className="text-sm font-medium">{card.clientName ?? 'Unnamed contact'}</p>
+                    {card.serviceType && (
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {card.serviceType.charAt(0) + card.serviceType.slice(1).toLowerCase().replaceAll('_', ' ')}
+                      </p>
+                    )}
+                  </div>
+                  <span className="chip">Delivered</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   )
 }

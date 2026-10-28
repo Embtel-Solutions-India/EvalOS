@@ -549,10 +549,20 @@ public class CaseLifecycleService {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.SUBMIT_DRAFT);
 
-		String docxKey = DocumentStore.caseKey(subject.getBrandId(), subject.getId(), "draft", UUID.randomUUID());
-		String pdfKey = DocumentStore.caseKey(subject.getBrandId(), subject.getId(), "draft", UUID.randomUUID());
-		store.put(docxKey, docx.body(), docx.size(), DOCX);
-		store.put(pdfKey, pdf.body(), pdf.size(), "application/pdf");
+		// Word, PDF or both (D51, edited 2026-10-28); the controller refuses neither.
+		if (docx == null && pdf == null) {
+			throw new InvalidRequestException("Upload the draft as a Word file, a PDF, or both");
+		}
+		String docxKey = null;
+		String pdfKey = null;
+		if (docx != null) {
+			docxKey = DocumentStore.caseKey(subject.getBrandId(), subject.getId(), "draft", UUID.randomUUID());
+			store.put(docxKey, docx.body(), docx.size(), DOCX);
+		}
+		if (pdf != null) {
+			pdfKey = DocumentStore.caseKey(subject.getBrandId(), subject.getId(), "draft", UUID.randomUUID());
+			store.put(pdfKey, pdf.body(), pdf.size(), "application/pdf");
+		}
 
 		// **The previous version is closed before the new one opens.** A version nobody ruled on —
 		// the CM resubmitting after a client revision, say — is SUPERSEDED rather than left
@@ -578,7 +588,8 @@ public class CaseLifecycleService {
 		// duplicate if two submissions ever race.
 		CaseDocument version = new CaseDocument(saved.getBrandId(), saved.getId(), DocumentKind.DRAFT,
 				saved.getDraftVersionCount(), TenantContext.current().memberId(), ActorType.STAFF, null);
-		version.storedDraft(docxKey, docx.filename(), docx.size(), pdfKey, pdf.filename(), pdf.size());
+		version.storedDraft(docxKey, docx == null ? null : docx.filename(), docx == null ? 0 : docx.size(), pdfKey,
+				pdf == null ? null : pdf.filename(), pdf == null ? 0 : pdf.size());
 		documents.save(version);
 		return saved;
 	}

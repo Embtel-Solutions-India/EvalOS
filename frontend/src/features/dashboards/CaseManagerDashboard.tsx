@@ -41,9 +41,10 @@ export default function CaseManagerDashboard() {
     { key: 'CaseManagerDashboard:1' },
   )
 
+  // Tiles in one row, the draft lifecycle under them, then the work lists in the order a CM takes them (2026-10-28).
   return (
-    <section>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <section className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
         <KpiCard
           title="Returned by PM"
           state={workState}
@@ -56,20 +57,13 @@ export default function CaseManagerDashboard() {
           value={work?.checklist.blockerItems ?? null}
           tone={work === null ? undefined : work.checklist.blockerItems > 0 ? 'bad' : 'good'}
         />
-        <KpiCard
-          title="Open expert offers"
-          state={workState}
-          value={work?.offers.open ?? null}
-        />
+        <KpiCard title="Open expert offers" state={workState} value={work?.offers.open ?? null} />
         <KpiCard
           title="Rematch needed"
           state={workState}
           value={work?.offers.rematch ?? null}
           tone={work === null ? undefined : work.offers.rematch > 0 ? 'bad' : 'good'}
         />
-      </div>
-
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="Due now"
           state={state}
@@ -77,7 +71,6 @@ export default function CaseManagerDashboard() {
           tone={data === null ? undefined : data.critical > 0 ? 'bad' : data.atRisk > 0 ? 'warn' : 'good'}
           note="Red deadline band: past the date or inside 24 business hours. Zero critical is the daily goal."
         />
-
         <KpiCard
           title="Completed on time"
           state={state}
@@ -93,7 +86,6 @@ export default function CaseManagerDashboard() {
                   : 'bad'
           }
         />
-
         <KpiCard
           title="Draft revision rate"
           state={state}
@@ -104,7 +96,6 @@ export default function CaseManagerDashboard() {
           tone={data === null || !data.comparable ? undefined : data.revisionRateFlagged ? 'warn' : 'good'}
           note="How often the PM returns a first draft."
         />
-
         <KpiCard
           title="Client revision requests"
           state={state}
@@ -112,10 +103,79 @@ export default function CaseManagerDashboard() {
           unit="%"
           note="Cases the client came back on. Counted from when this became its own audit action."
         />
+      </div>
+
+      <Card title="Draft lifecycle" state={workState} note="Your open cases by where the draft sits.">
+        {work && (
+          <dl className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+            <Figure label="Before drafting" value={work.drafts.beforeDraft} />
+            <Figure label="Drafting" value={work.drafts.drafting} />
+            <Figure
+              label="Returned by PM"
+              value={work.drafts.returned}
+              tone={work.drafts.returned > 0 ? 'var(--status-amber)' : undefined}
+            />
+            <Figure label="With the PM" value={work.drafts.withPm} />
+            <Figure label="With the client" value={work.drafts.withClient} />
+            <Figure label="Approved onward" value={work.drafts.approved} />
+          </dl>
+        )}
+      </Card>
+
+      {/* Two per row, left and right (2026-10-28): checklist | returned, feedback | evidence, queue | offers. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <ChecklistProgress cases={work?.checklist.cases} state={workState} />
+
+        <Card
+          title="Cases returned to me"
+          state={emptyWhen(workState, work?.returned.length === 0, 'No draft is back with you.')}
+          note="Drafts the PM sent back, longest waiting first, with the PM's reason."
+        >
+          <NoteList
+            rows={(work?.returned ?? []).map((row) => ({
+              key: row.caseId,
+              caseId: row.caseId,
+              caseCode: row.caseCode,
+              at: row.returnedAt,
+              text: row.reason ?? 'No reason was recorded with the return.',
+            }))}
+          />
+        </Card>
+
+        <Card
+          title="Client feedback & change requests"
+          state={emptyWhen(state, data?.clientFeedback.length === 0, 'No client has asked for changes.')}
+          note="What clients asked to be changed, newest first."
+        >
+          <NoteList
+            rows={(data?.clientFeedback ?? []).map((entry) => ({
+              key: `${entry.caseId}-${entry.at}`,
+              caseId: entry.caseId,
+              caseCode: entry.caseCode,
+              at: entry.at,
+              text: entry.note ?? 'No reason was recorded with the request.',
+            }))}
+          />
+        </Card>
+
+        <Card
+          title="Expert asking for evidence"
+          state={emptyWhen(workState, work?.evidence.length === 0, 'No expert is waiting on evidence.')}
+          note="The expert put these on hold until the client sends what is missing."
+        >
+          <NoteList
+            rows={(work?.evidence ?? []).map((row) => ({
+              key: row.caseId,
+              caseId: row.caseId,
+              caseCode: row.caseCode,
+              at: row.askedAt,
+              text: row.missing ?? 'The expert did not say what is missing.',
+            }))}
+          />
+        </Card>
 
         <Card
           title="Priority queue"
-          wide
           state={emptyWhen(state, data?.cases.length === 0, 'You have no open cases.')}
           note="Soonest deadline first. Open a case to work it."
         >
@@ -128,51 +188,38 @@ export default function CaseManagerDashboard() {
           </div>
         </Card>
 
-        <Card
-          title="Client feedback"
-          wide
-          state={emptyWhen(state, data?.clientFeedback.length === 0, 'No client has asked for changes.')}
-          note="What clients asked to be changed, newest first."
-        >
-          <ul className="max-h-56 space-y-2 overflow-y-auto">
-            {data?.clientFeedback.map((entry) => (
-              <li key={`${entry.caseId}-${entry.at}`} className="text-sm">
-                <div className="flex items-baseline justify-between gap-2">
-                  <Link to={`/cases/${entry.caseId}`} className="font-mono text-xs font-medium">
-                    {entry.caseCode}
-                  </Link>
-                  <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                    {new Date(entry.at).toLocaleDateString()}
-                  </span>
-                </div>
-                <p style={{ color: 'var(--text-muted)' }}>
-                  {entry.note ?? 'No reason was recorded with the request.'}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        <ChecklistProgress cases={work?.checklist.cases} state={workState} />
         <ExpertOffers rows={work?.offers.rows} state={workState} />
-        <Card title="Draft lifecycle" state={workState} note="Your open cases by where the draft sits.">
-          {work && (
-            <dl className="grid grid-cols-3 gap-3">
-              <Figure label="Before drafting" value={work.drafts.beforeDraft} />
-              <Figure label="Drafting" value={work.drafts.drafting} />
-              <Figure
-                label="Returned by PM"
-                value={work.drafts.returned}
-                tone={work.drafts.returned > 0 ? 'var(--status-amber)' : undefined}
-              />
-              <Figure label="With the PM" value={work.drafts.withPm} />
-              <Figure label="With the client" value={work.drafts.withClient} />
-              <Figure label="Approved onward" value={work.drafts.approved} />
-            </dl>
-          )}
-        </Card>
       </div>
     </section>
+  )
+}
+
+/** Case code, date, and a line of text — the shape the returned, feedback and evidence lists share. */
+function NoteList({
+  rows,
+}: {
+  rows: { key: string; caseId: string; caseCode: string; at: string | null; text: string }[]
+}) {
+  return (
+    <ul className="max-h-56 space-y-2 overflow-y-auto">
+      {rows.map((row) => (
+        <li key={row.key} className="text-sm">
+          <div className="flex items-baseline justify-between gap-2">
+            <Link to={`/cases/${row.caseId}`} className="font-mono text-xs font-medium">
+              {row.caseCode}
+            </Link>
+            {row.at && (
+              <span className="font-num text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                {new Date(row.at).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          <p className="whitespace-pre-wrap" style={{ color: 'var(--text-muted)' }}>
+            {row.text}
+          </p>
+        </li>
+      ))}
+    </ul>
   )
 }
 

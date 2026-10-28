@@ -6,6 +6,7 @@ import java.util.UUID;
 
 
 import com.ie.evalos.common.ForbiddenException;
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.common.NotFoundException;
 import com.ie.evalos.domain.ActorType;
 import com.ie.evalos.domain.AuditAction;
@@ -500,7 +501,8 @@ public class PortalCaseService {
 	}
 
 	/** One file the client receives at delivery. {@code kind}: SIGNED_LETTER or APPROVED_DRAFT. */
-	public record DeliveredFile(UUID id, String kind, String filename, Instant at) {
+	/** @param viewable a PDF the browser can open; false for a Word-only approved draft, which only downloads. */
+	public record DeliveredFile(UUID id, String kind, String filename, Instant at, boolean viewable) {
 	}
 
 	/**
@@ -514,28 +516,37 @@ public class PortalCaseService {
 		java.util.List<DeliveredFile> out = new java.util.ArrayList<>();
 		documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
 				.filter(d -> d.getObjectKey() != null)
-				.ifPresent(d -> out.add(new DeliveredFile(d.getId(), "SIGNED_LETTER", d.getFilename(), d.getUploadedAt())));
+				.ifPresent(d -> out.add(new DeliveredFile(d.getId(), "SIGNED_LETTER", d.getFilename(), d.getUploadedAt(), true)));
 		approvedDraft(subject).ifPresent(
-				d -> out.add(new DeliveredFile(d.getId(), "APPROVED_DRAFT", d.getPdfFilename(), d.getUploadedAt())));
+				d -> out.add(new DeliveredFile(d.getId(), "APPROVED_DRAFT", d.hasPdf() ? d.getPdfFilename() : d.getFilename(),
+						d.getUploadedAt(), d.hasPdf())));
 		return out;
 	}
 
 	/**
-	 * The approved draft is served as its PDF; the letter as itself. Both are PDFs — a signed letter
-	 * is accepted only as a sniffed PDF — so either may open in the browser's viewer (Unit 74).
+	 * The approved draft is served as its PDF, or as its Word file when it has no PDF (D51, edited
+	 * 2026-10-28); the letter as itself. A PDF may open in the browser's viewer (Unit 74); a Word
+	 * file only downloads, so a view of one is refused rather than served as a download.
 	 */
 	@Transactional
 	public String deliveredUrl(PortalPrincipal principal, UUID caseId, UUID documentId, boolean view) {
 		Case subject = deliveredCase(principal, caseId);
-		String key = documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
+		Served key = documents.findFirstByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.SIGNED_LETTER)
 				.filter(d -> d.getId().equals(documentId))
-				.map(CaseDocument::getObjectKey)
+				.map(d -> new Served(d.getObjectKey(), true))
 				.or(() -> approvedDraft(subject).filter(d -> d.getId().equals(documentId))
-						.map(CaseDocument::getPdfObjectKey))
+						.map(d -> d.hasPdf() ? new Served(d.getPdfObjectKey(), true) : new Served(d.getObjectKey(), false)))
 				.orElseThrow(() -> new NotFoundException("No such delivered file"));
+		if (view && !key.pdf()) {
+			throw new InvalidRequestException("A Word file cannot be viewed in the browser; download it instead");
+		}
 		audit.recordPortalEvent(subject.getBrandId(), PortalAudience.CLIENT, "CASE_DOCUMENT", documentId,
 				AuditAction.EXPORTED, null, java.util.Map.of("opened", "delivered file"));
-		return view ? store.presignedPdfView(key) : store.presignedUrl(key);
+		return view ? store.presignedPdfView(key.key()) : store.presignedUrl(key.key());
+	}
+
+	/** The stored file a delivered row resolves to, and whether it is a PDF the browser can view. */
+	private record Served(String key, boolean pdf) {
 	}
 
 	private Case deliveredCase(PortalPrincipal principal, UUID caseId) {
@@ -548,7 +559,7 @@ public class PortalCaseService {
 
 	private Optional<CaseDocument> approvedDraft(Case subject) {
 		return documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
-				.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.hasPdf())
+				.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && (d.hasPdf() || d.hasWord()))
 				.findFirst();
 	}
 

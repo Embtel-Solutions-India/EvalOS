@@ -12,6 +12,8 @@ import com.ie.evalos.service.SyncOutboxService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -76,8 +78,9 @@ public class SyncStatusController {
 	public record Outbox(int pending, int dead, Instant oldestPending, List<DeadPush> recentlyDead) {
 	}
 
+	/** @param retriedAt when an Administrator re-queued it, or null — a retried push offers no second retry. */
 	public record DeadPush(UUID id, UUID entityId, String intent, int attempts, String lastFailure,
-			String reason, Instant deadAt) {
+			String reason, Instant deadAt, Instant retriedAt, boolean retriedAutomatically) {
 	}
 
 	private final SyncAuditService audit;
@@ -103,6 +106,17 @@ public class SyncStatusController {
 				outbox()));
 	}
 
+	/**
+	 * Re-queues one failed push (2026-10-28). The Administrator's, like the rest of Sync health: they fix
+	 * the cause, then send it again. Answers the refreshed status so the page redraws from one call.
+	 */
+	@PostMapping("/outbox/{id}/retry")
+	@PreAuthorize("hasRole('ADMIN')")
+	public ApiResponse<SyncStatus> retry(@PathVariable UUID id) {
+		outbox.retry(id, com.ie.evalos.security.TenantContext.current().memberId());
+		return drift();
+	}
+
 	private Outbox outbox() {
 		SyncOutboxService.Backlog backlog = this.outbox.backlog();
 		return new Outbox(backlog.pending(), backlog.dead(), backlog.oldestPending(),
@@ -110,7 +124,8 @@ public class SyncStatusController {
 						.map((row) -> new DeadPush(row.getId(), row.getEntityId(), row.getIntent().name(),
 								row.getAttempts(),
 								row.getLastFailure() == null ? null : row.getLastFailure().name(),
-								row.getDeadReason(), row.getDeadAt()))
+								row.getDeadReason(), row.getDeadAt(), row.getRetriedAt(),
+								row.getRetriedAt() != null && row.getRetriedBy() == null))
 						.toList());
 	}
 

@@ -44,6 +44,22 @@ public class JobAdminController {
 		return ApiResponse.ok(jobs.recentRuns());
 	}
 
+	/**
+	 * Runs per day for the chart (2026-10-28). {@code zone} is the viewer's IANA zone so "Tuesday" is their
+	 * Tuesday; an unknown one is a 400, never a silent UTC.
+	 */
+	@GetMapping("/runs/daily")
+	@PreAuthorize("hasRole('ADMIN')")
+	public ApiResponse<List<JobAdminService.DayRuns>> runsByDay(
+			@org.springframework.web.bind.annotation.RequestParam(defaultValue = "UTC") String zone) {
+		// Named zones only (what a browser's Intl sends). An offset such as "+05:30" is valid Java but Postgres
+		// reads its sign the POSIX way round, so it would bucket by the opposite offset.
+		if (!"UTC".equals(zone) && !java.time.ZoneId.getAvailableZoneIds().contains(zone)) {
+			throw new com.ie.evalos.common.InvalidRequestException("Unknown time zone: " + zone);
+		}
+		return ApiResponse.ok(jobs.runsByDay(java.time.ZoneId.of(zone), 7));
+	}
+
 	@GetMapping("/sweeps")
 	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<List<JobAdminService.SweepStatus>> sweeps() {

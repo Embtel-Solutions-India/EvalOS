@@ -96,7 +96,7 @@ public class OpportunityMirrorService {
 	 *                      carry. Resolved to the mirrored row here — slice 44b is where the
 	 *                      principal itself starts naming EvalOS rows
 	 */
-	public void refreshIfStale(String ghlPipelineId, Duration ttl) {
+	public boolean refreshIfStale(String ghlPipelineId, Duration ttl) {
 		Optional<Pipeline> mirrored = mirroredPipeline(ghlPipelineId);
 		if (mirrored.isEmpty()) {
 			// A pipeline the 44a sweep has not seen. Refusing loudly would take a board down over
@@ -104,7 +104,7 @@ public class OpportunityMirrorService {
 			// POST /api/jobs/PIPELINE_MIRROR/run.
 			log.warn("Pipeline {} is not mirrored yet, so its opportunities cannot be. "
 					+ "Run the PIPELINE_MIRROR sweep.", ghlPipelineId);
-			return;
+			return false;
 		}
 		Pipeline pipeline = mirrored.get();
 		// **The freshness check and the stamp must read the same thing.** This asked
@@ -114,10 +114,11 @@ public class OpportunityMirrorService {
 		// while showing 31 deals. Two sources for one question is how that happens.
 		Instant lastSynced = pipeline.getOpportunitiesSyncedAt();
 		if (lastSynced != null && Duration.between(lastSynced, Instant.now()).compareTo(ttl) < 0) {
-			return;
+			return false;
 		}
 		// Deliberately outside the transaction below.
 		absorb(pipeline, ghl.allIn(ghlPipelineId));
+		return true;
 	}
 
 	/**
@@ -182,6 +183,30 @@ public class OpportunityMirrorService {
 		// see V61, and the boards that read "never synced" because of it.
 		pipeline.opportunitiesSynced();
 		pipelines.save(pipeline);
+		closeMissingLocally(pipeline.getBrandId(), seen);
+	}
+
+	private com.ie.evalos.repository.SyncDriftRepository drifts;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	void useDrifts(com.ie.evalos.repository.SyncDriftRepository drifts) {
+		this.drifts = drifts;
+	}
+
+	/** Spec 86 §4: a deal the mirror now holds is no longer "missing locally" — close that drift now, not tonight. */
+	private void closeMissingLocally(UUID brandId, java.util.Collection<String> ghlIds) {
+		if (drifts == null || ghlIds.isEmpty()) {
+			return;
+		}
+		// Chunked: a Master Pipeline is five figures of ids, past Postgres's 32,767 bind parameters.
+		List<String> ids = List.copyOf(ghlIds);
+		int closed = 0;
+		for (int from = 0; from < ids.size(); from += 1000) {
+			closed += drifts.resolveMissingLocally(brandId, ids.subList(from, Math.min(from + 1000, ids.size())));
+		}
+		if (closed > 0) {
+			log.info("Closed {} 'missing locally' drift row(s): the mirror now holds them", closed);
+		}
 	}
 
 	/**
@@ -274,6 +299,7 @@ public class OpportunityMirrorService {
 			opportunities.save(held);
 			hiring.absorbed(pipeline.get(), held, stageBefore, found.isEmpty());
 			written++;
+			closeMissingLocally(brandId, List.of(row.id()));
 		}
 		return written;
 	}
@@ -292,21 +318,21 @@ public class OpportunityMirrorService {
 	 * is already warm and this pass skips it. What it buys is the pipelines no screen reads: they
 	 * stop being permanently stale, which is what the nightly audit needs if its findings are to
 	 * mean drift rather than "nobody looked".
+	 *
+	 * <p><strong>Returns the pipelines, not a count, so each is its own sweep item.</strong> This
+	 * looped them inside one item, i.e. one transaction: a GHL failure on one pipeline (a 400, a read
+	 * timeout) rolled back every pipeline absorbed before it and skipped every one after it. Now the
+	 * caller hands each to {@code refreshIfStale} under {@code SweepRunner}'s per-item boundary.
 	 */
-	public int refreshStale(Duration ttl) {
+	public List<String> livePipelineIds() {
 		if (sellingBrand.id() == null) {
 			log.warn("Delta sweep skipped: evalos.ghl.sales-brand is blank, so there is no mirror to refresh.");
-			return 0;
+			return List.of();
 		}
-		int refreshed = 0;
-		for (Pipeline pipeline : pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrand.id())) {
-			if (!pipeline.isLive()) {
-				continue;
-			}
-			refreshIfStale(pipeline.getGhlId(), ttl);
-			refreshed++;
-		}
-		return refreshed;
+		return pipelines.findByBrandIdOrderByPositionAscNameAsc(sellingBrand.id()).stream()
+				.filter(Pipeline::isLive)
+				.map(Pipeline::getGhlId)
+				.toList();
 	}
 
 	/**

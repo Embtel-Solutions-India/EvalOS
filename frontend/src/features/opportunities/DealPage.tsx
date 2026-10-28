@@ -147,6 +147,9 @@ export default function DealPage() {
                     <span className="chip uppercase">{deal.status}</span>
                   )}
                   <span className="chip">{age(deal?.updatedAt ?? null)}</span>
+                  {/* The pipeline the deal is on — whose desk it is (2026-10-29). From the contact read, which every
+                      reader of this page passes, so a GM sees it on a pipeline outside the sales union too. */}
+                  {contact?.pipelineName && <span className="chip">{contact.pipelineName}</span>}
                 </div>
               </div>
 
@@ -192,7 +195,12 @@ export default function DealPage() {
                 {contact?.dealFields.map((field) => (
                   <Field key={field.label} icon={<Info />} label={field.label} value={field.value} />
                 ))}
-                <Field icon={<Signpost />} label="Source" value={sourceLabel(contact?.source ?? null)} />
+                {/* The deal's source as the board card shows it, else the contact's channel (2026-10-29). */}
+                <Field
+                  icon={<Signpost />}
+                  label="Source"
+                  value={contact?.dealSource || sourceLabel(contact?.source ?? null)}
+                />
                 <Field icon={<UserCheck />} label="Assigned to" value={contact?.assignedTo ?? null} />
                 <Field icon={<CalendarDays />} label="Created on" value={date(contact?.createdAt ?? null)} />
                 <Field icon={<Globe />} label="Country" value={contact?.country ?? null} />

@@ -43,8 +43,12 @@ class CaseManagerWorkServiceTest {
 	private final ExpertCaseOfferRepository offers = mock(ExpertCaseOfferRepository.class);
 	private final ExpertRepository experts = mock(ExpertRepository.class);
 	private final BrandRepository brands = mock(BrandRepository.class);
+	private final com.ie.evalos.repository.CaseDocumentRepository documents =
+			mock(com.ie.evalos.repository.CaseDocumentRepository.class);
+	private final com.ie.evalos.repository.AuditEventRepository auditEvents =
+			mock(com.ie.evalos.repository.AuditEventRepository.class);
 	private final CaseManagerWorkService service = new CaseManagerWorkService(cm, items, offers, experts, brands,
-			new BusinessCalendar());
+			new BusinessCalendar(), documents, auditEvents);
 
 	/** A fresh Case has no id until persisted, and everything here is keyed by it. */
 	private static Case caseAt(Stage stage) {
@@ -169,5 +173,46 @@ class CaseManagerWorkServiceTest {
 		assertThat(drafts.approved()).isEqualTo(4);
 		assertThat(drafts.beforeDraft() + drafts.drafting() + drafts.returned() + drafts.withPm()
 				+ drafts.withClient() + drafts.approved()).isEqualTo(mine.size());
+	}
+
+	/** A draft the PM sent back is listed with the PM's reason from the returned version. */
+	@Test
+	void aReturnedDraftIsListedWithThePmsReason() {
+		Case back = set(set(caseAt(Stage.DRAFT_IN_PROGRESS), "pmApprovalStatus", com.ie.evalos.domain.PmApprovalStatus.RETURNED),
+				"stageEnteredAt", java.time.Instant.now());
+		given(cm.myCases()).willReturn(java.util.List.of(back));
+		com.ie.evalos.domain.CaseDocument v1 = new com.ie.evalos.domain.CaseDocument(BRAND, back.getId(),
+				com.ie.evalos.domain.DocumentKind.DRAFT, 1, null, com.ie.evalos.domain.ActorType.STAFF, null);
+		v1.reviewed(com.ie.evalos.domain.DocumentStatus.RETURNED, "Fix the course table");
+		given(documents.findByBrandIdAndCaseIdInAndKind(org.mockito.ArgumentMatchers.eq(BRAND), anyCollection(),
+				org.mockito.ArgumentMatchers.eq(com.ie.evalos.domain.DocumentKind.DRAFT))).willReturn(java.util.List.of(v1));
+
+		var work = service.forCaller();
+
+		org.assertj.core.api.Assertions.assertThat(work.returned()).singleElement()
+				.satisfies(r -> org.assertj.core.api.Assertions.assertThat(r.reason()).isEqualTo("Fix the course table"));
+	}
+
+	/** Only a hold the EXPERT raised is an evidence request; its note is what is missing. */
+	@Test
+	void anExpertsHoldIsListedAsAnEvidenceRequest() {
+		Case held = set(caseAt(Stage.EXPERT_SIGNING), "exceptionState", com.ie.evalos.domain.ExceptionState.ON_HOLD_AWAITING_CLIENT);
+		given(cm.myCases()).willReturn(java.util.List.of(held));
+		com.ie.evalos.domain.AuditEvent byExpert = new com.ie.evalos.domain.AuditEvent(BRAND, "CASE", held.getId(),
+				com.ie.evalos.domain.AuditAction.UPDATED, null, com.ie.evalos.domain.ActorType.EXPERT, null,
+				"{\"exceptionState\":\"ON_HOLD_AWAITING_CLIENT\",\"note\":\"Original transcript\"}");
+		ReflectionTestUtils.setField(byExpert, "createdAt", java.time.Instant.now());
+		com.ie.evalos.domain.AuditEvent byStaff = new com.ie.evalos.domain.AuditEvent(BRAND, "CASE", held.getId(),
+				com.ie.evalos.domain.AuditAction.UPDATED, UUID.randomUUID(), com.ie.evalos.domain.ActorType.STAFF, null,
+				"{\"exceptionState\":\"ON_HOLD_AWAITING_CLIENT\",\"note\":\"waiting on payment\"}");
+		ReflectionTestUtils.setField(byStaff, "createdAt", java.time.Instant.now());
+		given(auditEvents.findCaseActionScoped(org.mockito.ArgumentMatchers.eq("CASE"),
+				org.mockito.ArgumentMatchers.eq(com.ie.evalos.domain.AuditAction.UPDATED), anyCollection(), anyCollection()))
+				.willReturn(java.util.List.of(byExpert, byStaff));
+
+		var work = service.forCaller();
+
+		org.assertj.core.api.Assertions.assertThat(work.evidence()).singleElement()
+				.satisfies(e -> org.assertj.core.api.Assertions.assertThat(e.missing()).isEqualTo("Original transcript"));
 	}
 }

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { useMe } from '../../lib/authContext'
 import { formatPayout } from '../../lib/money'
 import { useFilters } from '../shell/filtersContext'
 import OfferLogPanel from './OfferLogPanel'
@@ -33,6 +34,8 @@ type LoadState =
 const STATUSES = Object.keys(REGISTER_STATUS_LABEL) as RegisterStatus[]
 
 export default function PayoutRegister() {
+  // The server sends no client name to the ENM (Tier.SUPPLY), so the column is not drawn for them.
+  const showContact = useMe().role !== 'EXPERT_NETWORK_MANAGER'
   const [params, setParams] = useSearchParams()
   const { activeBrandId } = useFilters()
   const filter = useMemo<RegisterFilter>(
@@ -114,7 +117,7 @@ export default function PayoutRegister() {
           <span style={{ color: 'var(--text-muted)' }}>Search</span>
           <input
             type="search"
-            placeholder="Case code or expert"
+            placeholder={showContact ? 'Case code, contact or expert' : 'Case code or expert'}
             defaultValue={filter.q ?? ''}
             onChange={(e) => setParam('q', e.target.value)}
             className="rounded border px-2 py-1.5"
@@ -188,6 +191,7 @@ export default function PayoutRegister() {
               <thead>
                 <tr className="text-left text-xs" style={{ color: 'var(--text-muted)' }}>
                   <th className="px-4 py-2 font-medium">Case</th>
+                  {showContact && <th className="px-4 py-2 font-medium">Contact</th>}
                   <th className="px-4 py-2 font-medium">Expert</th>
                   <th className="px-4 py-2 text-right font-medium">Amount</th>
                   <th className="px-4 py-2 font-medium">Status</th>
@@ -216,6 +220,11 @@ export default function PayoutRegister() {
                         {row.caseCode ?? 'Case'}
                       </Link>
                     </td>
+                    {showContact && (
+                      <td className="max-w-56 truncate px-4 py-2" title={row.contactName ?? undefined}>
+                        {row.contactName ?? '—'}
+                      </td>
+                    )}
                     <td className="px-4 py-2">{row.expertName ?? '—'}</td>
                     <td className="font-num px-4 py-2 text-right tabular-nums">
                       {row.amount === null || !row.currency ? (

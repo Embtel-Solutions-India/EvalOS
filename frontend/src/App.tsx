@@ -10,6 +10,7 @@ import ExpertAssignmentPage from './features/queues/ExpertAssignmentPage'
 import DeliveryQueuePage from './features/queues/DeliveryQueuePage'
 import ChecklistBoard from './features/checklist/ChecklistBoard'
 import ContactsPage from './features/contacts/ContactsPage'
+import ContactDetailPage from './features/contacts/ContactDetailPage'
 import ExpertRoster from './features/experts/ExpertRoster'
 import MeetingsPage from './features/meetings/MeetingsPage'
 import NewMeetingPage from './features/meetings/NewMeetingPage'
@@ -23,6 +24,7 @@ import PayoutRegister from './features/payouts/PayoutRegister'
 import ExpertBalances from './features/payouts/ExpertBalances'
 import ExpertPayouts from './features/payouts/ExpertPayouts'
 import PaymentDetail from './features/payouts/PaymentDetail'
+import PayoutExport from './features/payouts/PayoutExport'
 import LoginPage from './features/auth/LoginPage'
 import PipelineDashboard from './features/dashboards/PipelineDashboard'
 import RoleDashboard from './features/dashboards/RoleDashboard'
@@ -32,11 +34,13 @@ import CaseDetailPage from './features/case/CaseDetail'
 import ConversationsPage from './features/chat/ConversationsPage'
 import {
   CASE_DETAIL_PATH,
+  CONTACT_DETAIL_PATH,
   CONVERSATION_PATH,
   DEAL_DETAIL_PATH,
   EXPERT_PAYOUTS_PATH,
   NAV_ITEMS,
   PAYMENT_DETAIL_PATH,
+  PAYOUT_EXPORT_PATH,
   homePathFor,
   mayReach,
 } from './features/shell/navigation'
@@ -176,6 +180,15 @@ function StaffApp() {
           }
         />
 
+        <Route
+          path={CONTACT_DETAIL_PATH}
+          element={
+            <RoleRoute path={CONTACT_DETAIL_PATH}>
+              <ContactDetailPage />
+            </RoleRoute>
+          }
+        />
+
         {/* Reached from a board card, so it has no nav entry — but the same table gates it. */}
         <Route
           path={CASE_DETAIL_PATH}
@@ -210,6 +223,14 @@ function StaffApp() {
           element={
             <RoleRoute path={PAYMENT_DETAIL_PATH}>
               <PaymentDetail />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path={PAYOUT_EXPORT_PATH}
+          element={
+            <RoleRoute path={PAYOUT_EXPORT_PATH}>
+              <PayoutExport />
             </RoleRoute>
           }
         />

@@ -109,7 +109,8 @@ public class ExpertNetworkMetricsService {
 	public record LowQualityExpert(UUID expertId, String name, java.math.BigDecimal qualityScore) {
 	}
 
-	public record Onboarding(int thisMonth, int target) {
+	/** @param lastMonthSoFar onboarded in last month's first N days, N being today's day of the month — the GM's arrow. */
+	public record Onboarding(int thisMonth, int target, int lastMonthSoFar) {
 	}
 
 	/**
@@ -303,12 +304,22 @@ public class ExpertNetworkMetricsService {
 	}
 
 	private Onboarding onboarding(List<Expert> roster) {
-		LocalDate monthStart = LocalDate.now().withDayOfMonth(1);
+		// The business month, not the server's: the JVM runs in UTC, which turns the month 7–8 hours early.
+		LocalDate today = LocalDate.now(BusinessCalendar.clock());
+		LocalDate monthStart = today.withDayOfMonth(1);
+		LocalDate lastMonthStart = monthStart.minusMonths(1);
+		// minusMonths caps the day at last month's length, the same cap the GM's other month arrows use.
+		LocalDate lastMonthToday = today.minusMonths(1);
 		int thisMonth = (int) roster.stream()
 				.filter(expert -> expert.getDateOnboarded() != null
 						&& !expert.getDateOnboarded().isBefore(monthStart))
 				.count();
-		return new Onboarding(thisMonth, monthlyTarget());
+		int lastMonthSoFar = (int) roster.stream()
+				.filter(expert -> expert.getDateOnboarded() != null
+						&& !expert.getDateOnboarded().isBefore(lastMonthStart)
+						&& !expert.getDateOnboarded().isAfter(lastMonthToday))
+				.count();
+		return new Onboarding(thisMonth, monthlyTarget(), lastMonthSoFar);
 	}
 
 	/**

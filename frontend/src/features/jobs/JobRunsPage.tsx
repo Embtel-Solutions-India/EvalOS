@@ -5,6 +5,7 @@ import { useMetrics } from "../dashboards/useMetrics";
 import { RunsByDayCard } from "../admin/adminSummaries";
 import {
   fetchRuns,
+  fetchRunsByDay,
   fetchSweeps,
   runSweep,
   type JobRun,
@@ -32,6 +33,7 @@ import {
 export default function JobRunsPage() {
   const sweeps = useMetrics((signal) => fetchSweeps(signal), []);
   const runs = useMetrics((signal) => fetchRuns(signal), []);
+  const byDay = useMetrics((signal) => fetchRunsByDay(signal), []);
   const [busy, setBusy] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const sweepPaging = usePaging(sweeps.data ?? [], 4);
@@ -51,6 +53,7 @@ export default function JobRunsPage() {
       // so a refetch before it finishes would show the RUNNING row and look stuck.
       sweeps.reload();
       runs.reload();
+      byDay.reload();
     }
   }
 
@@ -68,7 +71,7 @@ export default function JobRunsPage() {
         </p>
       </header>
 
-      <RunsByDayCard runs={runs.data ?? undefined} state={runs.state} />
+      <RunsByDayCard days={byDay.data ?? undefined} state={byDay.state} />
 
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-2">
         <Card

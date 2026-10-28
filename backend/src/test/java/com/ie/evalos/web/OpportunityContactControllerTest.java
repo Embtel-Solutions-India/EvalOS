@@ -31,8 +31,11 @@ class OpportunityContactControllerTest {
 	private final ContactSnapshotService contacts = mock(ContactSnapshotService.class);
 	private final GhlUserRepository users = mock(GhlUserRepository.class);
 	private final GhlCustomFieldRepository fields = mock(GhlCustomFieldRepository.class);
+	private final com.ie.evalos.repository.PipelineRepository pipelineRepo =
+			mock(com.ie.evalos.repository.PipelineRepository.class);
 	private final OpportunityContactController controller =
-			new OpportunityContactController(scope, contacts, users, fields, org.mockito.Mockito.mock(com.ie.evalos.service.CaseOpportunityService.class));
+			new OpportunityContactController(scope, contacts, users, fields, org.mockito.Mockito.mock(com.ie.evalos.service.CaseOpportunityService.class),
+					pipelineRepo);
 
 	private static GhlReference.CustomField field(String id, String model, String name) {
 		return new GhlReference.CustomField(BRAND, id, model, name);
@@ -82,5 +85,41 @@ class OpportunityContactControllerTest {
 				.containsExactly("Evaluation");
 		assertThat(view.tags()).isEmpty();
 		assertThat(view.contactFields()).isEmpty();
+	}
+
+	/** 2026-10-29: the deal page names the pipeline the deal is on — from the deal's own brand only. */
+	@Test
+	void theViewNamesTheDealsPipelineFromItsOwnBrand() {
+		com.ie.evalos.domain.Pipeline pipeline = new com.ie.evalos.domain.Pipeline(BRAND, "pipe-1", "Evaluation desk", 0);
+		UUID pipelineId = UUID.randomUUID();
+		org.springframework.test.util.ReflectionTestUtils.setField(pipeline, "id", pipelineId);
+		Opportunity deal = new Opportunity(BRAND, "opp-3", pipelineId);
+		given(scope.requireVisible("opp-3")).willReturn(deal);
+		given(contacts.findOrFetch(BRAND, null)).willReturn(Optional.empty());
+		given(pipelineRepo.findById(pipelineId)).willReturn(Optional.of(pipeline));
+
+		assertThat(controller.read("opp-3").data().pipelineName()).isEqualTo("Evaluation desk");
+
+		// A pipeline row under another brand is never named, whatever id the deal carries.
+		com.ie.evalos.domain.Pipeline foreign = new com.ie.evalos.domain.Pipeline(UUID.randomUUID(), "pipe-x", "Other", 0);
+		given(pipelineRepo.findById(pipelineId)).willReturn(Optional.of(foreign));
+		assertThat(controller.read("opp-3").data().pipelineName()).isNull();
+	}
+
+	/** The source shown is the deal's own, else its Lead Source field — the card's rule. */
+	@Test
+	void theSourceIsTheDealsOwnElseItsLeadSourceField() {
+		Opportunity deal = new Opportunity(BRAND, "opp-4", UUID.randomUUID());
+		deal.syncCustomFields(Map.of("f_lead", "Google Ads"));
+		given(scope.requireVisible("opp-4")).willReturn(deal);
+		given(contacts.findOrFetch(BRAND, null)).willReturn(Optional.empty());
+		GhlReference.CustomField lead = field("f_lead", "opportunity", "Lead Source");
+		org.springframework.test.util.ReflectionTestUtils.setField(lead, "fieldKey", "opportunity.lead_source");
+		given(fields.findByBrandIdAndModelOrderByNameAsc(BRAND, "opportunity")).willReturn(List.of(lead));
+
+		assertThat(controller.read("opp-4").data().dealSource()).isEqualTo("Google Ads");
+
+		deal.syncFromGhl(null, null, null, null, null, "open", "Application Form", null, null, null, null, null);
+		assertThat(controller.read("opp-4").data().dealSource()).isEqualTo("Application Form");
 	}
 }

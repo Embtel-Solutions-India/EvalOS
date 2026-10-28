@@ -29,6 +29,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -37,6 +38,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
  * The outbox's four decisions, and the one that the whole of {@code 00d} §6.1 is about.
@@ -335,6 +337,241 @@ class SyncOutboxServiceTest {
 		assertThat(result.halted()).isFalse();
 		assertThat(entry.getDeadAt()).isNotNull();
 		assertThat(entry.isPending()).isFalse();
+	}
+
+	// --- spec 86: conflict-safe pushes and automatic recovery ---------------------------------
+
+	/** A deal priced 500 in the mirror, re-priced to 150 by a desk: base 500, edit outstanding. */
+	private Opportunity repricedTo150(String ghlId) {
+		Opportunity row = new Opportunity(BRAND, ghlId, pipeline.getId());
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		row.syncFromGhl("contact-1", pipeline.getId(), "s1", "Ana", new BigDecimal("500"), "open", null, null, null,
+				null, null, null);
+		row.editedLocally(null, new BigDecimal("150"), null, null);
+		given(opportunities.findById(row.getId())).willReturn(Optional.of(row));
+		return row;
+	}
+
+	private void ghlHolds(String ghlId, String amount, java.time.Instant updatedAt) {
+		given(ghlReads.forContact("contact-1")).willReturn(List.of(new GhlPipelineClient.Opportunity(ghlId, "Ana",
+				"contact-1", "pipe-1", "s1", "open", new BigDecimal(amount), null, null, null, updatedAt, null, null)));
+	}
+
+	@Test
+	void anEditGhlDidNotTouchIsSent() {
+		Opportunity row = repricedTo150("opp-1");
+		queued(row);
+		ghlHolds("opp-1", "500.00", java.time.Instant.now().plusSeconds(60));
+
+		service.drain();
+
+		then(ghl).should().updateOpportunity(eq("opp-1"), any(), eq(null), eq(new BigDecimal("150")), eq(null));
+	}
+
+	@Test
+	void aValueGhlAlreadyHoldsIsNotSentAgain() {
+		Opportunity row = repricedTo150("opp-1");
+		queued(row);
+		ghlHolds("opp-1", "150", java.time.Instant.now());
+
+		service.drain();
+
+		then(ghl).should(never()).updateOpportunity(any(), any(), any(), any(), any());
+	}
+
+	/** Both changed the amount; GHL's change is the newer, so EvalOS does not overwrite it. */
+	@Test
+	void aNewerGhlChangeWinsTheConflict() {
+		Opportunity row = repricedTo150("opp-1");
+		queued(row);
+		ghlHolds("opp-1", "200", row.getLocalUpdatedAt().plusSeconds(30));
+
+		var result = service.drain();
+
+		then(ghl).should(never()).updateOpportunity(any(), any(), any(), any(), any());
+		assertThat(result.sent()).isEqualTo(1);
+		then(opportunities).should().confirmPushed(row.getId(), row.getLocalUpdatedAt());
+	}
+
+	/** Both changed it, but EvalOS's edit is the newer one: EvalOS's value is sent. */
+	@Test
+	void aNewerEvalosEditWinsTheConflict() {
+		Opportunity row = repricedTo150("opp-1");
+		queued(row);
+		ghlHolds("opp-1", "200", row.getLocalUpdatedAt().minusSeconds(30));
+
+		service.drain();
+
+		then(ghl).should().updateOpportunity(eq("opp-1"), any(), eq(null), eq(new BigDecimal("150")), eq(null));
+	}
+
+	/**
+	 * A deal with no amount, priced by a desk, while an unrelated GHL change bumps the deal's
+	 * {@code updatedAt}. The empty amount is the base, GHL still holds it, so EvalOS's price is sent —
+	 * not discarded because GHL's deal-wide timestamp is newer.
+	 */
+	@Test
+	void anEditOfAnEmptyFieldIsSentDespiteANewerUnrelatedGhlChange() {
+		Opportunity row = new Opportunity(BRAND, "opp-1", pipeline.getId());
+		ReflectionTestUtils.setField(row, "id", UUID.randomUUID());
+		row.syncFromGhl("contact-1", pipeline.getId(), "s1", "Ana", null, "open", null, null, null, null, null, null);
+		row.editedLocally(null, new BigDecimal("150"), null, null);
+		given(opportunities.findById(row.getId())).willReturn(Optional.of(row));
+		queued(row);
+		ghlHolds("opp-1", "0", row.getLocalUpdatedAt().plusSeconds(30));
+
+		service.drain();
+
+		then(ghl).should().updateOpportunity(eq("opp-1"), any(), eq(null), eq(new BigDecimal("150")), eq(null));
+	}
+
+	/** A conflict is audited when its push lands, so a failed attempt and its retry record it once. */
+	@Test
+	void aConflictIsAuditedOnlyOnceThePushLands() {
+		AuditService audit = mock(AuditService.class);
+		service.useAudit(audit);
+		Opportunity row = repricedTo150("opp-1");
+		queued(row);
+		ghlHolds("opp-1", "200", row.getLocalUpdatedAt().minusSeconds(30));
+		willThrow(new GhlUnavailableException("GHL did not answer", null, GhlFailure.NO_ANSWER, null))
+				.given(ghl).updateOpportunity(any(), any(), any(), any(), any());
+
+		service.drain();
+
+		verify(audit, never()).recordSystemEvent(any(), any(), any(), any(), any(), any());
+	}
+
+	@Test
+	void aCloseGhlAlreadyHoldsIsNotSentAgain() {
+		Opportunity row = local("opp-1");
+		row.editedLocally(null, null, null, "won");
+		SyncOutboxEntry entry = new SyncOutboxEntry(BRAND, SyncEntity.OPPORTUNITY, row.getId(), SyncOutboxEntry.Intent.CLOSE);
+		ReflectionTestUtils.setField(entry, "id", UUID.randomUUID());
+		given(outbox.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(eq(BRAND), any(Limit.class)))
+				.willReturn(List.of(entry));
+		given(ghlReads.forContact("contact-1")).willReturn(List.of(new GhlPipelineClient.Opportunity("opp-1", "Ana",
+				"contact-1", "pipe-1", "s1", "won", new BigDecimal("500"), null, null, null, null, null, null)));
+
+		service.drain();
+
+		then(ghl).should(never()).setStatus(any(), any(), any());
+		assertThat(entry.getSentAt()).isNotNull();
+	}
+
+	private SyncOutboxEntry diedHoursAgo(GhlFailure failure) {
+		SyncOutboxEntry dead = new SyncOutboxEntry(BRAND, SyncEntity.OPPORTUNITY, UUID.randomUUID(),
+				SyncOutboxEntry.Intent.UPSERT);
+		ReflectionTestUtils.setField(dead, "id", UUID.randomUUID());
+		dead.dead(failure, "x");
+		ReflectionTestUtils.setField(dead, "deadAt", java.time.Instant.now().minus(java.time.Duration.ofHours(2)));
+		given(outbox.findByBrandIdAndLastFailureInAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(eq(BRAND),
+				org.mockito.ArgumentMatchers.argThat((java.util.Collection<GhlFailure> failures) -> failures.contains(failure)),
+				any(), any()))
+				.willReturn(List.of(dead));
+		return dead;
+	}
+
+	@Test
+	void aPushThatTimedOutIsRequeuedAutomatically() {
+		SyncOutboxEntry dead = diedHoursAgo(GhlFailure.NO_ANSWER);
+		given(outbox.countByBrandIdAndEntityTypeAndEntityIdAndIntentAndDeadAtAfter(any(), any(), any(), any(), any()))
+				.willReturn(1L);
+
+		assertThat(service.recoverDead()).isEqualTo(1);
+		assertThat(dead.getRetriedAt()).isNotNull();
+		assertThat(dead.getRetriedBy()).isNull();
+		verify(outbox).enqueueIfAbsent(BRAND, "OPPORTUNITY", dead.getEntityId(), "UPSERT");
+	}
+
+	/** A 4xx fails the same way again, so it waits for a person. */
+	@Test
+	void aRefusedPushIsNotRequeuedAutomatically() {
+		SyncOutboxEntry dead = diedHoursAgo(GhlFailure.REFUSED);
+
+		assertThat(service.recoverDead()).isZero();
+		assertThat(dead.getRetriedAt()).isNull();
+		verify(outbox, never()).enqueueIfAbsent(any(), any(), any(), any());
+	}
+
+	/** A push that keeps dying stops being retried automatically, so it cannot loop. */
+	@Test
+	void aPushThatDiedThreeTimesIsLeftForAPerson() {
+		diedHoursAgo(GhlFailure.UPSTREAM_ERROR);
+		given(outbox.countByBrandIdAndEntityTypeAndEntityIdAndIntentAndDeadAtAfter(any(), any(), any(), any(), any()))
+				.willReturn(3L);
+
+		assertThat(service.recoverDead()).isZero();
+		verify(outbox, never()).enqueueIfAbsent(any(), any(), any(), any());
+	}
+
+	// --- Administrator retry (2026-10-28) -------------------------------------------------
+
+	private SyncOutboxEntry deadPush(UUID brand) {
+		SyncOutboxEntry dead = new SyncOutboxEntry(brand, com.ie.evalos.domain.SyncEntity.OPPORTUNITY, UUID.randomUUID(),
+				SyncOutboxEntry.Intent.CLOSE);
+		org.springframework.test.util.ReflectionTestUtils.setField(dead, "id", UUID.randomUUID());
+		dead.dead(GhlFailure.REFUSED, "bad request");
+		given(outbox.findById(dead.getId())).willReturn(java.util.Optional.of(dead));
+		return dead;
+	}
+
+	/** A retry stamps the dead row and queues a NEW push for the same entity and intent. */
+	@Test
+	void aRetryQueuesTheEntityAgainAndStampsTheDeadRow() {
+		SyncOutboxEntry dead = deadPush(BRAND);
+		UUID admin = UUID.randomUUID();
+
+		service.retry(dead.getId(), admin);
+
+		assertThat(dead.getRetriedAt()).isNotNull();
+		assertThat(dead.getDeadAt()).isNotNull();
+		verify(outbox).enqueueIfAbsent(BRAND, "OPPORTUNITY", dead.getEntityId(), "CLOSE");
+	}
+
+	@Test
+	void aPushIsRetriedOnlyOnce() {
+		SyncOutboxEntry dead = deadPush(BRAND);
+		service.retry(dead.getId(), UUID.randomUUID());
+
+		assertThatThrownBy(() -> service.retry(dead.getId(), UUID.randomUUID()))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+		verify(outbox, org.mockito.Mockito.times(1)).enqueueIfAbsent(any(), any(), any(), any());
+	}
+
+	@Test
+	void aPushThatHasNotFailedCannotBeRetried() {
+		SyncOutboxEntry pending = new SyncOutboxEntry(BRAND, com.ie.evalos.domain.SyncEntity.OPPORTUNITY,
+				UUID.randomUUID(), SyncOutboxEntry.Intent.UPSERT);
+		org.springframework.test.util.ReflectionTestUtils.setField(pending, "id", UUID.randomUUID());
+		given(outbox.findById(pending.getId())).willReturn(java.util.Optional.of(pending));
+
+		assertThatThrownBy(() -> service.retry(pending.getId(), UUID.randomUUID()))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+		verify(outbox, never()).enqueueIfAbsent(any(), any(), any(), any());
+	}
+
+	/** Another brand's push is "no such push", never re-queued. */
+	@Test
+	void anotherBrandsPushIsNotFound() {
+		SyncOutboxEntry dead = deadPush(UUID.randomUUID());
+
+		assertThatThrownBy(() -> service.retry(dead.getId(), UUID.randomUUID()))
+				.isInstanceOf(com.ie.evalos.common.NotFoundException.class);
+		verify(outbox, never()).enqueueIfAbsent(any(), any(), any(), any());
+	}
+
+	/** Sync health lists the last week of failures, not every failure ever. */
+	@Test
+	void theBacklogCountsOnlyRecentFailures() {
+		given(outbox.countByBrandIdAndDeadAtAfter(eq(BRAND), any())).willReturn(2L);
+
+		var backlog = service.backlog();
+
+		assertThat(backlog.dead()).isEqualTo(2);
+		org.mockito.ArgumentCaptor<java.time.Instant> since = org.mockito.ArgumentCaptor.forClass(java.time.Instant.class);
+		verify(outbox).countByBrandIdAndDeadAtAfter(eq(BRAND), since.capture());
+		assertThat(since.getValue()).isBetween(java.time.Instant.now().minus(java.time.Duration.ofDays(7)).minusSeconds(5),
+				java.time.Instant.now().minus(java.time.Duration.ofDays(7)).plusSeconds(5));
 	}
 
 	/** A transient failure is retried — and bounded, so it cannot spend budget forever. */

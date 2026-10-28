@@ -139,7 +139,8 @@ class MemberTargetServiceTest {
 	}
 
 	private static GmOverviewService.DeskRow desk(UUID id, String name, Role role, int newLeads, String wonValue) {
-		return new GmOverviewService.DeskRow(id, name, role, newLeads, 3, new BigDecimal(wonValue), 2, BigDecimal.TEN);
+		return new GmOverviewService.DeskRow(id, name, role, newLeads, 3, new BigDecimal(wonValue), 2, BigDecimal.TEN, 0,
+				BigDecimal.ZERO, 0, 0, BigDecimal.ZERO, 0);
 	}
 
 	@Test

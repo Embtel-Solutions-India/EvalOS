@@ -52,8 +52,10 @@ class PayoutRegisterServiceTest {
 	private final BrandRepository brands = mock(BrandRepository.class);
 	private final TeamMemberRepository members = mock(TeamMemberRepository.class);
 	private final OfferLog log = mock(OfferLog.class);
+	private final com.ie.evalos.repository.ContactSnapshotRepository contacts =
+			mock(com.ie.evalos.repository.ContactSnapshotRepository.class);
 	private final PayoutRegisterService service =
-			new PayoutRegisterService(offers, payouts, payments, cases, experts, brands, members, log);
+			new PayoutRegisterService(offers, payouts, payments, cases, experts, brands, members, log, contacts);
 
 	private final List<ExpertCaseOffer> offerRows = new ArrayList<>();
 	private final List<PayoutLedger> payoutRows = new ArrayList<>();
@@ -224,8 +226,44 @@ class PayoutRegisterServiceTest {
 
 		String csv = service.exportCsv(PayoutRegisterService.Filter.none());
 
-		assertThat(csv).startsWith("case,expert,amount");
+		assertThat(csv).startsWith("case,contact,expert,amount");
 		assertThat(csv).contains("'=HYPERLINK");
+	}
+
+	/** The register names each case's client contact for a GM, and searches it; the ENM never gets the name. */
+	@Test
+	void aRowCarriesItsCasesContactNameForAGmButNeverForTheEnm() {
+		actAs(Role.GM, null);
+		UUID caseId = caseOn(EXPERT);
+		UUID contactId = UUID.randomUUID();
+		caseRows.get(0).setContactId(contactId);
+		offerRows.add(accepted(IE, caseId, "100.00"));
+		com.ie.evalos.domain.ContactSnapshot contact = mock(com.ie.evalos.domain.ContactSnapshot.class);
+		given(contact.getId()).willReturn(contactId);
+		given(contact.getFullName()).willReturn("Jane Doe");
+		given(contact.getBrandId()).willReturn(IE);
+		given(contacts.findAllById(anyIterable())).willReturn(List.of(contact));
+
+		assertThat(service.rows(PayoutRegisterService.Filter.none())).singleElement()
+				.satisfies(row -> assertThat(row.contactName()).isEqualTo("Jane Doe"));
+		assertThat(service.rows(new PayoutRegisterService.Filter(null, null, null, null, "jane doe", null))).hasSize(1);
+
+		// A contact row under another brand is never named, whatever id the case carries.
+		given(contact.getBrandId()).willReturn(XP);
+		assertThat(service.rows(PayoutRegisterService.Filter.none()).get(0).contactName()).isNull();
+		given(contact.getBrandId()).willReturn(IE);
+
+		// Tier.SUPPLY: the ENM staffs experts, and a client's name is the client.
+		actAs(Role.EXPERT_NETWORK_MANAGER, IE);
+		assertThat(service.rows(PayoutRegisterService.Filter.none()).get(0).contactName()).isNull();
+		assertThat(service.rows(new PayoutRegisterService.Filter(null, null, null, null, "jane doe", null))).isEmpty();
+	}
+
+	private static void actAs(Role role, UUID brand) {
+		StaffPrincipal principal = new StaffPrincipal(UUID.randomUUID(), "who@evalos.local", "Who", role, brand, null,
+				null, true);
+		SecurityContextHolder.getContext().setAuthentication(
+				new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
 	}
 
 	// --- review fixes: an accepted offer is committed money only while it is the live one -----------

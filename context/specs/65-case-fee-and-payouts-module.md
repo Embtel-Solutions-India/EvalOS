@@ -132,7 +132,7 @@ The single `/payouts` nav entry becomes a **Payouts** group in `navigation.ts` (
 count and an amount: **Committed** (accepted, not delivered), **Pending**, **Processing**, **Paid**.
 A **Needs attention** list, **not** limited to the period: pending past its due date; processing with no confirmation after
 **7 days** (a constant, `CONFIRM_NUDGE_DAYS`). Below, the existing `PayoutSummary` and both exports
-move here unchanged.
+move here unchanged. **Edited 2026-10-29:** the summary table and its exports were removed from this page; row export is on *Export*.
 
 ### 4.2 Cases — `/payouts/cases`
 

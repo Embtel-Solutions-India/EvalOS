@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
 import { useAuth, useMe } from "../../lib/authContext";
 import { LogOut, Menu } from "lucide-react";
-import DateFilter from "./DateFilter";
 import { greetingFor } from "./greeting";
 import NotificationBell from "./NotificationBell";
 
@@ -30,10 +28,8 @@ export default function TopBar({ onMenu }: { onMenu?: () => void }) {
   const { logout } = useAuth();
   const me = useMe();
   const first = me.displayName.trim().split(/\s+/)[0];
-  // The period filter drives the role dashboards only. Everywhere else it filtered nothing, so it is not drawn;
-  // the Administrator's overview has no period either.
-  const showPeriod =
-    useLocation().pathname === "/dashboard" && me.role !== "ADMIN";
+  // No period filter here since 2026-10-28: the dashboards read "this month", and a chart over time carries
+  // its own picker (`ChartRange`).
 
   return (
     <header
@@ -85,7 +81,6 @@ export default function TopBar({ onMenu }: { onMenu?: () => void }) {
 
       <div className="flex items-center gap-2">
         {/* Next to the bell, on the right: it is a control for the screen, like the bell is for the account. */}
-        {showPeriod && <DateFilter />}
         <NotificationBell />
         <button
           type="button"

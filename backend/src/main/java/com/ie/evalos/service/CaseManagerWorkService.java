@@ -12,10 +12,16 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.ie.evalos.domain.ActorType;
+import com.ie.evalos.domain.AuditAction;
+import com.ie.evalos.domain.AuditEvent;
 import com.ie.evalos.domain.Brand;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ChecklistItemStatus;
+import com.ie.evalos.domain.CaseDocument;
 import com.ie.evalos.domain.DocumentChecklistItem;
+import com.ie.evalos.domain.DocumentKind;
+import com.ie.evalos.domain.DocumentStatus;
 import com.ie.evalos.domain.ExceptionState;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertCaseOffer;
@@ -51,9 +57,15 @@ public class CaseManagerWorkService {
 	private final BrandRepository brands;
 	private final BusinessCalendar calendar;
 
+	private final com.ie.evalos.repository.CaseDocumentRepository documents;
+	private final com.ie.evalos.repository.AuditEventRepository auditEvents;
+
 	CaseManagerWorkService(CaseManagerMetricsService cm, DocumentChecklistItemRepository items,
 			ExpertCaseOfferRepository offers, ExpertRepository experts, BrandRepository brands,
-			BusinessCalendar calendar) {
+			BusinessCalendar calendar, com.ie.evalos.repository.CaseDocumentRepository documents,
+			com.ie.evalos.repository.AuditEventRepository auditEvents) {
+		this.documents = documents;
+		this.auditEvents = auditEvents;
 		this.cm = cm;
 		this.items = items;
 		this.offers = offers;
@@ -83,7 +95,16 @@ public class CaseManagerWorkService {
 	public record Drafts(int beforeDraft, int drafting, int returned, int withPm, int withClient, int approved) {
 	}
 
-	public record CaseManagerWork(Checklist checklist, Offers offers, Drafts drafts) {
+	/** A draft the PM sent back, with the PM's reason from the version they returned (2026-10-28). */
+	public record ReturnedDraft(UUID caseId, String caseCode, String reason, Instant returnedAt) {
+	}
+
+	/** A case the expert put on hold because something is missing before they will sign (2026-10-28). */
+	public record EvidenceRequest(UUID caseId, String caseCode, String missing, Instant askedAt) {
+	}
+
+	public record CaseManagerWork(Checklist checklist, Offers offers, Drafts drafts, List<ReturnedDraft> returned,
+			List<EvidenceRequest> evidence) {
 	}
 
 	@Transactional(readOnly = true)
@@ -93,13 +114,84 @@ public class CaseManagerWorkService {
 				.toList();
 		if (open.isEmpty()) {
 			return new CaseManagerWork(new Checklist(0, 0, List.of()), new Offers(0, 0, List.of()),
-					new Drafts(0, 0, 0, 0, 0, 0));
+					new Drafts(0, 0, 0, 0, 0, 0), List.of(), List.of());
 		}
 		Set<UUID> brandIds = open.stream().map(Case::getBrandId).collect(Collectors.toSet());
 		Set<UUID> caseIds = open.stream().map(Case::getId).collect(Collectors.toSet());
 		Map<UUID, Case> byId = open.stream().collect(Collectors.toMap(Case::getId, c -> c));
 		return new CaseManagerWork(checklist(brandIds, caseIds, byId), offers(open, brandIds, caseIds, byId),
-				drafts(open));
+				drafts(open), returned(open), evidence(open, brandIds));
+	}
+
+	/**
+	 * Drafts the PM returned, longest-waiting first. The reason is the {@code review_comment} the return
+	 * stamped on that version; the time is when the case re-entered drafting, which the return set.
+	 */
+	private List<ReturnedDraft> returned(List<Case> open) {
+		List<Case> back = open.stream()
+				.filter(c -> c.getCurrentStage() == Stage.DRAFT_IN_PROGRESS
+						&& c.getPmApprovalStatus() == PmApprovalStatus.RETURNED)
+				.sorted(Comparator.comparing(Case::getStageEnteredAt, Comparator.nullsLast(Comparator.naturalOrder())))
+				.limit(ROW_CAP)
+				.toList();
+		Map<UUID, String> reasons = new HashMap<>();
+		for (Map.Entry<UUID, List<Case>> byBrand : back.stream().collect(Collectors.groupingBy(Case::getBrandId)).entrySet()) {
+			Set<UUID> ids = byBrand.getValue().stream().map(Case::getId).collect(Collectors.toSet());
+			documents.findByBrandIdAndCaseIdInAndKind(byBrand.getKey(), ids, DocumentKind.DRAFT).stream()
+					.filter(d -> d.getStatus() == DocumentStatus.RETURNED)
+					.sorted(Comparator.comparingInt(CaseDocument::getVersion).reversed())
+					.forEach(d -> reasons.putIfAbsent(d.getCaseId(), d.getReviewComment()));
+		}
+		return back.stream()
+				.map(c -> new ReturnedDraft(c.getId(), c.getCaseCode(), reasons.get(c.getId()), c.getStageEnteredAt()))
+				.toList();
+	}
+
+	/**
+	 * Cases on hold because the expert asked for more evidence. Found the way the case screen finds it: the
+	 * expert's own audit row that put the case on {@code ON_HOLD_AWAITING_CLIENT}, its note being what is
+	 * missing. A hold someone else raised is not an evidence request and is not listed.
+	 */
+	private List<EvidenceRequest> evidence(List<Case> open, Set<UUID> brandIds) {
+		Map<UUID, Case> held = open.stream()
+				.filter(c -> c.getExceptionState() == ExceptionState.ON_HOLD_AWAITING_CLIENT)
+				.collect(Collectors.toMap(Case::getId, c -> c));
+		if (held.isEmpty()) {
+			return List.of();
+		}
+		Map<UUID, EvidenceRequest> latest = new HashMap<>();
+		for (AuditEvent row : auditEvents.findCaseActionScoped("CASE", AuditAction.UPDATED, held.keySet(), brandIds)) {
+			if (row.getActorType() != ActorType.EXPERT) {
+				continue;
+			}
+			com.fasterxml.jackson.databind.JsonNode after = snapshot(row.getAfterSnapshot());
+			if (after == null || !"ON_HOLD_AWAITING_CLIENT".equals(after.path("exceptionState").asText())) {
+				continue;
+			}
+			Case subject = held.get(row.getObjectId());
+			EvidenceRequest candidate = new EvidenceRequest(subject.getId(), subject.getCaseCode(),
+					after.path("note").isTextual() ? after.path("note").asText() : null, row.getCreatedAt());
+			latest.merge(subject.getId(), candidate, (a, b) -> a.askedAt().isAfter(b.askedAt()) ? a : b);
+		}
+		return latest.values().stream()
+				.sorted(Comparator.comparing(EvidenceRequest::askedAt))
+				.limit(ROW_CAP)
+				.toList();
+	}
+
+	private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+	/** An audit snapshot as a tree, or null when there is none or it does not parse. */
+	private static com.fasterxml.jackson.databind.JsonNode snapshot(String json) {
+		if (json == null || json.isBlank()) {
+			return null;
+		}
+		try {
+			return JSON.readTree(json);
+		}
+		catch (com.fasterxml.jackson.core.JsonProcessingException unreadable) {
+			return null;
+		}
 	}
 
 	private Checklist checklist(Set<UUID> brandIds, Set<UUID> caseIds, Map<UUID, Case> byId) {

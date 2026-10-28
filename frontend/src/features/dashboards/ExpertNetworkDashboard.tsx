@@ -56,10 +56,10 @@ export default function ExpertNetworkDashboard() {
 
   return (
     <section>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      {/* The five tiles are one row (2026-10-28): acceptance rate and cases in flight moved up beside the others. */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <KpiCard
           title="Available experts"
-          wide
           state={warnWhen(state, (data?.roster.available ?? 1) === 0)}
           to="/experts"
           value={data?.roster.available ?? null}
@@ -115,6 +115,9 @@ export default function ExpertNetworkDashboard() {
           value={data?.activeCases ?? null}
           note="Across the whole roster. Derived from cases, never from the dead counter column."
         />
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
 
         <Card
           title="Availability board"

@@ -41,6 +41,20 @@ public interface SyncDriftRepository extends JpaRepository<SyncDrift, UUID>, Jpa
 	Optional<SyncDrift> findByBrandIdAndEntityTypeAndGhlIdAndFieldIsNullAndResolvedAtIsNull(UUID brandId,
 			SyncEntity entityType, String ghlId);
 
+	/**
+	 * Spec 86 §4: the mirror just absorbed these deals, so "GHL has it and EvalOS does not" is no longer
+	 * true. Closes the open {@code MISSING_LOCALLY} rows for them in one statement rather than one per deal,
+	 * because an absorb can be a five-figure pipeline. The audit is still the only thing that OPENS a row.
+	 */
+	@org.springframework.transaction.annotation.Transactional
+	@org.springframework.data.jpa.repository.Modifying
+	@org.springframework.data.jpa.repository.Query("update SyncDrift d set d.resolvedAt = CURRENT_TIMESTAMP "
+			+ "where d.brandId = :brandId and d.entityType = com.ie.evalos.domain.SyncEntity.OPPORTUNITY "
+			+ "and d.kind = com.ie.evalos.domain.SyncDrift.Kind.MISSING_LOCALLY "
+			+ "and d.resolvedAt is null and d.ghlId in :ghlIds")
+	int resolveMissingLocally(@org.springframework.data.repository.query.Param("brandId") UUID brandId,
+			@org.springframework.data.repository.query.Param("ghlIds") java.util.Collection<String> ghlIds);
+
 	/** Every open row for one entity type — the audit's "what did I say last night" read. */
 	List<SyncDrift> findByBrandIdAndEntityTypeAndResolvedAtIsNull(UUID brandId, SyncEntity entityType);
 }

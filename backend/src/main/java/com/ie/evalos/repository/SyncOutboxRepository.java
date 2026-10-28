@@ -37,7 +37,8 @@ public interface SyncOutboxRepository
 	boolean existsByBrandIdAndEntityTypeAndEntityIdAndSentAtIsNullAndDeadAtIsNull(UUID brandId,
 			com.ie.evalos.domain.SyncEntity entityType, UUID entityId);
 
-	long countByBrandIdAndDeadAtIsNotNull(UUID brandId);
+	/** Failed pushes since {@code since} — Sync health lists the last week only (2026-10-28). */
+	long countByBrandIdAndDeadAtAfter(UUID brandId, java.time.Instant since);
 
 	/**
 	 * Queues a push, or does nothing if the same one is already pending.
@@ -69,6 +70,20 @@ public interface SyncOutboxRepository
 			@org.springframework.data.repository.query.Param("entityId") UUID entityId,
 			@org.springframework.data.repository.query.Param("intent") String intent);
 
-	/** What a human looks for after an incident. */
-	List<SyncOutboxEntry> findByBrandIdAndDeadAtIsNotNullOrderByDeadAtDesc(UUID brandId, Limit limit);
+	/**
+	 * Spec 86 §3: dead pushes in a window, failed in one of {@code failures}, that nobody has re-queued
+	 * yet, oldest first. Filtered here so a refused push is not re-read on every drain for a week.
+	 */
+	List<SyncOutboxEntry> findByBrandIdAndLastFailureInAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(
+			UUID brandId, java.util.Collection<com.ie.evalos.integration.GhlFailure> failures, java.time.Instant from,
+			java.time.Instant to);
+
+	/** Spec 86 §3: how often this push has died lately — the automatic retry stops at three. */
+	long countByBrandIdAndEntityTypeAndEntityIdAndIntentAndDeadAtAfter(UUID brandId,
+			com.ie.evalos.domain.SyncEntity entityType, UUID entityId, SyncOutboxEntry.Intent intent,
+			java.time.Instant since);
+
+	/** What a human looks for after an incident: the recent failures, newest first. */
+	List<SyncOutboxEntry> findByBrandIdAndDeadAtAfterOrderByDeadAtDesc(UUID brandId, java.time.Instant since,
+			Limit limit);
 }

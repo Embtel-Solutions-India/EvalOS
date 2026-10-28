@@ -99,7 +99,7 @@ export function listDelivered(caseId: string, signal?: AbortSignal): Promise<Del
   return unwrap(apiClient.get<ApiResponse<DeliveredFile[]>>(`${base(caseId)}/delivered`, { signal }))
 }
 
-/** `view` opens the file in the browser's PDF viewer (Unit 74); both delivered files are PDFs. */
+/** `view` opens the file in the browser's PDF viewer (Unit 74); only for a file marked `viewable`. */
 export async function deliveredUrl(caseId: string, documentId: string, view = false): Promise<string> {
   const params = view ? { view: true } : {}
   return (await unwrap(apiClient.get<ApiResponse<Url>>(`${base(caseId)}/delivered/${documentId}/url`, { params }))).url

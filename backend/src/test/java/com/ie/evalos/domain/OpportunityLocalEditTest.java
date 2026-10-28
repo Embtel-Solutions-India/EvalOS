@@ -24,4 +24,45 @@ class OpportunityLocalEditTest {
 		row.editedLocally(null, null, null, "won");
 		assertThat(row.getLastStatusChangeAt()).isEqualTo(stamped);
 	}
+
+	/** Spec 86: the base is what GHL last held, so a second edit before the push keeps the first base. */
+	@Test
+	void theBaseIsTheValueBeforeTheFirstUnconfirmedEdit() {
+		Opportunity row = new Opportunity(UUID.randomUUID(), "opp-1", UUID.randomUUID());
+		row.syncFromGhl("c", row.getPipelineId(), "s", "Deal", new java.math.BigDecimal("500"), "open", null, null,
+				null, null, null, null);
+
+		row.editedLocally(null, new java.math.BigDecimal("150"), null, null);
+		row.editedLocally(null, new java.math.BigDecimal("175"), null, null);
+
+		assertThat(row.ghlBaseOf(FieldOwnership.AMOUNT)).isEqualTo("500");
+		assertThat(row.hasGhlBase(FieldOwnership.NAME)).isFalse();
+	}
+
+	/** An empty field is a base too: "GHL held nothing" is what lets the push tell GHL did not touch it. */
+	@Test
+	void anEmptyFieldIsRecordedAsABase() {
+		Opportunity row = new Opportunity(UUID.randomUUID(), "opp-1", UUID.randomUUID());
+		row.syncFromGhl("c", row.getPipelineId(), "s", "Deal", null, "open", null, null, null, null, null, null);
+
+		row.editedLocally(null, new java.math.BigDecimal("150"), null, null);
+
+		assertThat(row.hasGhlBase(FieldOwnership.AMOUNT)).isTrue();
+		assertThat(row.ghlBaseOf(FieldOwnership.AMOUNT)).isNull();
+	}
+
+	/** GHL's answer that supersedes the edit retires the base with it. */
+	@Test
+	void aSyncThatSupersedesTheEditClearsTheBase() {
+		Opportunity row = new Opportunity(UUID.randomUUID(), "opp-1", UUID.randomUUID());
+		row.syncFromGhl("c", row.getPipelineId(), "s", "Deal", new java.math.BigDecimal("500"), "open", null, null,
+				null, null, null, null);
+		row.editedLocally(null, new java.math.BigDecimal("150"), null, null);
+
+		row.syncFromGhl("c", row.getPipelineId(), "s", "Deal", new java.math.BigDecimal("200"), "open", null, null,
+				null, Instant.now().plusSeconds(60), null, null);
+
+		assertThat(row.ghlBaseOf(FieldOwnership.AMOUNT)).isNull();
+		assertThat(row.getAmount()).isEqualByComparingTo("200");
+	}
 }

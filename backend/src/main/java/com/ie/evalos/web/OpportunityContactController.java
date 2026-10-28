@@ -88,7 +88,13 @@ public class OpportunityContactController {
 			String country, List<String> tags, List<Field> contactFields,
 			// Unit 69: what the edit dialog pre-fills — the owner's GHL id and the deal's
 			// custom-field values by field id (`dealFields` is labelled, for reading).
-			String assignedToId, Map<String, String> dealFieldValues) {
+			String assignedToId, Map<String, String> dealFieldValues,
+			// 2026-10-29: the pipeline the deal is on, by its mirrored name — whose desk it is.
+			String pipelineName,
+			// 2026-10-29: the deal's own source, else its Lead Source field — the card's rule
+			// (OpportunityBoardService). `source` above is the contact's channel, which the mirror
+			// fills only for a GHL source matching a SourceChannel, so it was empty on every contact.
+			String dealSource) {
 	}
 
 	/** A custom field value under its GHL name. The field id stays server-side, like the user id. */
@@ -100,10 +106,13 @@ public class OpportunityContactController {
 	private final GhlUserRepository ghlUsers;
 	private final GhlCustomFieldRepository customFields;
 	private final CaseOpportunityService caseDeals;
+	private final com.ie.evalos.repository.PipelineRepository pipelines;
 
 	OpportunityContactController(PipelineScope scope, ContactSnapshotService contacts,
-			GhlUserRepository ghlUsers, GhlCustomFieldRepository customFields, CaseOpportunityService caseDeals) {
+			GhlUserRepository ghlUsers, GhlCustomFieldRepository customFields, CaseOpportunityService caseDeals,
+			com.ie.evalos.repository.PipelineRepository pipelines) {
 		this.caseDeals = caseDeals;
+		this.pipelines = pipelines;
 		this.scope = scope;
 		this.contacts = contacts;
 		this.ghlUsers = ghlUsers;
@@ -151,7 +160,9 @@ public class OpportunityContactController {
 				contact == null ? List.of()
 						: named(deal, ReferenceMirrorService.CONTACT_MODEL, contact.getCustomFields()),
 				deal.getGhlAssignedTo(),
-				deal.getCustomFields());
+				deal.getCustomFields(),
+				pipelineNameOf(deal),
+				dealSourceOf(deal));
 	}
 
 	/**
@@ -168,6 +179,29 @@ public class OpportunityContactController {
 				.filter((field) -> values.containsKey(field.getGhlId()))
 				.map((field) -> new Field(field.getName(), values.get(field.getGhlId())))
 				.toList();
+	}
+
+	/** The deal's source, else its Lead Source custom field (by GHL field key, the deal's own brand); null when neither says. */
+	private String dealSourceOf(Opportunity deal) {
+		if (deal.getSource() != null && !deal.getSource().isBlank()) {
+			return deal.getSource();
+		}
+		return customFields.findByBrandIdAndModelOrderByNameAsc(deal.getBrandId(), ReferenceMirrorService.OPPORTUNITY_MODEL)
+				.stream().filter((field) -> LEAD_SOURCE_FIELD.equals(field.getFieldKey()))
+				.map((field) -> deal.getCustomFields().get(field.getGhlId()))
+				.filter((value) -> value != null && !value.isBlank())
+				.findFirst().orElse(null);
+	}
+
+	private static final String LEAD_SOURCE_FIELD = "opportunity.lead_source";
+
+	/** The deal's pipeline name, from the deal's own brand only; null when the mirror does not hold it. */
+	private String pipelineNameOf(Opportunity deal) {
+		return deal.getPipelineId() == null ? null
+				: pipelines.findById(deal.getPipelineId())
+						.filter((p) -> p.getBrandId().equals(deal.getBrandId()))
+						.map(com.ie.evalos.domain.Pipeline::getName)
+						.orElse(null);
 	}
 
 	/**

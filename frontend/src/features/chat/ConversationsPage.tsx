@@ -21,6 +21,7 @@ export default function ConversationsPage() {
         title="Messages"
         description="Coordinate with your team on every case."
         filters
+        headingOnPhoneOnly
         selectedId={conversationId}
         onOpen={(id) => navigate(`/conversations/${id}`)}
         onBack={() => navigate('/conversations')}

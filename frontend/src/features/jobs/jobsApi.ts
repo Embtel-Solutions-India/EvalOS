@@ -44,6 +44,18 @@ export function fetchRuns(signal?: AbortSignal): Promise<JobRun[]> {
   return unwrap(api.get('/jobs/runs', { signal }))
 }
 
+/** `JobAdminService.DayRuns`: one local day's runs, oldest first, every day present. */
+export type DayRuns = { day: string; ok: number; failed: number }
+
+/**
+ * Runs per day for the last week, counted by the server in the viewer's own zone. The chart used to bucket
+ * `/jobs/runs`, which is the last 50 runs — about half an hour — so every bar but today's was empty.
+ */
+export function fetchRunsByDay(signal?: AbortSignal): Promise<DayRuns[]> {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  return unwrap(api.get('/jobs/runs/daily', { params: { zone }, signal }))
+}
+
 export type RunResult = { jobType: string; started: boolean; message: string }
 
 /**

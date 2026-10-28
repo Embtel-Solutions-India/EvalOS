@@ -82,8 +82,16 @@ public class OpportunityBoardService {
 	 * from. Null means neither says — the card shows a placeholder rather than a guess.
 	 */
 	public record Deal(String opportunityId, String name, String contactId, String status,
-			BigDecimal amount, java.time.Instant updatedAt, String source, String service) {
+			BigDecimal amount, java.time.Instant updatedAt, String source, String service,
+			/** The mirrored name of the pipeline the deal is on — whose desk it is, on the GM's all-sales view. */
+			String pipelineName) {
 	}
+
+	/**
+	 * The GM's (and the Admin's) first drop-down option and default (2026-10-29): every SALES pipeline at once, the
+	 * same union {@link #forCaller} draws. Not a GHL id — GHL's are 20-character ids, so this cannot collide.
+	 */
+	public static final String ALL_SALES = "all-sales";
 
 	/** GHL's field keys for the two custom fields the card reads. Keys, not ids — see NewDealForm. */
 	static final String SERVICE_FIELD = "opportunity.service_requested";
@@ -248,7 +256,10 @@ public class OpportunityBoardService {
 		// An empty mirror has no pipeline to offer, so read the structure first.
 		syncStructureIfEmpty();
 		Choice choice = choose(caller, requested);
-		if (choice.id() != null) {
+		if (ALL_SALES.equals(choice.id())) {
+			salesPipelines().forEach((id) -> deals.refreshIfStale(id, manualSyncFloor()));
+		}
+		else if (choice.id() != null) {
 			deals.refreshIfStale(choice.id(), manualSyncFloor());
 		}
 		return drawn(choice);
@@ -257,6 +268,15 @@ public class OpportunityBoardService {
 	private Board drawn(Choice choice) {
 		if (choice.id() == null) {
 			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrand.id() != null);
+		}
+		if (ALL_SALES.equals(choice.id())) {
+			List<String> sales = salesPipelines();
+			if (sales.isEmpty()) {
+				return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrand.id() != null)
+						.choosing(choice.options(), ALL_SALES);
+			}
+			// Folded like the union read: a GM moves no card, so a column may stand for several pipelines' stages.
+			return draw(sales, deals.onPipelines(sales), true).choosing(choice.options(), ALL_SALES);
 		}
 		List<String> one = List.of(choice.id());
 		return draw(one, deals.onPipelines(one), false).choosing(choice.options(), choice.id());
@@ -281,7 +301,10 @@ public class OpportunityBoardService {
 	/** The caller's pipelines in GHL's order; one the mirror has not seen keeps its id as its name. */
 	private List<PipelineOption> choicesFor(TenantContext caller, List<com.ie.evalos.domain.Pipeline> live) {
 		if (caller.role().hasGmView()) {
-			return live.stream().map((p) -> new PipelineOption(p.getGhlId(), p.getName())).toList();
+			List<PipelineOption> all = new ArrayList<>();
+			all.add(new PipelineOption(ALL_SALES, "All sales pipelines"));
+			live.stream().map((p) -> new PipelineOption(p.getGhlId(), p.getName())).forEach(all::add);
+			return all;
 		}
 		List<String> mine = pipelinesFor(caller);
 		List<PipelineOption> options = new ArrayList<>(live.stream()
@@ -297,30 +320,16 @@ public class OpportunityBoardService {
 		return mirroredPipelines.all().stream().filter(com.ie.evalos.domain.Pipeline::isLive).toList();
 	}
 
-	/** "Master" as a whole word, any case: "Master Pipeline" matches, "Mastery Leads" does not. */
-	private static final java.util.regex.Pattern MASTER =
-			java.util.regex.Pattern.compile("\\bmaster\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
-
 	/**
-	 * A desk starts on its first pipeline; the GM on the live pipeline tagged {@code MASTER} on the Pipelines
-	 * screen. <strong>The name is a fallback only while no live pipeline is tagged</strong> — V93 tags the one it
-	 * matched, but leaves a pipeline a GM had already given another purpose alone, so a brand can arrive here
-	 * untagged. Once tagged, a rename in GHL moves nothing.
+	 * A desk starts on its first pipeline; the GM on {@link #ALL_SALES} (edited 2026-10-29 — it was the live
+	 * pipeline tagged {@code MASTER}, which stays one pick away in the drop-down).
 	 */
 	private static String defaultOf(List<PipelineOption> options, List<com.ie.evalos.domain.Pipeline> live,
 			TenantContext caller) {
 		if (options.isEmpty()) {
 			return null;
 		}
-		if (caller.role().hasGmView()) {
-			return live.stream().filter((p) -> p.getPurpose() == com.ie.evalos.domain.PipelinePurpose.MASTER)
-					.findFirst()
-					.or(() -> live.stream().filter((p) -> p.getName() != null && MASTER.matcher(p.getName()).find())
-							.findFirst())
-					.map(com.ie.evalos.domain.Pipeline::getGhlId)
-					.orElse(options.get(0).id());
-		}
-		return options.get(0).id();
+		return caller.role().hasGmView() ? ALL_SALES : options.get(0).id();
 	}
 
 	/**
@@ -464,6 +473,8 @@ public class OpportunityBoardService {
 		}
 		String serviceField = fieldIds.get(SERVICE_FIELD);
 		String leadSourceField = fieldIds.get(LEAD_SOURCE_FIELD);
+		Map<java.util.UUID, String> pipelineNames = new java.util.HashMap<>();
+		mirroredPipelines.all().forEach((p) -> pipelineNames.put(p.getId(), p.getName()));
 
 		List<BoardColumn> columns = byStage.entrySet().stream()
 				.map((entry) -> {
@@ -473,7 +484,8 @@ public class OpportunityBoardService {
 									row.getGhlContactId(), row.getStatus(), row.getAmount(),
 									row.getGhlUpdatedAt(),
 									firstOf(row.getSource(), row.getCustomFields().get(leadSourceField)),
-									row.getCustomFields().get(serviceField)))
+									row.getCustomFields().get(serviceField),
+									pipelineNames.get(row.getPipelineId())))
 							.toList();
 					return new BoardColumn(entry.getKey(),
 							// A stage GHL no longer lists still holds cards until the next

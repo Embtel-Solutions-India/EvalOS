@@ -11,7 +11,6 @@ import {
   YAxis,
 } from "recharts";
 import {
-  CapacityBar,
   Card,
   ChartCard,
   KpiCard,
@@ -22,35 +21,32 @@ import { ChevronRight } from "lucide-react";
 import { fetchAssignable } from "../board/boardApi";
 import type { PickerOption } from "../board/boardRules";
 import type { Role } from "../../lib/session";
-import { formatCount, formatMoney } from "../../lib/money";
-import { rangeLabel, useFilters } from "../shell/filtersContext";
-import {
-  fetchOpportunityBoard,
-  type OpportunityBoard,
-} from "../opportunities/opportunityApi";
-import { STALE_DAYS, staleDeals } from "./dealAge";
+import { formatCount, formatMoney, formatPayout } from "../../lib/money";
+import { fetchOverview } from "../payouts/registerApi";
+import type { Overview as PayoutOverview } from "../payouts/registerRules";
+import ChartRange from "../shell/ChartRange";
+import { DEFAULT_RANGE, rangeLabel, useFilters, type DateRange } from "../shell/filtersContext";
+import { TrendCard } from "./TrendCard";
 import {
   fetchExpertNetworkMetrics,
   fetchGmOverview,
   fetchPmMetrics,
-  fetchRevenueMetrics,
   type ExpertNetworkMetrics,
+  type GmDeskRow,
   type GmOverview,
   type GmTrend,
   type GmTrendPoint,
   type PmMetrics,
-  type RevenueMetrics,
 } from "./pmMetricsApi";
 import RevenueGoalCard from "./RevenueGoalCard";
 import { SERIES } from "./journeyWidgets";
-import { TrendCard } from "./TrendCard";
 import { emptyWhen, useMetrics } from "./useMetrics";
 
 /**
  * The GM's monthly overview — the business on one screen, department by department.
  *
- * <p><strong>Five reads, and four of them already existed.</strong> `/metrics/gm` is the only new
- * endpoint; `/metrics/revenue`, `/metrics/pm`, `/metrics/expert-network` and
+ * <p><strong>Its reads, and only one of them is its own.</strong> `/metrics/gm` is the only new
+ * endpoint; `/metrics/pm`, `/metrics/expert-network`, `/payouts/overview` and
  * `/opportunities/board` are routes this role could already call, and every figure taken from
  * them is taken rather than recomputed. A second copy of "at risk" or "onboarded this month"
  * living here is a second number to keep in step with the first, and they always drift.
@@ -80,6 +76,13 @@ const DEPARTMENTS: { name: string; roles: Role[]; dashboard?: "sales" | "marketi
   { name: "Marketing", roles: ["MARKETING"], dashboard: "marketing" },
   { name: "Production", roles: ["PROJECT_MANAGER", "PROJECT_COORDINATOR", "CASE_MANAGER"] },
 ];
+const PAYOUT_STAGES = [
+  ["committed", "Committed"],
+  ["pending", "Pending"],
+  ["processing", "Processing"],
+  ["paid", "Paid"],
+] as const;
+
 const TEAM_ROLES = DEPARTMENTS.flatMap((department) => department.roles);
 
 export default function GmDashboard() {
@@ -91,11 +94,6 @@ export default function GmDashboard() {
     // Mirror-backed since 2026-10-13, so it polls like the desk dashboards instead of waiting for a tab focus.
     { key: 'GmDashboard:0', refreshEvery: 60_000 },
   );
-  const revenue = useMetrics<RevenueMetrics>(
-    (signal) => fetchRevenueMetrics(activeBrandId, signal),
-    [activeBrandId],
-    { key: 'GmDashboard:1' },
-  );
   const pm = useMetrics<PmMetrics>(
     (signal) => fetchPmMetrics(dateRange, activeBrandId, signal),
     [dateRange, activeBrandId],
@@ -106,10 +104,11 @@ export default function GmDashboard() {
     [],
     { key: 'GmDashboard:3' },
   );
-  const board = useMetrics<OpportunityBoard>(
-    (signal) => fetchOpportunityBoard(signal),
-    [],
-    { key: 'GmDashboard:4' },
+  // The Payouts page's four stages for the same period and brand, one set per currency (never summed across them).
+  const payouts = useMetrics<PayoutOverview[]>(
+    (signal) => fetchOverview(dateRange, activeBrandId, signal),
+    [dateRange, activeBrandId],
+    { key: 'GmDashboard:6' },
   );
 
   const data = gm.data;
@@ -129,6 +128,8 @@ export default function GmDashboard() {
     d.roles.flatMap((role) => (team.data?.[role] ?? []).map((member) => ({ ...member, role })));
   const [departmentName, setDepartmentName] = useState(DEPARTMENTS[0].name);
   const department = DEPARTMENTS.find((d) => d.name === departmentName) ?? DEPARTMENTS[0];
+  const figures = figuresFor(department.dashboard);
+  const deskOf = (memberId: string) => data?.desks.find((d) => d.memberId === memberId);
 
   /**
    * The state for a tile fed by the GHL half of `/metrics/gm`.
@@ -145,15 +146,14 @@ export default function GmDashboard() {
     gm.state.kind === "ok" && data && !data.pipelineUnavailable && !today
       ? { kind: "error", note: "Not available from the server yet", onRetry: gm.reload }
       : pipelineState;
-  // Same rule for the stage tiles: a server without them is "not available", never a 0.
+  // Same rule for the stage and hiring tiles: a server without them is "not available", never a 0 (a real 0 shows).
   const stageState = (stage: unknown): CardState =>
-    todayState.kind === "ok" && !stage
+    todayState.kind === "ok" && stage == null
       ? { kind: "error", note: "Not available from the server yet", onRetry: gm.reload }
       : todayState;
   const up = (value: number | null | undefined) =>
     value == null ? undefined : { value, better: "up" as const };
 
-  const untouched = staleDeals(board.data);
   const sourceWon = (data?.bySource ?? []).reduce(
     (sum, row) => ({ value: sum.value + row.value, deals: sum.deals + row.deals }),
     { value: 0, deals: 0 },
@@ -197,20 +197,19 @@ export default function GmDashboard() {
             pctToGoal={data?.headline?.pctToGoal ?? null}
             goalMonth={data?.headline?.goalMonth ?? null}
             change={wonChange}
+            todayWon={today ? today.wonValue : null}
             onSaved={gm.reload}
           />
-          {/* Two rows of four beside the revenue card, whatever the range filter says. Top: today's revenue, then the
+          {/* Performance beside the revenue card, top right (2026-10-28); the tiles moved down beside the team. */}
+          <div className="col-span-12 md:col-span-8">
+            <GmTrendCard brandId={activeBrandId} />
+          </div>
+
+          {/* Beside the team since 2026-10-28 (Performance took their place by the revenue card), two to a row; whatever the range filter says. Today's revenue and Sales · this month were removed on 2026-10-28. The
               open deals standing in New leads / Hot / Invoice sent right now (count and value). Bottom: Sales and
               Marketing leads today and this month. Arrows: today against yesterday, this month against the same days
               of last month. Two to a row on a phone. */}
-          <div className="col-span-12 grid grid-cols-2 gap-5 md:col-span-8 md:grid-cols-4">
-            <KpiCard
-              title="Today's revenue"
-              delta={up(today?.changes?.wonValue)}
-              money
-              state={todayState}
-              value={today ? Math.round(today.wonValue) : null}
-            />
+          <div className="col-span-12 grid grid-cols-2 content-start gap-5 xl:col-span-6">
             {/* Where the open deals stand right now, whatever the range says: a count with what it is worth. */}
             {([
               ["New leads", today?.newLeads],
@@ -241,13 +240,6 @@ export default function GmDashboard() {
               to="/opportunities/board"
             />
             <KpiCard
-              title="Sales · this month"
-              delta={up(today?.changes?.monthSalesLeads)}
-              state={todayState}
-              value={today ? today.monthSalesLeads : null}
-              to="/opportunities/board"
-            />
-            <KpiCard
               title="Marketing · today's leads"
               delta={up(today?.changes?.marketingLeads)}
               state={todayState}
@@ -261,53 +253,60 @@ export default function GmDashboard() {
             />
           </div>
 
-          {/* The trend and the team, side by side from xl; stacked below that. */}
-          <div className="col-span-12 xl:col-span-6">
-            <TrendCard
-              trend={data?.trend ?? null}
-              state={pipelineState}
-              period={period}
-            />
-          </div>
-          {/* The trend card sets the row's height; from xl the team fills exactly that and scrolls inside it. Below
-              xl the card stacks and grows with its list (capped, so a long team still scrolls). */}
+          {/* The tiles set the row's height; from xl the team fills exactly that and scrolls inside it. Below xl the
+              card stacks and grows with its list (capped, so a long team still scrolls). */}
           <div className="relative col-span-12 xl:col-span-6">
           <Card
             className="max-h-[32rem] xl:absolute xl:inset-0 xl:max-h-none"
             fill
             title="Team"
+            action={
+              <div className="flex gap-1.5" role="tablist" aria-label="Departments">
+                {DEPARTMENTS.map((d) => {
+                  const selected = d.name === department.name;
+                  return (
+                    <button
+                      key={d.name}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => setDepartmentName(d.name)}
+                      className="h-8 px-3 text-sm"
+                      style={{
+                        borderRadius: "var(--radius-md)",
+                        background: selected ? "var(--accent-soft)" : "var(--bg-surface)",
+                        border: `1px solid ${selected ? "var(--accent-primary)" : "var(--border-default)"}`,
+                        color: selected ? "var(--accent-primary)" : "var(--text-primary)",
+                      }}
+                    >
+                      {d.name} <span className="font-num tabular-nums" style={{ color: "var(--text-muted)" }}>{membersOf(d).length}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            }
             state={emptyWhen(
               team.state,
               TEAM_ROLES.every((role) => (team.data?.[role]?.length ?? 0) === 0),
               "No active team members yet.",
             )}
           >
-            {/* Every active member, a tab per department. A Sales or Marketing member opens their own dashboard
-                (the GM's drill-down, D76); Production has no one-person dashboard yet, so those rows are names only. */}
-            <div className="flex gap-1.5" role="tablist" aria-label="Departments">
-              {DEPARTMENTS.map((d) => {
-                const selected = d.name === department.name;
-                return (
-                  <button
-                    key={d.name}
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    onClick={() => setDepartmentName(d.name)}
-                    className="h-8 px-3 text-sm"
-                    style={{
-                      borderRadius: "var(--radius-md)",
-                      background: selected ? "var(--accent-soft)" : "var(--bg-surface)",
-                      border: `1px solid ${selected ? "var(--accent-primary)" : "var(--border-default)"}`,
-                      color: selected ? "var(--accent-primary)" : "var(--text-primary)",
-                    }}
-                  >
-                    {d.name} <span className="font-num tabular-nums" style={{ color: "var(--text-muted)" }}>{membersOf(d).length}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <ul className="-mx-2 mt-3" role="tabpanel" aria-label={department.name}>
+            {/* Every active member, a tab per department (tabs top right since 2026-10-28). A Sales or Marketing member
+                opens their own dashboard (the GM's drill-down, D76) and shows their figures for this month; Production
+                has no one-person dashboard yet, so those rows are names only. */}
+            {figures.length > 0 && (
+              <div
+                className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1.5 text-[11px] font-medium tracking-wide uppercase"
+                style={{ background: "var(--bg-raised)", color: "var(--text-muted)" }}
+              >
+                <span className="flex-1">Member</span>
+                {figures.map((f) => (
+                  <span key={f.label} className="w-16 text-right">{f.label}</span>
+                ))}
+                <span className="w-4" aria-hidden />
+              </div>
+            )}
+            <ul className="-mx-2 mt-1" role="tabpanel" aria-label={department.name}>
               {membersOf(department).length === 0 && (
                 <li className="px-2 py-3 text-sm" style={{ color: "var(--text-muted)" }}>No active {department.name.toLowerCase()} members.</li>
               )}
@@ -321,6 +320,14 @@ export default function GmDashboard() {
                         {readable(member.role)}
                       </span>
                     </span>
+                    {figures.map((f) => {
+                      const desk = deskOf(member.id);
+                      return (
+                        <span key={f.label} className="font-num w-16 text-right text-sm tabular-nums">
+                          {desk ? f.value(desk) : "—"}
+                        </span>
+                      );
+                    })}
                   </>
                 );
                 const href = department.dashboard && `/dashboard/${department.dashboard}?member=${member.id}`;
@@ -345,6 +352,24 @@ export default function GmDashboard() {
           </Card>
           </div>
 
+          <ChartCard
+            className="col-span-12 md:col-span-6"
+            title="Business by service"
+            state={emptyWhen(
+              gm.state,
+              (data?.byService.length ?? 0) === 0,
+              "No cases yet.",
+            )}
+            note="Open and delivered case value by service. A case, not a deal — a different denominator from source."
+          >
+            <MoneyBars
+              rows={(data?.byService ?? []).map((row) => ({
+                label: readable(row.serviceType),
+                value: Math.round(row.openValue + row.deliveredValue),
+                detail: `${row.openCases} open · ${row.delivered} delivered`,
+              }))}
+            />
+          </ChartCard>
           <Card
             className="col-span-12 md:col-span-6"
             title="Business by source"
@@ -391,60 +416,6 @@ export default function GmDashboard() {
               })}
             </ul>
           </Card>
-          <ChartCard
-            className="col-span-12 md:col-span-6"
-            title="Business by service"
-            state={emptyWhen(
-              gm.state,
-              (data?.byService.length ?? 0) === 0,
-              "No cases yet.",
-            )}
-            note="Open and delivered case value by service. A case, not a deal — a different denominator from source."
-          >
-            <MoneyBars
-              rows={(data?.byService ?? []).map((row) => ({
-                label: readable(row.serviceType),
-                value: Math.round(row.openValue + row.deliveredValue),
-                detail: `${row.openCases} open · ${row.delivered} delivered`,
-              }))}
-            />
-          </ChartCard>
-
-          <KpiCard
-            className="col-span-12 md:col-span-4"
-            title="Open cases"
-            state={gm.state}
-            value={data ? data.evaluation.openCases : null}
-            to="/board"
-          />
-          <KpiCard
-            className="col-span-12 md:col-span-4"
-            title="Delivered"
-            state={gm.state}
-            value={data ? data.evaluation.delivered : null}
-            to="/delivery"
-          />
-          <KpiCard
-            className="col-span-12 md:col-span-4"
-            title="Delivered on time"
-            state={pm.state}
-            value={pm.data?.onTime.ratePct ?? null}
-            unit="%"
-            delta={
-              pm.data?.onTime.deltaPoints == null
-                ? undefined
-                : { value: pm.data.onTime.deltaPoints, better: "up", unit: " pts" }
-            }
-            tone={
-              pm.data?.onTime.ratePct == null
-                ? undefined
-                : pm.data.onTime.ratePct >= 90
-                  ? "good"
-                  : pm.data.onTime.ratePct >= 75
-                    ? "warn"
-                    : "bad"
-            }
-          />
           <Card
             className="col-span-12 md:col-span-6"
             title="Open cases by service"
@@ -480,33 +451,10 @@ export default function GmDashboard() {
               </ul>
             </div>
           </Card>
-          <Card
-            className="col-span-12 md:col-span-6"
-            title="Case manager workload"
-            state={emptyWhen(
-              pm.state,
-              (pm.data?.workload.length ?? 0) === 0,
-              "No case manager is carrying cases.",
-            )}
-          >
-            {pm.data?.workload.map((cm) => (
-              <CapacityBar
-                key={cm.cmId}
-                label={cm.name}
-                used={cm.active}
-                capacity={cm.capacity}
-              />
-            ))}
-          </Card>
-        </div>
 
-        <aside className="col-span-12 grid grid-cols-1 items-start gap-5 md:grid-cols-2">
-          {/* Late is past the promised date; `At risk` is the wider band — deliberately two rows, because one
-              word answering two definitions is how a dashboard stops being believed. `No movement` is `bad`
-              above zero rather than against a tolerance: one deal nobody has touched in a working week is
-              already the problem. Leads with no source is amber, not red: a measurement failure, not an
-              operational one. */}
-          <Card title="Needs attention" state={{ kind: "ok" }}>
+          {/* Beside Open cases by service since 2026-10-29. Late is past the promised date. Leads with no source is amber,
+              not red: a measurement failure, not an operational one. At risk and No movement were removed 2026-10-29. */}
+          <Card className="col-span-12 md:col-span-6" title="Needs attention" state={{ kind: "ok" }}>
             <ul className="-mx-2 space-y-1">
               <AttentionRow
                 label="Late"
@@ -520,32 +468,6 @@ export default function GmDashboard() {
                       : "good"
                 }
                 to="/board?urgent=1"
-              />
-              <AttentionRow
-                label="At risk"
-                sub="late or in the red band"
-                value={pm.data ? pm.data.atRiskNow : null}
-                tone={
-                  pm.data === null
-                    ? undefined
-                    : pm.data.atRiskNow > 0
-                      ? "warn"
-                      : "good"
-                }
-                to="/board?urgent=1"
-              />
-              <AttentionRow
-                label={`No movement ${STALE_DAYS}d+`}
-                sub="open deals, no activity"
-                value={board.data ? untouched.length : null}
-                tone={
-                  board.data === null
-                    ? undefined
-                    : untouched.length > 0
-                      ? "bad"
-                      : "good"
-                }
-                to="/opportunities/board"
               />
               <AttentionRow
                 label="Unassigned"
@@ -593,74 +515,103 @@ export default function GmDashboard() {
             </ul>
           </Card>
 
-          {/* The money and the bench: neither is an alarm, both are the GM's to own. */}
-          <Card title="Money and bench" state={{ kind: "ok" }}>
-            <dl className="space-y-3 text-sm">
-              <Fact
-                label="Open liability"
-                sub={
-                  revenue.data
-                    ? `${revenue.data.openCases} paid, not delivered`
-                    : undefined
-                }
-                value={
-                  revenue.data
-                    ? formatMoney(Math.round(revenue.data.total.openLiability))
-                    : "–"
-                }
-              />
-              <Fact
-                label="Refunded"
-                value={
-                  revenue.data
-                    ? formatMoney(Math.round(revenue.data.total.refunded))
-                    : "–"
-                }
+          {/* Expert management (spec 51 §3.4): the bench and this month's hiring funnel. Interested and met come from the
+              hiring pipelines (`/metrics/gm`), the roster and onboarding from `/metrics/expert-network`. */}
+          <h2
+            className="col-span-12 -mb-2 border-l-2 pl-2 text-xs font-semibold tracking-wider uppercase"
+            style={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)" }}
+          >
+            Expert management
+          </h2>
+          <KpiCard
+            className="col-span-6 md:col-span-3"
+            title="Total experts"
+            state={roster.state}
+            value={roster.data ? roster.data.roster.available + roster.data.roster.atCapacity : null}
+            to="/experts"
+            action={
+              roster.data && (
+                <p className="font-num mt-1.5 text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                  {formatCount(roster.data.roster.inactive + roster.data.roster.onLeave)} inactive
+                </p>
+              )
+            }
+          />
+          <KpiCard
+            className="col-span-6 md:col-span-3"
+            title="New interested"
+            note="Candidates opened this month on the hiring pipeline"
+            state={stageState(today?.hiringInterested)}
+            value={today?.hiringInterested ?? null}
+            to="/hiring"
+            action={<p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>this month</p>}
+          />
+          <KpiCard
+            className="col-span-6 md:col-span-3"
+            title="Meeting done"
+            note="This month's candidates now at Meeting Done or a later stage. A candidate dropped after the meeting is not counted."
+            state={stageState(today?.hiringMet)}
+            value={today?.hiringMet ?? null}
+            to="/hiring"
+            action={
+              today?.hiringInterested != null && (
+                <p className="font-num mt-1.5 text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                  of {formatCount(today.hiringInterested)} interested
+                </p>
+              )
+            }
+          />
+          <KpiCard
+            className="col-span-6 md:col-span-3"
+            title="Onboarded"
+            note="Agreements signed this month, against the same days of last month"
+            state={roster.state}
+            value={roster.data ? roster.data.onboarding.thisMonth : null}
+            delta={
+              roster.data?.onboarding.lastMonthSoFar == null
+                ? undefined
+                : {
+                    value: roster.data.onboarding.thisMonth - roster.data.onboarding.lastMonthSoFar,
+                    better: "up",
+                    unit: "",
+                  }
+            }
+            to="/experts"
+            action={
+              roster.data && (
+                <p className="font-num mt-1.5 text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
+                  target {formatCount(roster.data.onboarding.target)}
+                </p>
+              )
+            }
+          />
+
+          {/* Payouts (2026-10-29): the Payouts page's stage tiles — fees on cases offered in this period — without its
+              export or the per-stage lines. One row per currency. */}
+          <h2
+            className="col-span-12 -mb-2 border-l-2 pl-2 text-xs font-semibold tracking-wider uppercase"
+            style={{ borderColor: "var(--accent-primary)", color: "var(--accent-primary)" }}
+          >
+            Payouts
+          </h2>
+          {(payouts.data && payouts.data.length > 0 ? payouts.data : [null]).flatMap((set) =>
+            PAYOUT_STAGES.map(([key, label]) => (
+              <Card
+                key={`${set?.currency ?? "none"}-${key}`}
+                className="col-span-6 md:col-span-3"
+                variant="tile"
+                title={payouts.data && payouts.data.length > 1 && set ? `${label} · ${set.currency}` : label}
+                state={emptyWhen(payouts.state, set === null, "No fees this period.")}
                 to="/payouts"
-              />
-              <Fact
-                label="Experts"
-                sub={
-                  roster.data
-                    ? `${roster.data.roster.inactive + roster.data.roster.onLeave} inactive of ${roster.data.roster.total}`
-                    : undefined
-                }
-                value={
-                  roster.data
-                    ? formatCount(
-                        roster.data.roster.available +
-                          roster.data.roster.atCapacity,
-                      )
-                    : "–"
-                }
-                to="/experts"
-              />
-              <Fact
-                label="Onboarded"
-                sub="agreements signed this month"
-                value={
-                  roster.data
-                    ? `${roster.data.onboarding.thisMonth} / ${roster.data.onboarding.target}`
-                    : "–"
-                }
-                to="/experts"
-              />
-              <Fact
-                label="Offer acceptance"
-                sub={
-                  roster.data
-                    ? `${roster.data.acceptance.resolved} offers resolved`
-                    : undefined
-                }
-                value={
-                  roster.data?.acceptance.ratePct == null
-                    ? "–"
-                    : `${roster.data.acceptance.ratePct}%`
-                }
-              />
-            </dl>
-          </Card>
-        </aside>
+              >
+                <span className="font-num text-2xl leading-none font-semibold tracking-tight tabular-nums">
+                  {set ? formatPayout(set[key].amount, set.currency) : "–"}
+                </span>
+              </Card>
+            )),
+          )}
+
+        </div>
       </div>
     </section>
   );
@@ -742,6 +693,57 @@ function MoneyBars({
 }
 
 /** `CREDENTIAL_EVALUATION` → `Credential evaluation`. Same helper the PM's chart uses. */
+/** "$9k" — the Team card's money columns, where four figures share one row. */
+const compactUsd = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 0,
+});
+const moneyOrDash = (n: number) => (n > 0 ? compactUsd.format(n) : "—");
+
+/**
+ * The figures a department's rows show (edited 2026-10-29): this month's stats, whatever the range filter says. Sales —
+ * leads opened this month, hot deals now, the value sitting at Invoice Sent now, value won this month; Marketing —
+ * leads opened and meetings this month. Replies are not shown: EvalOS mirrors no GHL conversation, so there is
+ * nothing to count (recorded as an open decision). Production rows have none.
+ */
+function figuresFor(dashboard: "sales" | "marketing" | undefined): { label: string; value: (d: GmDeskRow) => string }[] {
+  if (dashboard === "sales") {
+    return [
+      { label: "New", value: (d) => formatCount(d.monthLeads) },
+      { label: "Hot", value: (d) => formatCount(d.hot) },
+      { label: "Invoiced", value: (d) => moneyOrDash(d.invoiced) },
+      { label: "Won", value: (d) => moneyOrDash(d.monthWonValue) },
+    ];
+  }
+  if (dashboard === "marketing") {
+    return [
+      { label: "Leads", value: (d) => formatCount(d.monthLeads) },
+      { label: "Meetings", value: (d) => formatCount(d.monthMeetings) },
+    ];
+  }
+  return [];
+}
+
+/** The won-value / leads trend over its own period, with the previous period as a shadow line (2026-10-28). */
+function GmTrendCard({ brandId }: { brandId: string | null }) {
+  const [range, setRange] = useState<DateRange>(DEFAULT_RANGE);
+  const { data, state } = useMetrics<GmOverview>(
+    (signal) => fetchGmOverview(range, brandId, signal),
+    [range, brandId],
+    { key: "GmDashboard:trend" },
+  );
+  return (
+    <TrendCard
+      trend={data?.trend ?? null}
+      state={state}
+      period={rangeLabel(range).toLowerCase()}
+      range={<ChartRange range={range} onChange={setRange} />}
+    />
+  );
+}
+
 function readable(value: string): string {
   return value.charAt(0) + value.slice(1).toLowerCase().replaceAll("_", " ");
 }
@@ -822,44 +824,5 @@ function AttentionRow({
         <div className={cls}>{row}</div>
       )}
     </li>
-  );
-}
-
-/** A label with a small explanation and its figure — the quiet list. */
-function Fact({
-  label,
-  sub,
-  value,
-  to,
-}: {
-  label: string;
-  sub?: string;
-  value: string;
-  to?: string;
-}) {
-  const body = (
-    <>
-      <dt className="min-w-0">
-        <span className="block truncate font-medium">{label}</span>
-        {sub && (
-          <span
-            className="block truncate text-xs"
-            style={{ color: "var(--text-muted)" }}
-          >
-            {sub}
-          </span>
-        )}
-      </dt>
-      <dd className="font-num shrink-0 text-base font-semibold tabular-nums">
-        {value}
-      </dd>
-    </>
-  );
-  return to ? (
-    <Link to={to} className="flex items-center justify-between gap-3">
-      {body}
-    </Link>
-  ) : (
-    <div className="flex items-center justify-between gap-3">{body}</div>
   );
 }

@@ -53,6 +53,8 @@ export type ExpertDocument = {
   kind: 'LETTER' | 'CLIENT_UPLOAD'
   filename: string | null
   uploadedAt: string
+  /** The main file is present — for a LETTER, its Word file. False on a PDF-only letter. */
+  hasWord: boolean
   hasPdf: boolean
 }
 
