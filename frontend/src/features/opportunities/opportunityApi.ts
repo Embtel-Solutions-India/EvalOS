@@ -24,7 +24,12 @@ export type Deal = {
   source: string | null
   /** The service-requested field, else the portal request's service. Null when neither says. */
   service: string | null
+  /** The mirrored name of the pipeline the deal is on — whose desk it is. Null when the mirror does not hold it. */
+  pipelineName: string | null
 }
+
+/** The GM's first drop-down option and default: every SALES pipeline at once (`OpportunityBoardService.ALL_SALES`). */
+export const ALL_SALES = 'all-sales'
 
 /** One stage of the pipeline, named by GHL and ordered by GHL's own `position`. */
 export type BoardColumn = {
@@ -64,7 +69,7 @@ export type OpportunityBoard = {
   syncConfigured: boolean
   /** The pipelines the caller may switch between (the one-pipeline read only; empty on the union). */
   pipelines: readonly PipelineOption[]
-  /** The pipeline drawn by the one-pipeline read; null on the union. */
+  /** The pipeline drawn by the one-pipeline read ({@link ALL_SALES} on the GM's all-sales view); null on the union. */
   pipelineId: string | null
 }
 
@@ -82,8 +87,8 @@ export function fetchOpportunityBoard(signal?: AbortSignal): Promise<Opportunity
 
 /**
  * One of the caller's pipelines: the board page's tabs (a desk) and drop-down (the GM). `id` null
- * = the server's default (a desk's first pipeline, the GM's Master Pipeline); one the caller does
- * not hold is a 403.
+ * = the server's default (a desk's first pipeline; the GM's {@link ALL_SALES}, every sales pipeline at
+ * once, since 2026-10-29); one the caller does not hold is a 403.
  */
 export function fetchPipelineBoard(id: string | null, signal?: AbortSignal): Promise<OpportunityBoard> {
   return unwrap<OpportunityBoard>(api.get('/opportunities/board/pipeline', { params: { id: id ?? undefined }, signal }))
@@ -118,6 +123,10 @@ export type DealContact = {
   assignedToId: string | null
   /** Unit 69: the deal's custom field values keyed by GHL field id, for the edit dialog. */
   dealFieldValues: Record<string, string>
+  /** The pipeline the deal is on, by its mirrored name — whose desk it is. Absent from an older server. */
+  pipelineName?: string | null
+  /** The deal's own source, else its Lead Source field — what the board card shows. Absent from an older server. */
+  dealSource?: string | null
 }
 
 export type CustomFieldValue = { label: string; value: string }

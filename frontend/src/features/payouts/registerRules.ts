@@ -36,6 +36,8 @@ export type RegisterRow = {
   payoutId: string | null
   caseId: string
   caseCode: string | null
+  /** The case's client contact; null when it has none. */
+  contactName: string | null
   expertId: string
   expertName: string | null
   amount: number | null
@@ -159,7 +161,7 @@ export const STATUS_TONE: Record<RegisterStatus, string> = {
   PAID: 'var(--status-green)',
 }
 
-/** Hands the browser a file to save — the same way `PayoutSummary` saves its exports. */
+/** Hands the browser a file to save. */
 export function downloadBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')

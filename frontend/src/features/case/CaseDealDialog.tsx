@@ -48,7 +48,7 @@ export default function CaseDealDialog({
             {d.dealFields.map((f) => (
               <Fact key={f.label} label={f.label} value={f.value} />
             ))}
-            <Fact label="Source" value={sourceLabel(d.source)} />
+            <Fact label="Source" value={d.dealSource || sourceLabel(d.source)} />
             <Fact label="Assigned to" value={d.assignedTo} />
             <Fact label="Created on" value={d.createdAt ? new Date(d.createdAt).toLocaleDateString() : null} />
             <Fact label="Country" value={d.country} />

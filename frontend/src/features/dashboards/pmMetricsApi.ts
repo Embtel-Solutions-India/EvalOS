@@ -223,7 +223,8 @@ export type LowQualityExpert = { expertId: string; name: string; qualityScore: n
 export type ExpertNetworkMetrics = {
   roster: { available: number; atCapacity: number; onLeave: number; inactive: number; total: number }
   coverage: FieldCoverage[]
-  onboarding: { thisMonth: number; target: number }
+  /** `lastMonthSoFar`: last month's first N days, N = today's day of the month. */
+  onboarding: { thisMonth: number; target: number; lastMonthSoFar?: number }
   acceptance: { ratePct: number | null; resolved: number }
   /**
    * How long the roster takes to answer an offer (gap **G9**).
@@ -385,6 +386,12 @@ export type GmDeskRow = {
   invoiced: number
   /** Meetings this member booked that start in the range. */
   meetings: number
+  /** The Team card's figures, this calendar month whatever the range: deals opened on this desk's pipelines. */
+  monthLeads: number
+  /** Value won this month on this desk's pipelines. */
+  monthWonValue: number
+  /** Meetings this member booked that start this month. */
+  monthMeetings: number
 }
 
 /** `noSourcePct` is null, never 0, when the window held no opportunities to attribute. */
@@ -444,6 +451,9 @@ export type GmToday = {
   newLeads?: GmStageNow
   hot?: GmStageNow
   invoiceSent?: GmStageNow
+  /** Expert candidates opened this month on the hiring pipelines, and those at Meeting Done or later (not Dropped). */
+  hiringInterested?: number
+  hiringMet?: number
   /** Whole-percentage arrows: today vs yesterday, this month vs the same days of last month. Null = no arrow. */
   changes: {
     wonValue: number | null

@@ -174,21 +174,50 @@ class OpportunityBoardServiceTest {
 		verify(pipelines, never()).sync();
 	}
 
+	/**
+	 * 2026-10-29: the GM starts on every SALES pipeline at once — the first option — and can still pick any live
+	 * pipeline one at a time. Each card names its pipeline, so the reader can tell whose desk it is.
+	 */
 	@Test
-	void theGmChoosesFromEveryLivePipelineAndStartsOnTheMasterPipeline() {
+	void theGmStartsOnAllSalesPipelinesAndEachCardNamesItsPipeline() {
 		authenticate(Role.GM, null);
-		Pipeline master = mirrored("pipe_master", "Master Pipeline", 2);
-		// "Mastery" is not "Master": the match is a whole word.
-		when(pipelines.all()).thenReturn(List.of(mirrored(MINE, "Mastery Leads", 0),
-				mirrored(THEIRS, "Their pipeline", 1), master));
-		givenMirrored(List.of());
+		Pipeline sales = mirrored(MINE, "Evaluation desk", 0);
+		Pipeline master = mirrored("pipe_master", "Master Pipeline", 1);
+		when(pipelines.all()).thenReturn(List.of(sales, master));
+		when(assignments.salesGhlIds(SELLING_BRAND)).thenReturn(List.of(MINE));
+		Opportunity deal = new Opportunity(SELLING_BRAND, "o1", sales.getId());
+		deal.syncFromGhl("contact_o1", sales.getId(), "stage_new", "Deal o1", new BigDecimal("100"), "open", null, null,
+				null, Instant.now(), null, null);
+		givenMirrored(List.of(deal));
 
 		OpportunityBoardService.Board board = service().forPipeline(null);
 
 		assertThat(board.pipelines()).extracting(OpportunityBoardService.PipelineOption::id)
-				.containsExactly(MINE, THEIRS, "pipe_master");
-		assertThat(board.pipelineId()).isEqualTo("pipe_master");
+				.containsExactly(OpportunityBoardService.ALL_SALES, MINE, "pipe_master");
+		assertThat(board.pipelineId()).isEqualTo(OpportunityBoardService.ALL_SALES);
+		// The sales pipelines only — the Master Pipeline is one pick away, not part of the default.
+		verify(deals).onPipelines(List.of(MINE));
+		assertThat(board.columns()).flatExtracting(OpportunityBoardService.BoardColumn::deals)
+				.extracting(OpportunityBoardService.Deal::pipelineName).containsExactly("Evaluation desk");
+
+		service().forPipeline("pipe_master");
 		verify(deals).onPipelines(List.of("pipe_master"));
+	}
+
+	/** Refresh on the all-sales view syncs each sales pipeline, and nothing else. */
+	@Test
+	void refreshingAllSalesSyncsEverySalesPipeline() {
+		authenticate(Role.GM, null);
+		when(pipelines.all()).thenReturn(List.of(mirrored(MINE, "A", 0), mirrored(THEIRS, "B", 1),
+				mirrored("pipe_master", "Master Pipeline", 2)));
+		when(assignments.salesGhlIds(SELLING_BRAND)).thenReturn(List.of(MINE, THEIRS));
+		givenMirrored(List.of());
+
+		service().syncNow(OpportunityBoardService.ALL_SALES);
+
+		verify(deals).refreshIfStale(eq(MINE), any());
+		verify(deals).refreshIfStale(eq(THEIRS), any());
+		verify(deals, never()).refreshIfStale(eq("pipe_master"), any());
 	}
 
 	@Test
@@ -641,18 +670,6 @@ class OpportunityBoardServiceTest {
 		// The @BeforeEach mirror holds two live pipelines, which is every state but the first run.
 		verify(pipelines, never()).sync();
 		verify(deals).refreshIfStale(eq(MINE), any());
-	}
-
-	/** The GM starts on the pipeline TAGGED Master, whatever it is called, ahead of one merely named so. */
-	@Test
-	void theGmStartsOnThePipelineTaggedMasterRatherThanOneNamedSo() {
-		authenticate(Role.GM, null);
-		Pipeline tagged = mirrored("pipe_tagged", "Head office", 2);
-		tagged.setPurpose(com.ie.evalos.domain.PipelinePurpose.MASTER);
-		when(pipelines.all()).thenReturn(List.of(mirrored(MINE, "Master Pipeline", 0), tagged));
-		givenMirrored(List.of());
-
-		assertThat(service().forPipeline(null).pipelineId()).isEqualTo("pipe_tagged");
 	}
 
 	/** The floor is the Administrator's setting when one is saved. */

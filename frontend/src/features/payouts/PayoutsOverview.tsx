@@ -16,7 +16,6 @@ import { Card } from "../../components/ui/card";
 import { PillToggle, Sparkline } from "../../components/ui/widgets";
 import { formatPayout } from "../../lib/money";
 import { rangeLabel, useFilters } from "../shell/filtersContext";
-import PayoutSummary from "./PayoutSummary";
 import { fetchSummary, type ReportPeriod } from "./payoutApi";
 import { fetchExpertTotals, fetchOverview } from "./registerApi";
 import {
@@ -36,8 +35,7 @@ import type { SummaryRow } from "./payoutRules";
  * <p>Every chart answers one question, and the card says which: <em>where is the money</em> (the
  * pipeline donut), <em>is it moving</em> (pending, processing and paid per period), <em>who is owed</em>
  * (outstanding by expert) and <em>how late is it</em> (overdue, by how many days). The exact figures sit
- * in the tooltips, the legends and the table under "Table and exports", which is the Unit 63 summary
- * unchanged.
+ * in the tooltips and the legends; the Unit 63 summary table was removed from this page on 2026-10-29.
  *
  * <p><strong>One dashboard per currency.</strong> A GM across brands is never shown USD added to INR.
  * <strong>Three cards do not follow the shell's period, and each says so</strong>: the over-time chart has
@@ -147,23 +145,6 @@ export default function PayoutsOverview() {
         />
       ))}
 
-      {/* The Unit 63 summary, unchanged: the exact figures behind the chart, and the two exports. */}
-      {overviews && overviews.length > 0 && (
-        <details
-          className="rounded-[1.25rem] px-5 py-4"
-          style={{
-            background: "var(--bg-surface)",
-            boxShadow: "var(--shadow-soft)",
-          }}
-        >
-          <summary className="cursor-pointer text-base font-semibold">
-            Table and exports
-          </summary>
-          <div className="mt-4">
-            <PayoutSummary />
-          </div>
-        </details>
-      )}
     </div>
   );
 }

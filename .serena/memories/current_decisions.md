@@ -165,7 +165,7 @@ GHL holds on the deal and its contact.
 
 **D19d/e/f (2026-09-17).** `evalos.ghl.sales-brand` takes a **brand slug** — a UUID is right in one
 database only (IE = 1111… local, 3333… testprod) — resolved once by `SellingBrand`, which replaced
-nine copies and fails the boot on a value matching no brand. **The board page shows ONE pipeline (D19e, edited 2026-10-13):** desks with 2+ pipelines get tabs (default first); GM/Admin get a drop-down of every live pipeline, default Master Pipeline (by name); `GET /api/opportunities/board/pipeline?id=` narrows only (not held = 403), Refresh syncs that one. The union read below still feeds dashboards and pickers. The **GM's union is the SALES pipelines only**
+nine copies and fails the boot on a value matching no brand. **The board page shows ONE pipeline (D19e, edited 2026-10-13):** desks with 2+ pipelines get tabs (default first); GM/Admin get a drop-down whose first option and default is "All sales pipelines" (`all-sales`, edited 2026-10-29; was the Master Pipeline), then every live pipeline one at a time (hiring and Master included); cards on the all-sales view name their pipeline and the deal page shows the pipeline name (`ContactView.pipelineName`); `GET /api/opportunities/board/pipeline?id=` narrows only (not held = 403), Refresh syncs that one (every sales pipeline on `all-sales`). The union read below still feeds dashboards and pickers. The **GM's union is the SALES pipelines only**
 (D19e, amended 2026-10-08): live mirrored pipelines held by an active SALES member or tagged purpose SALES
 (`salesGhlIds`), with same-named stages summed into one column (GM only; salespeople drag, so theirs never
 fold). Marketing funnels, Case Delivery, hiring and Master are not on it. **`WY6bW2xUCI8Tz8gw7aLJ` is the

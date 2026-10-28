@@ -83,8 +83,3 @@ export async function fetchSummary(period: ReportPeriod, signal?: AbortSignal): 
   return unwrap<SummaryRow[]>(api.get('/payouts/summary', { params: { period }, signal }))
 }
 
-/** Every payout row, tagged with its period, as the server's CSV (Unit 63). */
-export async function exportPayoutRows(period: ReportPeriod): Promise<Blob> {
-  const response = await api.get('/payouts/export', { params: { period }, responseType: 'blob' })
-  return response.data as Blob
-}

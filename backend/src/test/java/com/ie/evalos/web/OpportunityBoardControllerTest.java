@@ -52,7 +52,7 @@ class OpportunityBoardControllerTest {
 			List.of(new OpportunityBoardService.BoardColumn("s1", "New", 0, false,
 					List.of(new OpportunityBoardService.Deal("o1", "Acme Corp", "contact_1", "open",
 							new BigDecimal("1200"), Instant.parse("2026-09-01T09:00:00Z"), "Website",
-							"Credential evaluation")),
+							"Credential evaluation", "Evaluation desk")),
 					new BigDecimal("1200"))),
 			1, new BigDecimal("1200"), Instant.parse("2026-09-10T09:00:00Z"), false, true);
 

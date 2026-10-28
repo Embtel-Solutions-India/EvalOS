@@ -281,6 +281,71 @@ class LocalPostgresIntegrationTest {
 	@Autowired
 	OpportunityRepository mirroredDeals;
 
+	/** The GM's Team card (2026-10-28): every deal on a pipeline and every win's value, whatever their dates. */
+	@Test
+	void theTeamCardCountsThisMonthsLeadsAndWins() {
+		com.ie.evalos.domain.Pipeline pipe = mirroredPipelines.save(
+				new com.ie.evalos.domain.Pipeline(BRAND_IE, "pipe-" + UUID.randomUUID(), "Team card", 0));
+		java.time.Instant now = java.time.Instant.now();
+		java.time.Instant old = java.time.Instant.parse("2020-01-01T00:00:00Z");
+		// status, amount, opened, status changed: two opened now, two wins now (one opened in 2020), an old win, a lost.
+		Object[][] deals = { { "open", "100", now, null }, { "won", "250", now, now }, { "WON", "50", old, now },
+				{ "won", "999", old, old }, { "lost", "75", old, now } };
+		for (Object[] deal : deals) {
+			com.ie.evalos.domain.Opportunity row = new com.ie.evalos.domain.Opportunity(BRAND_IE,
+					"opp-" + UUID.randomUUID(), pipe.getId());
+			row.syncFromGhl("c", pipe.getId(), "s", "Deal", new java.math.BigDecimal((String) deal[1]), (String) deal[0],
+					null, null, (java.time.Instant) deal[2], null, (java.time.Instant) deal[3], null);
+			mirroredDeals.saveAndFlush(row);
+		}
+
+		java.sql.Timestamp from = java.sql.Timestamp.from(now.minus(java.time.Duration.ofDays(1)));
+		java.sql.Timestamp to = java.sql.Timestamp.from(now.plus(java.time.Duration.ofDays(1)));
+		java.util.Map<String, Object> month = jdbc.queryForList(com.ie.evalos.service.GmOverviewService.TEAM_PIPELINE_MONTH,
+				from, to, from, to, BRAND_IE).stream().filter((r) -> pipe.getGhlId().equals(r.get("ghl_id"))).findFirst()
+				.orElseThrow();
+		assertThat(((Number) month.get("leads")).intValue()).isEqualTo(2);
+		assertThat((java.math.BigDecimal) month.get("won_value")).isEqualByComparingTo("300");
+		assertThat(jdbc.queryForList(com.ie.evalos.service.GmOverviewService.TEAM_MEETINGS_MONTH, BRAND_IE, from, to))
+				.isNotNull();
+	}
+
+	/** The GM's Expert management tiles: this month's candidates, and those at "Meeting Done" or later but not dropped. */
+	@Test
+	void hiringThisMonthCountsCandidatesAndThoseWhoHaveMet() {
+		java.time.Instant monthStart = java.time.Instant.now().minus(java.time.Duration.ofDays(1));
+		java.time.Instant end = java.time.Instant.now().plus(java.time.Duration.ofDays(1));
+		java.util.function.Supplier<java.util.Map<String, Object>> read = () -> jdbc.queryForMap(
+				com.ie.evalos.service.GmOverviewService.HIRING_THIS_MONTH, BRAND_IE, java.sql.Timestamp.from(monthStart),
+				java.sql.Timestamp.from(end));
+		java.util.Map<String, Object> before = read.get();
+
+		com.ie.evalos.domain.Pipeline pipe = mirroredPipelines.save(
+				new com.ie.evalos.domain.Pipeline(BRAND_IE, "pipe-" + UUID.randomUUID(), "Expert Network", 0));
+		jdbc.update("UPDATE pipeline SET purpose = 'EXPERT_HIRING' WHERE id = ?", pipe.getId());
+		String[] stages = { "New Lead", "Meeting Scheduled", "Meeting Done", "In Process", "Onboarded", "Dropped" };
+		String[] stageIds = new String[stages.length];
+		for (int i = 0; i < stages.length; i++) {
+			stageIds[i] = "stage-" + UUID.randomUUID();
+			jdbc.update("INSERT INTO pipeline_stage (id, brand_id, pipeline_id, ghl_id, name, position, synced_at)"
+					+ " VALUES (?, ?, ?, ?, ?, ?, now())", UUID.randomUUID(), BRAND_IE, pipe.getId(), stageIds[i], stages[i], i);
+		}
+		// New Lead, Meeting Done, In Process and Dropped this month; In Process again, but opened in 2020.
+		int[] at = { 0, 2, 3, 5, 3 };
+		for (int i = 0; i < at.length; i++) {
+			com.ie.evalos.domain.Opportunity row = new com.ie.evalos.domain.Opportunity(BRAND_IE,
+					"opp-" + UUID.randomUUID(), pipe.getId());
+			row.syncFromGhl("c", pipe.getId(), stageIds[at[i]], "Candidate", null, "open", null, null,
+					i == 4 ? java.time.Instant.parse("2020-01-01T00:00:00Z") : java.time.Instant.now(), null, null, null);
+			mirroredDeals.saveAndFlush(row);
+		}
+
+		java.util.Map<String, Object> after = read.get();
+		assertThat(((Number) after.get("interested")).intValue() - ((Number) before.get("interested")).intValue())
+				.isEqualTo(4);
+		assertThat(((Number) after.get("met")).intValue() - ((Number) before.get("met")).intValue()).isEqualTo(2);
+	}
+
 	/** Spec 86: the base survives a round trip as JSON, and a confirmed push clears it with the edit flags. */
 	@Test
 	void anOpportunitysBaseIsStoredAndClearedWithTheEdit() {

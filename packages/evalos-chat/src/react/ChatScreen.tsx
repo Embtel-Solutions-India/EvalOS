@@ -18,6 +18,7 @@ const TYPES: { type: ConversationType; label: string }[] = [
  * time with Back. It fills its parent's height, so the app decides how tall the screen is.
  *
  * @param onUploadDocument where the paperclip goes for this conversation's case; omit to hide it
+ * @param headingOnPhoneOnly hide the title and description from 1024px up, leaving the conversation the room (staff app)
  */
 export function ChatScreen({
   title,
@@ -29,6 +30,7 @@ export function ChatScreen({
   filters = false,
   workerUrl = '/sw.js',
   onUploadDocument,
+  headingOnPhoneOnly = false,
 }: {
   title: string
   description?: string
@@ -39,13 +41,14 @@ export function ChatScreen({
   filters?: boolean
   workerUrl?: string
   onUploadDocument?: (conversation: Conversation) => void
+  headingOnPhoneOnly?: boolean
 }) {
   const selected = useChat((s) => (selectedId ? s.conversations[selectedId] : undefined))
 
   return (
     <div className="ec-screen">
       <div className="ec-screen__head">
-        <div>
+        <div className={headingOnPhoneOnly ? 'ec-screen__heading--phone' : undefined}>
           {breadcrumb && <nav className="ec-crumbs" aria-label="Breadcrumb">{breadcrumb}</nav>}
           <h1 className="ec-screen__title">{title}</h1>
           {description && <p className="ec-muted">{description}</p>}

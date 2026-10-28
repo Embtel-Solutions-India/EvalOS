@@ -161,11 +161,50 @@ public class GmOverviewService {
 	/**
 	 * @param hot      open deals in a Hot stage right now ({@link #tileOf}), like {@code open} independent of the window
 	 * @param invoiced value of open deals at Invoice Sent right now
-	 * @param meetings meetings this member booked that start inside the window (2026-10-28, the GM's Team card)
+	 * @param meetings meetings this member booked that start inside the window
+	 * @param monthLeads    deals opened this calendar month on the desk's pipelines
+	 * @param monthWonValue value won this calendar month on the desk's pipelines
+	 * @param monthMeetings meetings this member booked that start this calendar month
+	 *                      <p>The last three are the GM's Team card (edited 2026-10-29): this month's stats, whatever
+	 *                      the range filter says. {@code newLeads}/{@code won}/{@code wonValue} stay windowed — the
+	 *                      monthly targets read them.
 	 */
 	public record DeskRow(UUID memberId, String name, Role role, int newLeads, int won, BigDecimal wonValue,
-			int open, BigDecimal openValue, int hot, BigDecimal invoiced, int meetings) {
+			int open, BigDecimal openValue, int hot, BigDecimal invoiced, int meetings, int monthLeads,
+			BigDecimal monthWonValue, int monthMeetings) {
 	}
+
+	/** One pipeline's figures for the Team card. */
+	private record PipelineMonth(int leads, BigDecimal wonValue) {
+	}
+
+	/**
+	 * Per pipeline, for one brand: deals opened in [from, to) and the value won in [from, to). Parameters: from, to,
+	 * from, to, brand. Public for the schema test.
+	 */
+	public static final String TEAM_PIPELINE_MONTH = "SELECT p.ghl_id,"
+			+ " count(*) FILTER (WHERE o.ghl_created_at >= ? AND o.ghl_created_at < ?) AS leads,"
+			+ " coalesce(sum(o.amount) FILTER (WHERE lower(trim(o.status)) = 'won'"
+			+ " AND o.last_status_change_at >= ? AND o.last_status_change_at < ?), 0) AS won_value"
+			+ " FROM opportunity o JOIN pipeline p ON p.id = o.pipeline_id"
+			+ " WHERE o.brand_id = ? AND o.missing_since IS NULL GROUP BY p.ghl_id";
+
+	/** Meetings per booking member for one brand, starting in [from, to). Public for the schema test. */
+	public static final String TEAM_MEETINGS_MONTH = "SELECT booked_by, count(*) AS n FROM meeting"
+			+ " WHERE brand_id = ? AND starts_at >= ? AND starts_at < ? GROUP BY booked_by";
+
+	/**
+	 * Expert candidates opened this month on the brand's {@code EXPERT_HIRING} pipelines, and how many of them stand at
+	 * "Meeting Done" or a later stage other than "Dropped". Public for the schema test. ponytail: the stage held now,
+	 * not a history — a candidate dropped after the meeting no longer counts as met; a stage-change log is the upgrade.
+	 */
+	public static final String HIRING_THIS_MONTH = "SELECT count(*) AS interested,"
+			+ " count(*) FILTER (WHERE lower(trim(s.name)) <> 'dropped' AND s.position >= (SELECT min(m.position)"
+			+ " FROM pipeline_stage m WHERE m.pipeline_id = p.id AND lower(trim(m.name)) = 'meeting done')) AS met"
+			+ " FROM opportunity o JOIN pipeline p ON p.id = o.pipeline_id"
+			+ " LEFT JOIN pipeline_stage s ON s.pipeline_id = p.id AND s.ghl_id = o.ghl_stage_id"
+			+ " WHERE o.brand_id = ? AND p.purpose = 'EXPERT_HIRING' AND o.missing_since IS NULL"
+			+ " AND o.ghl_created_at >= ? AND o.ghl_created_at < ?";
 
 	/**
 	 * @param noSourcePct share of this window's opportunities GHL holds no {@code source} for.
@@ -216,13 +255,14 @@ public class GmOverviewService {
 	/**
 	 * Today and this calendar month so far, in the business's own zone, whatever range the dashboard is filtered to:
 	 * sales leads opened, sales deals won, marketing leads opened, and the sales leads opened this month that are still
-	 * open. Each with its value; counted once per deal, like the windowed figures.
+	 * open. Each with its value; counted once per deal, like the windowed figures. Also the expert candidates opened
+	 * this month on the hiring pipelines and how many have had their meeting ({@link #HIRING_THIS_MONTH}).
 	 */
 	public record Today(int salesLeads, BigDecimal salesLeadValue, int won, BigDecimal wonValue, int marketingLeads,
 			BigDecimal marketingLeadValue, int monthWon, BigDecimal monthWonValue, int monthSalesLeads,
 			BigDecimal monthSalesLeadValue, int monthMarketingLeads, BigDecimal monthMarketingLeadValue,
 			int monthOpenLeads, BigDecimal monthOpenLeadValue, Changes changes, StageNow newLeads, StageNow hot,
-			StageNow invoiceSent) {
+			StageNow invoiceSent, int hiringInterested, int hiringMet) {
 	}
 
 	/** Open deals standing in one kind of stage right now, across every desk's pipelines, each counted once. */
@@ -367,11 +407,31 @@ public class GmOverviewService {
 					meetingsBy.put(rs.getObject("booked_by", UUID.class), rs.getInt("n"));
 				}, sellingBrand.id(), java.sql.Timestamp.from(windowStart), java.sql.Timestamp.from(windowEnd));
 
+		// The Team card's figures (2026-10-29): this calendar month so far, whatever the range filter says. One grouped
+		// read each — per pipeline, and per booking member.
+		java.sql.Timestamp teamFrom = java.sql.Timestamp.from(monthStart);
+		java.sql.Timestamp teamTo = java.sql.Timestamp.from(todayEnd);
+		Map<String, PipelineMonth> pipelineMonth = new java.util.HashMap<>();
+		jdbc.query(TEAM_PIPELINE_MONTH, (rs) -> {
+			pipelineMonth.put(rs.getString("ghl_id"), new PipelineMonth(rs.getInt("leads"), rs.getBigDecimal("won_value")));
+		}, teamFrom, teamTo, teamFrom, teamTo, sellingBrand.id());
+		Map<UUID, Integer> meetingsMonthBy = new java.util.HashMap<>();
+		jdbc.query(TEAM_MEETINGS_MONTH, (rs) -> {
+			meetingsMonthBy.put(rs.getObject("booked_by", UUID.class), rs.getInt("n"));
+		}, sellingBrand.id(), teamFrom, teamTo);
+
+		int[] hiring = new int[2];
+		jdbc.query(HIRING_THIS_MONTH, (rs) -> {
+			hiring[0] = rs.getInt("interested");
+			hiring[1] = rs.getInt("met");
+		}, sellingBrand.id(), java.sql.Timestamp.from(monthStart), java.sql.Timestamp.from(todayEnd));
+
 		for (TeamMember desk : desks) {
 			// The desk's pipelines are the set they are granted (D19b), the same one their board draws —
 			// not `team_member.ghl_pipeline_id`, which nothing has written since Unit 44b. A desk on two
 			// pipelines is both of them here, and a desk granted one after that migration is on this card.
-			List<Opportunity> rows = assignments.ghlIdsFor(desk.getId()).stream()
+			List<String> deskPipelines = assignments.ghlIdsFor(desk.getId());
+			List<Opportunity> rows = deskPipelines.stream()
 					.flatMap((id) -> byPipeline.computeIfAbsent(id, (key) -> mirror.onPipelinesSince(List.of(key), since))
 							.stream())
 					.toList();
@@ -507,8 +567,13 @@ public class GmOverviewService {
 			BigDecimal deskInvoiced = openNow.stream()
 					.filter((row) -> "invoice".equals(tileOf(stageNames.get(row.getGhlStageId()))))
 					.map(Opportunity::getAmount).filter((amount) -> amount != null).reduce(BigDecimal.ZERO, BigDecimal::add);
+			List<PipelineMonth> month = deskPipelines.stream().distinct().map(pipelineMonth::get)
+					.filter(java.util.Objects::nonNull).toList();
 			deskRows.add(new DeskRow(desk.getId(), desk.getDisplayName(), desk.getRole(), deskNew, deskWon,
-					deskWonValue, openNow.size(), openValue, deskHot, deskInvoiced, meetingsBy.getOrDefault(desk.getId(), 0)));
+					deskWonValue, openNow.size(), openValue, deskHot, deskInvoiced, meetingsBy.getOrDefault(desk.getId(), 0),
+					month.stream().mapToInt(PipelineMonth::leads).sum(),
+					month.stream().map(PipelineMonth::wonValue).reduce(BigDecimal.ZERO, BigDecimal::add),
+					meetingsMonthBy.getOrDefault(desk.getId(), 0)));
 		}
 
 		bySource.addAll(sourceTotals.values().stream()
@@ -538,7 +603,7 @@ public class GmOverviewService {
 								change(lastMonthSalesLeads, monthSalesLeads),
 								change(lastMonthMarketingLeads, monthMarketingLeads)),
 						stagesNow.getOrDefault("new", NONE), stagesNow.getOrDefault("hot", NONE),
-						stagesNow.getOrDefault("invoice", NONE)));
+						stagesNow.getOrDefault("invoice", NONE), hiring[0], hiring[1]));
 	}
 
 	private static Trend trend(LocalDate from, int bucketDays, int[] leads, int[] previousLeads,

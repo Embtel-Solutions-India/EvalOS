@@ -4,7 +4,7 @@ import { openSummary } from './dealOpen'
 import type { BoardColumn, Deal } from './opportunityApi'
 
 const deal = (id: string, amount: number | null): Deal => ({
-  opportunityId: id, name: id, contactId: 'c', status: 'open', amount, updatedAt: null, source: null, service: null,
+  opportunityId: id, name: id, contactId: 'c', status: 'open', amount, updatedAt: null, source: null, service: null, pipelineName: null,
 })
 const column = (stageId: string, deals: Deal[]): BoardColumn => ({
   stageId, stageName: stageId, position: 0, won: false, deals, total: deals.reduce((t, d) => t + (d.amount ?? 0), 0),

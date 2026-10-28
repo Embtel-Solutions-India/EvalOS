@@ -13,6 +13,7 @@ import { openSummary } from './dealOpen'
 import MyTarget from './MyTarget'
 import WinNote from './WinNote'
 import {
+  ALL_SALES,
   fetchPipelineBoard,
   moveStage,
   refreshPipelineBoard,
@@ -63,11 +64,11 @@ export default function OpportunityBoardPage() {
   // last good data on screen while the new read is in flight.
   const role = useMe().role
   const gmView = role === 'GM' || role === 'ADMIN'
-  // One pipeline at a time. Null until chosen: the server then draws the default (a desk's first, the GM's
-  // Master Pipeline) and says which one it drew.
+  // One pipeline at a time. Null until chosen: the server then draws the default (a desk's first; the GM's
+  // "All sales pipelines", 2026-10-29) and says which one it drew.
   const [pipeline, setPipeline] = useState<string | null>(null)
   // The sweeps rewrite the mirror every few minutes and tell no browser, so a desk's board re-reads once a
-  // minute while visible. Not the GM's: the Master Pipeline is thousands of cards and a poll would be heavy.
+  // minute while visible. Not the GM's: every sales pipeline (or the Master) is thousands of cards and a poll would be heavy.
   const { data, state, reload } = useMetrics((signal) => fetchPipelineBoard(pipeline, signal), [pipeline], {
     key: BOARD_KEY,
     refreshEvery: gmView ? undefined : BOARD_REFRESH_MS,
@@ -455,6 +456,7 @@ export default function OpportunityBoardPage() {
               addHref={role === 'SALES' ? `/opportunities/new?stage=${encodeURIComponent(column.stageId)}` : undefined}
               over={over === column.stageId}
               canMove={canMove}
+              showPipeline={active === ALL_SALES}
             />
           ))}
         </div>
@@ -495,12 +497,15 @@ const Column = memo(function Column({
   addHref,
   over,
   canMove,
+  showPipeline,
 }: {
   column: BoardColumn
   color: string
   addHref?: string
   over: boolean
   canMove: boolean
+  /** On the GM's all-sales view each card names its pipeline, so the reader can tell whose desk it is. */
+  showPipeline: boolean
 }) {
   return (
     <div
@@ -525,7 +530,7 @@ const Column = memo(function Column({
         subtitle={<ColumnValue deals={column.deals} />}
       >
         {column.deals.map((deal) => (
-          <DealCard key={deal.opportunityId} deal={deal} canMove={canMove} />
+          <DealCard key={deal.opportunityId} deal={deal} canMove={canMove} showPipeline={showPipeline} />
         ))}
       </StageColumn>
     </div>
@@ -542,7 +547,15 @@ const Column = memo(function Column({
  * their column, which keeps a stage of several hundred deals cheap without a virtualiser — and a
  * virtualiser would unmount the very card being dragged once it scrolled out of view.
  */
-const DealCard = memo(function DealCard({ deal, canMove }: { deal: Deal; canMove: boolean }) {
+const DealCard = memo(function DealCard({
+  deal,
+  canMove,
+  showPipeline,
+}: {
+  deal: Deal
+  canMove: boolean
+  showPipeline: boolean
+}) {
   return (
     <article
       data-deal={deal.opportunityId}
@@ -580,6 +593,15 @@ const DealCard = memo(function DealCard({ deal, canMove }: { deal: Deal; canMove
       <p className="pointer-events-none relative truncate text-xs" style={{ color: 'var(--card-text-muted)' }}>
         {deal.service ?? 'Service not set'}
       </p>
+      {showPipeline && deal.pipelineName && (
+        <p
+          className="pointer-events-none relative mt-1 truncate text-[11px] font-medium"
+          style={{ color: 'var(--card-text-muted)' }}
+          title={deal.pipelineName}
+        >
+          {deal.pipelineName}
+        </p>
+      )}
       <div
         className="pointer-events-none relative mt-2.5 flex items-center justify-between gap-2 border-t pt-2.5"
         style={{ borderColor: 'color-mix(in srgb, var(--stage) 18%, var(--border-default))' }}

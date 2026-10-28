@@ -311,9 +311,14 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   mirror off, which the board now says out loud (`syncConfigured`).
 - **D19e.** **The board page shows ONE pipeline at a time** (edited 2026-10-13): a desk holding two or
   more pipelines switches between them on tabs (default: the first in GHL's order); **the GM (and the
-  Admin) pick any live mirrored pipeline from a drop-down, defaulting to the Master Pipeline** (found
-  by name). `GET /api/opportunities/board/pipeline?id=` — the id only narrows: one the caller does not
-  hold is a 403; Refresh syncs that one pipeline only. What follows is the **union read**
+  Admin) pick from a drop-down whose first option and default is "All sales pipelines"** (edited
+  2026-10-29; was the Master Pipeline): every sales pipeline at once, the same union and folding as the
+  union read below (`OpportunityBoardService.ALL_SALES`, id `all-sales`). The rest of the drop-down is
+  every live mirrored pipeline, expert hiring and the Master Pipeline included, one at a time. On the
+  all-sales view each card names its pipeline, and the deal page shows the deal's pipeline name for any
+  reader (`ContactView.pipelineName`), so the reader can tell whose desk a deal is on.
+  `GET /api/opportunities/board/pipeline?id=` — the id only narrows: one the caller does not hold is a
+  403; Refresh syncs that one pipeline (every sales pipeline on `all-sales`). What follows is the **union read**
   (`GET /api/opportunities/board`, no parameter), which still feeds the dashboards, the deal pickers and
   the new-deal / new-lead forms:
   **The GM's union is the SALES pipelines only, with same-named stages summed into one

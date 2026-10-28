@@ -20,6 +20,7 @@ import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.Expert;
 import com.ie.evalos.domain.ExpertCaseOffer;
 import com.ie.evalos.domain.OfferOutcome;
+import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.PayoutLedger;
 import com.ie.evalos.domain.PayoutPayment;
 import com.ie.evalos.domain.PayoutStatus;
@@ -28,6 +29,7 @@ import com.ie.evalos.repository.BrandRepository;
 import com.ie.evalos.repository.CaseRepository;
 import com.ie.evalos.repository.ExpertCaseOfferRepository;
 import com.ie.evalos.repository.ExpertRepository;
+import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.repository.PayoutLedgerRepository;
 import com.ie.evalos.repository.PayoutPaymentRepository;
 import com.ie.evalos.repository.TeamMemberRepository;
@@ -58,7 +60,9 @@ public class PayoutRegisterService {
 	}
 
 	/** One case's fee and where it stands. {@code offerId} is null for a payout with no offer on record. */
-	public record RegisterRow(UUID offerId, UUID payoutId, UUID caseId, String caseCode, UUID expertId,
+	/** {@code contactName}: the case's client contact, as the snapshot holds it; null when it has none. */
+	public record RegisterRow(UUID offerId, UUID payoutId, UUID caseId, String caseCode, String contactName,
+			UUID expertId,
 			String expertName, BigDecimal amount, String currency, RegisterStatus status, String feeSetByName,
 			Instant feeSetAt, Instant offeredAt, Instant dueDate, Instant sentAt, Instant confirmedAt, boolean done) {
 	}
@@ -94,10 +98,11 @@ public class PayoutRegisterService {
 	private final BrandRepository brands;
 	private final TeamMemberRepository members;
 	private final OfferLog log;
+	private final ContactSnapshotRepository contacts;
 
 	PayoutRegisterService(ExpertCaseOfferRepository offers, PayoutLedgerRepository payouts,
 			PayoutPaymentRepository payments, CaseRepository cases, ExpertRepository experts, BrandRepository brands,
-			TeamMemberRepository members, OfferLog log) {
+			TeamMemberRepository members, OfferLog log, ContactSnapshotRepository contacts) {
 		this.offers = offers;
 		this.payouts = payouts;
 		this.payments = payments;
@@ -106,6 +111,7 @@ public class PayoutRegisterService {
 		this.brands = brands;
 		this.members = members;
 		this.log = log;
+		this.contacts = contacts;
 	}
 
 	/** The offer's answer until a payout exists, then the payout's state in the business's words. */
@@ -130,9 +136,10 @@ public class PayoutRegisterService {
 	@Transactional(readOnly = true)
 	public String exportCsv(Filter filter) {
 		StringBuilder csv = new StringBuilder(
-				"case,expert,amount,currency,status,fee_set_by,offered_at,due_date,sent_at,confirmed_at,done\r\n");
+				"case,contact,expert,amount,currency,status,fee_set_by,offered_at,due_date,sent_at,confirmed_at,done\r\n");
 		for (RegisterRow r : rows(filter)) {
-			csv.append(String.join(",", PayoutService.csvField(r.caseCode()), PayoutService.csvField(r.expertName()),
+			csv.append(String.join(",", PayoutService.csvField(r.caseCode()), PayoutService.csvField(r.contactName()),
+					PayoutService.csvField(r.expertName()),
 					r.amount() == null ? "" : r.amount().toPlainString(), Objects.toString(r.currency(), ""),
 					r.status().name(), PayoutService.csvField(r.feeSetByName()), day(r.offeredAt()), day(r.dueDate()),
 					day(r.sentAt()), day(r.confirmedAt()), r.done() ? "yes" : "no")).append("\r\n");
@@ -263,7 +270,23 @@ public class PayoutRegisterService {
 		}
 
 		// One query per lookup for the whole set, never one per row. Every id came off a scoped row.
-		Map<UUID, String> caseCodes = byId(cases.findAllById(ids(pairs, Pair::caseId)), Case::getId, Case::getCaseCode);
+		List<Case> caseRows = cases.findAllById(ids(pairs, Pair::caseId));
+		Map<UUID, String> caseCodes = byId(caseRows, Case::getId, Case::getCaseCode);
+		// The client's name never reaches the ENM (Tier.SUPPLY): they staff experts, and a name is the client (D51's
+		// reason the ENM reads no case documents). Matched to the case's own brand as well.
+		Map<UUID, String> contactNames = new java.util.HashMap<>();
+		if (ctx.role().tier() != com.ie.evalos.domain.Role.Tier.SUPPLY) {
+			Map<UUID, UUID> brandOfCase = new java.util.HashMap<>();
+			caseRows.forEach(c -> brandOfCase.put(c.getContactId(), c.getBrandId()));
+			for (ContactSnapshot contact : contacts.findAllById(caseRows.stream().map(Case::getContactId)
+					.filter(Objects::nonNull).collect(Collectors.toSet()))) {
+				if (contact.getBrandId().equals(brandOfCase.get(contact.getId()))) {
+					contactNames.put(contact.getId(), contact.getFullName());
+				}
+			}
+		}
+		Map<UUID, UUID> contactOfCase = new java.util.HashMap<>();
+		caseRows.stream().filter(c -> c.getContactId() != null).forEach(c -> contactOfCase.put(c.getId(), c.getContactId()));
 		Map<UUID, String> expertNames = byId(experts.findAllById(ids(pairs, Pair::expertId)), Expert::getId,
 				Expert::getFullName);
 		Map<UUID, String> setBy = byId(members.findAllById(ids(pairs, x -> x.offer() == null ? null
@@ -282,7 +305,7 @@ public class PayoutRegisterService {
 			// What is paid is the payout's amount once one exists; before that, the offered fee.
 			BigDecimal amount = p != null && p.getAmount() != null ? p.getAmount() : o == null ? null : o.getFee();
 			return new RegisterRow(o == null ? null : o.getId(), p == null ? null : p.getId(), x.caseId(),
-					caseCodes.get(x.caseId()), x.expertId(), expertNames.get(x.expertId()), amount,
+					caseCodes.get(x.caseId()), contactNames.get(contactOfCase.get(x.caseId())), x.expertId(), expertNames.get(x.expertId()), amount,
 					p != null ? p.getCurrency() : currencies.get(x.brandId()), status,
 					o == null || o.getFeeSetBy() == null ? null : setBy.get(o.getFeeSetBy()),
 					o == null ? null : o.getFeeSetAt(), o != null ? o.getOfferedAt() : p.getCreatedAt(),
@@ -299,7 +322,8 @@ public class PayoutRegisterService {
 				&& (f.expertId() == null || f.expertId().equals(r.expertId()))
 				&& (f.from() == null || (day != null && !day.isBefore(f.from())))
 				&& (f.to() == null || (day != null && !day.isAfter(f.to())))
-				&& (q.isEmpty() || contains(r.caseCode(), q) || contains(r.expertName(), q));
+				&& (q.isEmpty() || contains(r.caseCode(), q) || contains(r.contactName(), q)
+						|| contains(r.expertName(), q));
 	}
 
 	private static boolean contains(String value, String q) {

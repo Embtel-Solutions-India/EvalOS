@@ -34,14 +34,6 @@ export type SummaryRow = {
   paid: number
 }
 
-/** The summary as CSV, for the ENM's reports. Plain RFC 4180; no field here holds a comma. */
-export function summaryCsv(rows: readonly SummaryRow[]): string {
-  const header = 'period_start,currency,pending_count,pending,processing_count,processing,paid_count,paid'
-  return [header, ...rows.map((r) =>
-    [r.periodStart, r.currency, r.pendingCount, r.pending, r.processingCount, r.processing, r.paidCount, r.paid].join(','),
-  )].join('\n')
-}
-
 export type LedgerRow = {
   id: string
   caseId: string
