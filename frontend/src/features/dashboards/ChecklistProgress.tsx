@@ -8,8 +8,7 @@ import { segmentPercents } from './cmWorkRules'
 export function ChecklistProgress({ cases, state, className }: { cases?: ChecklistCaseRow[]; state: CardState; className?: string }) {
   return (
     <Card
-      title="Checklist progress"
-      wide
+      title="Checklist progress & waiting"
       className={className}
       note="Checklist items per case, worst first. Missing and incorrect items hold a case up; the Coordinator sends and approves them."
       state={emptyWhen(state, cases?.length === 0, 'None of your open cases has a checklist yet.')}

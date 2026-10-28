@@ -17,8 +17,7 @@ const TONE = {
 export function ExpertOffers({ rows, state, className }: { rows?: OfferRow[]; state: CardState; className?: string }) {
   return (
     <Card
-      title="Expert offers"
-      wide
+      title="Experts offered"
       className={className}
       note="Latest offer per case, waiting ones first. Out for is business hours since offered."
       state={emptyWhen(state, rows?.length === 0, 'No expert has been offered a case of yours yet.')}

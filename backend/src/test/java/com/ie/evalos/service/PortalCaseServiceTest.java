@@ -518,6 +518,30 @@ class PortalCaseServiceTest {
 		assertThat(portal.deliveredUrl(me, CASE_ID, approved.getId(), true)).isEqualTo("https://s3/draft-inline");
 	}
 
+	/** D51 edited 2026-10-28: a Word-only approved draft is delivered as a download, never a view. */
+	@Test
+	void aWordOnlyApprovedDraftDownloadsButIsNotViewable() {
+		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");
+		subject.setCurrentStage(Stage.DELIVERED);
+		CaseDocument approved = new CaseDocument(BRAND, CASE_ID, DocumentKind.DRAFT, 1, null, ActorType.STAFF, null);
+		ReflectionTestUtils.setField(approved, "id", UUID.randomUUID());
+		approved.storedDraft("d.docx", "Draft.docx", 1, null, null, 0);
+		approved.reviewed(com.ie.evalos.domain.DocumentStatus.CLIENT_APPROVED, null);
+		given(documents.findFirstByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.SIGNED_LETTER))
+				.willReturn(Optional.empty());
+		given(documents.findByCaseIdAndKindOrderByVersionDesc(CASE_ID, DocumentKind.DRAFT)).willReturn(java.util.List.of(approved));
+		given(store.presignedUrl("d.docx")).willReturn("https://s3/draft-docx");
+
+		assertThat(portal.delivered(me, CASE_ID)).singleElement()
+				.satisfies(file -> {
+					assertThat(file.filename()).isEqualTo("Draft.docx");
+					assertThat(file.viewable()).isFalse();
+				});
+		assertThat(portal.deliveredUrl(me, CASE_ID, approved.getId(), false)).isEqualTo("https://s3/draft-docx");
+		assertThatThrownBy(() -> portal.deliveredUrl(me, CASE_ID, approved.getId(), true))
+				.isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
+	}
+
 	@Test
 	void theCaseDetailCarriesTheStepAndStatusHistory() {
 		PortalPrincipal me = partyTokenFor(BRAND, "ghl-1");

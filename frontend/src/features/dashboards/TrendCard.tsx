@@ -34,10 +34,13 @@ export function TrendCard({
   trend,
   state,
   period,
+  range,
 }: {
   trend: GmTrend | null;
   state: CardState;
   period: string;
+  /** The chart's own period picker (2026-10-28): the date filter left the top bar. */
+  range?: React.ReactNode;
 }) {
   const [metric, setMetric] = useState<"leads" | "won">("won");
   const [compare, setCompare] = useState(true);
@@ -56,7 +59,7 @@ export function TrendCard({
 
   return (
     <Card
-      title={`${money ? "Won value" : "New leads"} · sales desks`}
+      title="Performance"
       state={
         state.kind === "ok" && trend === null
           ? { kind: "error", note: "The server sent no trend for this period." }
@@ -66,6 +69,7 @@ export function TrendCard({
       }
       action={
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {range}
           <PillToggle
             value={metric}
             onChange={setMetric}

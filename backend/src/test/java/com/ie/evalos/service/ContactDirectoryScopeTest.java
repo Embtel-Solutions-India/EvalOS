@@ -128,6 +128,58 @@ class ContactDirectoryScopeTest {
 				.withMessageContaining("cases, not the CRM");
 	}
 
+	// --- the contact page ---------------------------------------------------------------
+
+	private static final UUID CONTACT = UUID.randomUUID();
+
+	private void contactIn(UUID brand) {
+		given(contacts.contact(CONTACT)).willReturn(java.util.Optional.of(new ContactDirectoryRepository.Row(
+				CONTACT, brand, "IE", "Rao", null, null, null, null, 1, null)));
+	}
+
+	@Test
+	void aBrandManagerSeesTheContactsDealsAndCases() {
+		authenticate(Role.BRAND_MANAGER, BRAND, List.of());
+		contactIn(BRAND);
+
+		ContactDirectoryService.Detail detail = directory.detail(CONTACT);
+
+		verify(contacts).deals(CONTACT, BRAND, null);
+		verify(contacts).cases(CONTACT, BRAND);
+		org.assertj.core.api.Assertions.assertThat(detail.cases()).isNotNull();
+	}
+
+	@Test
+	void aBrandManagerCannotOpenAnotherBrandsContact() {
+		authenticate(Role.BRAND_MANAGER, BRAND, List.of());
+		contactIn(UUID.randomUUID());
+
+		assertThatExceptionOfType(ForbiddenException.class).isThrownBy(() -> directory.detail(CONTACT));
+		verify(contacts, never()).cases(any(), any());
+	}
+
+	@Test
+	void aDeskSeesOnlyItsOwnDealsAndNoCase() {
+		authenticate(Role.SALES, BRAND, List.of("pipe_mine"));
+		contactIn(BRAND);
+		given(contacts.deals(CONTACT, BRAND, List.of("pipe_mine"))).willReturn(List.of(
+				new ContactDirectoryRepository.Deal("opp1", "Deal", "Sales", "New", "open", null, null, null)));
+
+		ContactDirectoryService.Detail detail = directory.detail(CONTACT);
+
+		org.assertj.core.api.Assertions.assertThat(detail.cases()).isNull();
+		verify(contacts, never()).cases(any(), any());
+	}
+
+	@Test
+	void aDeskWithNoDealOnTheContactIsRefused() {
+		authenticate(Role.SALES, BRAND, List.of("pipe_mine"));
+		contactIn(BRAND);
+		given(contacts.deals(CONTACT, BRAND, List.of("pipe_mine"))).willReturn(List.of());
+
+		assertThatExceptionOfType(ForbiddenException.class).isThrownBy(() -> directory.detail(CONTACT));
+	}
+
 	private static void authenticate(Role role, UUID brandId, List<String> pipelines) {
 		StaffPrincipal principal = new StaffPrincipal(MEMBER, role + "@evalos.local", "Desk", role,
 				brandId, null, pipelines, null, true);

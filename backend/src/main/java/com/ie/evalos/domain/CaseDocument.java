@@ -178,13 +178,23 @@ public class CaseDocument extends ScopedEntity implements CaseOwned {
 	 */
 	public void storedDraft(String docxKey, String docxFilename, long docxSize, String pdfKey, String pdfFilename,
 			long pdfSize) {
-		this.objectKey = docxKey;
-		this.filename = docxFilename;
-		this.sizeBytes = docxSize;
-		this.contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-		this.pdfObjectKey = pdfKey;
-		this.pdfFilename = pdfFilename;
-		this.pdfSizeBytes = pdfSize;
+		// Either key may be null (D51, edited 2026-10-28: Word, PDF or both); a missing file leaves its columns null.
+		if (docxKey != null) {
+			this.objectKey = docxKey;
+			this.filename = docxFilename;
+			this.sizeBytes = docxSize;
+			this.contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+		}
+		if (pdfKey != null) {
+			this.pdfObjectKey = pdfKey;
+			this.pdfFilename = pdfFilename;
+			this.pdfSizeBytes = pdfSize;
+		}
+	}
+
+	/** A DRAFT's Word file is present. */
+	public boolean hasWord() {
+		return objectKey != null;
 	}
 
 	public String getPdfObjectKey() {

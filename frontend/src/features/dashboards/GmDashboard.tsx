@@ -23,7 +23,9 @@ import { fetchAssignable } from "../board/boardApi";
 import type { PickerOption } from "../board/boardRules";
 import type { Role } from "../../lib/session";
 import { formatCount, formatMoney } from "../../lib/money";
-import { rangeLabel, useFilters } from "../shell/filtersContext";
+import ChartRange from "../shell/ChartRange";
+import { DEFAULT_RANGE, rangeLabel, useFilters, type DateRange } from "../shell/filtersContext";
+import { TrendCard } from "./TrendCard";
 import {
   fetchOpportunityBoard,
   type OpportunityBoard,
@@ -35,6 +37,7 @@ import {
   fetchPmMetrics,
   fetchRevenueMetrics,
   type ExpertNetworkMetrics,
+  type GmDeskRow,
   type GmOverview,
   type GmTrend,
   type GmTrendPoint,
@@ -43,7 +46,6 @@ import {
 } from "./pmMetricsApi";
 import RevenueGoalCard from "./RevenueGoalCard";
 import { SERIES } from "./journeyWidgets";
-import { TrendCard } from "./TrendCard";
 import { emptyWhen, useMetrics } from "./useMetrics";
 
 /**
@@ -129,6 +131,8 @@ export default function GmDashboard() {
     d.roles.flatMap((role) => (team.data?.[role] ?? []).map((member) => ({ ...member, role })));
   const [departmentName, setDepartmentName] = useState(DEPARTMENTS[0].name);
   const department = DEPARTMENTS.find((d) => d.name === departmentName) ?? DEPARTMENTS[0];
+  const figures = figuresFor(department.dashboard);
+  const deskOf = (memberId: string) => data?.desks.find((d) => d.memberId === memberId);
 
   /**
    * The state for a tile fed by the GHL half of `/metrics/gm`.
@@ -197,20 +201,19 @@ export default function GmDashboard() {
             pctToGoal={data?.headline?.pctToGoal ?? null}
             goalMonth={data?.headline?.goalMonth ?? null}
             change={wonChange}
+            todayWon={today ? today.wonValue : null}
             onSaved={gm.reload}
           />
-          {/* Two rows of four beside the revenue card, whatever the range filter says. Top: today's revenue, then the
+          {/* Performance beside the revenue card, top right (2026-10-28); the tiles moved down beside the team. */}
+          <div className="col-span-12 md:col-span-8">
+            <GmTrendCard brandId={activeBrandId} />
+          </div>
+
+          {/* Beside the team since 2026-10-28 (Performance took their place by the revenue card), two to a row; whatever the range filter says. Today's revenue and Sales · this month were removed on 2026-10-28. The
               open deals standing in New leads / Hot / Invoice sent right now (count and value). Bottom: Sales and
               Marketing leads today and this month. Arrows: today against yesterday, this month against the same days
               of last month. Two to a row on a phone. */}
-          <div className="col-span-12 grid grid-cols-2 gap-5 md:col-span-8 md:grid-cols-4">
-            <KpiCard
-              title="Today's revenue"
-              delta={up(today?.changes?.wonValue)}
-              money
-              state={todayState}
-              value={today ? Math.round(today.wonValue) : null}
-            />
+          <div className="col-span-12 grid grid-cols-2 content-start gap-5 xl:col-span-6">
             {/* Where the open deals stand right now, whatever the range says: a count with what it is worth. */}
             {([
               ["New leads", today?.newLeads],
@@ -241,13 +244,6 @@ export default function GmDashboard() {
               to="/opportunities/board"
             />
             <KpiCard
-              title="Sales · this month"
-              delta={up(today?.changes?.monthSalesLeads)}
-              state={todayState}
-              value={today ? today.monthSalesLeads : null}
-              to="/opportunities/board"
-            />
-            <KpiCard
               title="Marketing · today's leads"
               delta={up(today?.changes?.marketingLeads)}
               state={todayState}
@@ -261,53 +257,60 @@ export default function GmDashboard() {
             />
           </div>
 
-          {/* The trend and the team, side by side from xl; stacked below that. */}
-          <div className="col-span-12 xl:col-span-6">
-            <TrendCard
-              trend={data?.trend ?? null}
-              state={pipelineState}
-              period={period}
-            />
-          </div>
-          {/* The trend card sets the row's height; from xl the team fills exactly that and scrolls inside it. Below
-              xl the card stacks and grows with its list (capped, so a long team still scrolls). */}
+          {/* The tiles set the row's height; from xl the team fills exactly that and scrolls inside it. Below xl the
+              card stacks and grows with its list (capped, so a long team still scrolls). */}
           <div className="relative col-span-12 xl:col-span-6">
           <Card
             className="max-h-[32rem] xl:absolute xl:inset-0 xl:max-h-none"
             fill
             title="Team"
+            action={
+              <div className="flex gap-1.5" role="tablist" aria-label="Departments">
+                {DEPARTMENTS.map((d) => {
+                  const selected = d.name === department.name;
+                  return (
+                    <button
+                      key={d.name}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      onClick={() => setDepartmentName(d.name)}
+                      className="h-8 px-3 text-sm"
+                      style={{
+                        borderRadius: "var(--radius-md)",
+                        background: selected ? "var(--accent-soft)" : "var(--bg-surface)",
+                        border: `1px solid ${selected ? "var(--accent-primary)" : "var(--border-default)"}`,
+                        color: selected ? "var(--accent-primary)" : "var(--text-primary)",
+                      }}
+                    >
+                      {d.name} <span className="font-num tabular-nums" style={{ color: "var(--text-muted)" }}>{membersOf(d).length}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            }
             state={emptyWhen(
               team.state,
               TEAM_ROLES.every((role) => (team.data?.[role]?.length ?? 0) === 0),
               "No active team members yet.",
             )}
           >
-            {/* Every active member, a tab per department. A Sales or Marketing member opens their own dashboard
-                (the GM's drill-down, D76); Production has no one-person dashboard yet, so those rows are names only. */}
-            <div className="flex gap-1.5" role="tablist" aria-label="Departments">
-              {DEPARTMENTS.map((d) => {
-                const selected = d.name === department.name;
-                return (
-                  <button
-                    key={d.name}
-                    type="button"
-                    role="tab"
-                    aria-selected={selected}
-                    onClick={() => setDepartmentName(d.name)}
-                    className="h-8 px-3 text-sm"
-                    style={{
-                      borderRadius: "var(--radius-md)",
-                      background: selected ? "var(--accent-soft)" : "var(--bg-surface)",
-                      border: `1px solid ${selected ? "var(--accent-primary)" : "var(--border-default)"}`,
-                      color: selected ? "var(--accent-primary)" : "var(--text-primary)",
-                    }}
-                  >
-                    {d.name} <span className="font-num tabular-nums" style={{ color: "var(--text-muted)" }}>{membersOf(d).length}</span>
-                  </button>
-                );
-              })}
-            </div>
-            <ul className="-mx-2 mt-3" role="tabpanel" aria-label={department.name}>
+            {/* Every active member, a tab per department (tabs top right since 2026-10-28). A Sales or Marketing member
+                opens their own dashboard (the GM's drill-down, D76) and shows their figures for this month; Production
+                has no one-person dashboard yet, so those rows are names only. */}
+            {figures.length > 0 && (
+              <div
+                className="-mx-2 flex items-center gap-3 rounded-md px-2 py-1.5 text-[11px] font-medium tracking-wide uppercase"
+                style={{ background: "var(--bg-raised)", color: "var(--text-muted)" }}
+              >
+                <span className="flex-1">Member</span>
+                {figures.map((f) => (
+                  <span key={f.label} className="w-16 text-right">{f.label}</span>
+                ))}
+                <span className="w-4" aria-hidden />
+              </div>
+            )}
+            <ul className="-mx-2 mt-1" role="tabpanel" aria-label={department.name}>
               {membersOf(department).length === 0 && (
                 <li className="px-2 py-3 text-sm" style={{ color: "var(--text-muted)" }}>No active {department.name.toLowerCase()} members.</li>
               )}
@@ -321,6 +324,14 @@ export default function GmDashboard() {
                         {readable(member.role)}
                       </span>
                     </span>
+                    {figures.map((f) => {
+                      const desk = deskOf(member.id);
+                      return (
+                        <span key={f.label} className="font-num w-16 text-right text-sm tabular-nums">
+                          {desk ? f.value(desk) : "—"}
+                        </span>
+                      );
+                    })}
                   </>
                 );
                 const href = department.dashboard && `/dashboard/${department.dashboard}?member=${member.id}`;
@@ -742,6 +753,56 @@ function MoneyBars({
 }
 
 /** `CREDENTIAL_EVALUATION` → `Credential evaluation`. Same helper the PM's chart uses. */
+/** "$9k" — the Team card's money columns, where four figures share one row. */
+const compactUsd = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  notation: "compact",
+  maximumFractionDigits: 0,
+});
+const moneyOrDash = (n: number) => (n > 0 ? compactUsd.format(n) : "—");
+
+/**
+ * The figures a department's rows show (2026-10-28): Sales — new leads, hot deals, the value sitting at Invoice Sent,
+ * won value; Marketing — leads and meetings booked. Replies are not shown: EvalOS mirrors no GHL conversation, so
+ * there is nothing to count (recorded as an open decision). Production rows have none.
+ */
+function figuresFor(dashboard: "sales" | "marketing" | undefined): { label: string; value: (d: GmDeskRow) => string }[] {
+  if (dashboard === "sales") {
+    return [
+      { label: "New", value: (d) => formatCount(d.newLeads) },
+      { label: "Hot", value: (d) => formatCount(d.hot) },
+      { label: "Invoiced", value: (d) => moneyOrDash(d.invoiced) },
+      { label: "Won", value: (d) => moneyOrDash(d.wonValue) },
+    ];
+  }
+  if (dashboard === "marketing") {
+    return [
+      { label: "Leads", value: (d) => formatCount(d.newLeads) },
+      { label: "Meetings", value: (d) => formatCount(d.meetings) },
+    ];
+  }
+  return [];
+}
+
+/** The won-value / leads trend over its own period, with the previous period as a shadow line (2026-10-28). */
+function GmTrendCard({ brandId }: { brandId: string | null }) {
+  const [range, setRange] = useState<DateRange>(DEFAULT_RANGE);
+  const { data, state } = useMetrics<GmOverview>(
+    (signal) => fetchGmOverview(range, brandId, signal),
+    [range, brandId],
+    { key: "GmDashboard:trend" },
+  );
+  return (
+    <TrendCard
+      trend={data?.trend ?? null}
+      state={state}
+      period={rangeLabel(range).toLowerCase()}
+      range={<ChartRange range={range} onChange={setRange} />}
+    />
+  );
+}
+
 function readable(value: string): string {
   return value.charAt(0) + value.slice(1).toLowerCase().replaceAll("_", " ");
 }

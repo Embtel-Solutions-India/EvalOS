@@ -47,7 +47,7 @@ class CaseManagerWorkRouteTest {
 	private static final CaseManagerWorkService.CaseManagerWork EMPTY = new CaseManagerWorkService.CaseManagerWork(
 			new CaseManagerWorkService.Checklist(0, 0, List.of()),
 			new CaseManagerWorkService.Offers(0, 0, List.of()),
-			new CaseManagerWorkService.Drafts(0, 0, 0, 0, 0, 0));
+			new CaseManagerWorkService.Drafts(0, 0, 0, 0, 0, 0), List.of(), List.of());
 
 	@Autowired
 	MockMvc mockMvc;

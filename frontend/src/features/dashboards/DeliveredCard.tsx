@@ -19,18 +19,27 @@ export function DeliveredCard({
   points,
   state,
   period,
+  className,
+  action,
 }: {
   onTime: OnTimeDelivery | undefined
   points: ThroughputPoint[] | undefined
   state: CardState
   period: string
+  /** Grid placement from the dashboard, e.g. spanning two rows beside smaller cards. */
+  className?: string
+  /** The chart's own period picker. */
+  action?: React.ReactNode
 }) {
   const data = (points ?? []).map((p) => ({ bucket: p.bucket, onTime: p.delivered - p.late, late: p.late }))
   return (
     <Card
       title="Delivered on time"
       wide
-      to="/inbox?view=delivered"
+      className={className}
+      // No `to` (2026-10-28): a linked card is one <Link>, and the period picker inside it would navigate on every
+      // click. The link went to `/inbox?view=delivered`, which is not an inbox view and fell back to All open.
+      action={action}
       note={`Delivered on or before the date the client was promised, ${period}.`}
       state={state}
     >

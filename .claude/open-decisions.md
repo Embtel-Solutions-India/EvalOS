@@ -47,6 +47,15 @@ stages, so both changes are audited with the GM's brand (D78 edited). Q24: one b
 selling-brand-only outbox drain stays; a per-brand drain comes with Unit 25. Q25: the unused all-pipelines
 `POST /board/refresh` was deleted._
 
+## Raised by the hard-coded-values audit (2026-10-28)
+
+| #   | Question | Recommendation |
+| --- | -------- | -------------- |
+| Q26 | Should an Admin be able to **create new roles**? Today the nine roles are a Java enum (`Role`), each bound to a scope tier, and every route names its roles in `@PreAuthorize` and in `navigation.ts`. An Admin can give a person a role, never make one. | **Not as free-form roles.** A role's tier *is* its data access, so a role made at runtime would need a permission model (a role → tier + a set of named permissions) and every route checked against permissions instead of role names. That is a project of its own. If new roles are expected, spec that first; until then a new role is a code change plus a migration, which is safe and audited. |
+| Q27 | Client and expert emails, and the portal's logo and support address, are **International Evaluations' only** (`MailTemplates.SITE_URL/LOGO_URL/SUPPORT_EMAIL`, `authService.SUPPORT_EMAIL`, `Logo.tsx`). An XpertsPortal client would get IE branding. | **Move them onto `brand`** (site URL, logo URL, support email, display name) in one migration, and read them per case's brand — before XpertsPortal clients get mail. Not urgent while one brand sells (Q24). |
+| Q28 | Two smaller fixed values: the source labels written into GHL (`"EvalOS Sales Desk"` / `"EvalOS Marketing Desk"`, `GhlWriteClient`) and the business clock `America/Los_Angeles` (`BusinessCalendar.ZONE`, `meetingTime.MEETING_TZ`). | **Leave both until a second brand or office needs different ones**, then make the timezone a brand setting (SLA clock and diary together) and the labels derive from the role's display name. |
+| Q29 | The GM's Team card should show Marketing **Replies** per member (2026-10-28 request). EvalOS mirrors no GHL conversation and no pipeline has a "replied" stage, so there is nothing to count. What is a reply? | **A GHL stage, if Marketing has one** (e.g. "Replied" / "Contacted"): count open deals in it per member, like Hot — no new sync. Mirroring GHL conversations to count inbound messages is a much larger read and should not be built for one column. |
+
 ## Carried forward from `00d` §12, still unresolved
 
 _Item h was settled by Unit 57 (2026-09-26): the client sees the case team by name in the Client

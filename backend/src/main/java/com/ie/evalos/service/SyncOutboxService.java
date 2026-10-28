@@ -192,6 +192,7 @@ public class SyncOutboxService {
 		if (paused()) {
 			return new DrainResult(0, 0, 0, 0, true);
 		}
+		recoverDead();
 		sending.lock();
 		try {
 			List<SyncOutboxEntry> pending = outbox
@@ -351,10 +352,17 @@ public class SyncOutboxService {
 		// moved. Null means the edit has already been confirmed by something else, most likely a
 		// sync that arrived with GHL's own answer.
 		Instant edit = row.getLocalUpdatedAt();
+		// Spec 86 §2: read GHL's copy first, so a value someone set there since the edit is not overwritten.
+		GhlPipelineClient.Opportunity inGhl = ghlCopyOf(row);
 		switch (entry.getIntent()) {
-			case UPSERT -> upsert(row);
-			case CLOSE -> ghl.setStatus(row.getGhlId(), ghlPipelineOf(row),
-					row.getStatus() == null ? "won" : row.getStatus());
+			case UPSERT -> upsert(row, inGhl);
+			case CLOSE -> {
+				String status = row.getStatus() == null ? "won" : row.getStatus();
+				// Agree-check only (spec 86 §2): a won close is never discarded by timestamp — it opens the case.
+				if (inGhl == null || !status.equalsIgnoreCase(inGhl.status())) {
+					ghl.setStatus(row.getGhlId(), ghlPipelineOf(row), status);
+				}
+			}
 			case DELETE -> throw new IllegalStateException("DELETE is not implemented; no caller queues it");
 		}
 		if (edit == null) {
@@ -389,13 +397,20 @@ public class SyncOutboxService {
 	 * amount but never the stage: those two only ever change because a desk changed them, so
 	 * re-sending them is at worst a no-op, while the stage is the one that does damage.
 	 */
-	private void upsert(Opportunity row) {
+	private void upsert(Opportunity row, GhlPipelineClient.Opportunity inGhl) {
 		java.util.Set<String> edited = row.locallyEdited();
 		boolean legacy = edited.isEmpty() && row.getLocalUpdatedAt() != null;
 		String name = legacy || edited.contains(FieldOwnership.NAME) ? row.getName() : null;
 		java.math.BigDecimal amount = legacy || edited.contains(FieldOwnership.AMOUNT)
 				? row.getAmount() : null;
 		String stage = edited.contains(FieldOwnership.STAGE) ? row.getGhlStageId() : null;
+
+		if (inGhl != null) {
+			name = merged(row, inGhl, FieldOwnership.NAME, name, inGhl.name()) ? name : null;
+			amount = merged(row, inGhl, FieldOwnership.AMOUNT, amount == null ? null : amount.toPlainString(),
+					inGhl.monetaryValue() == null ? null : inGhl.monetaryValue().toPlainString()) ? amount : null;
+			stage = merged(row, inGhl, FieldOwnership.STAGE, stage, inGhl.pipelineStageId()) ? stage : null;
+		}
 
 		if (name == null && amount == null && stage == null) {
 			// Nothing outstanding to say. GHL answers 422 to an empty body, and "they already
@@ -404,6 +419,77 @@ public class SyncOutboxService {
 			return;
 		}
 		ghl.updateOpportunity(row.getGhlId(), ghlPipelineOf(row), name, amount, stage);
+	}
+
+	/**
+	 * GHL's current copy of this deal, or null when it cannot be told apart (no contact, or GHL does not
+	 * return it — the push then goes out as before and GHL's own answer decides). Read through the
+	 * opportunity search by contact, which the mirror already relies on and which carries {@code updatedAt}.
+	 */
+	private GhlPipelineClient.Opportunity ghlCopyOf(Opportunity row) {
+		if (row.getGhlContactId() == null || row.getGhlContactId().isBlank()) {
+			return null;
+		}
+		return ghlReads.forContact(row.getGhlContactId()).stream()
+				.filter((candidate) -> row.getGhlId().equals(candidate.id()))
+				.findFirst().orElse(null);
+	}
+
+	/**
+	 * Whether EvalOS's value for one edited field should be sent — the three-way rule of spec 86 §2.
+	 *
+	 * <ul>
+	 * <li>GHL already holds EvalOS's value: nothing to send.</li>
+	 * <li>GHL still holds the value the field had before the edit (the base): GHL did not touch it; send.</li>
+	 * <li>Otherwise both changed it. The newer edit wins — GHL's {@code updatedAt} against EvalOS's
+	 * {@code local_updated_at}. When GHL wins, the field is left out of the push; once the push is
+	 * confirmed EvalOS stops defending it and the next mirror read brings GHL's value in.</li>
+	 * </ul>
+	 */
+	private boolean merged(Opportunity row, GhlPipelineClient.Opportunity inGhl, String field, String mine,
+			String theirs) {
+		if (mine == null) {
+			return false;
+		}
+		if (sameValue(field, mine, theirs)) {
+			return false;
+		}
+		String base = row.ghlBaseOf(field);
+		if (base != null && sameValue(field, base, theirs)) {
+			return true;
+		}
+		boolean ghlNewer = inGhl.updatedAt() != null && row.getLocalUpdatedAt() != null
+				&& inGhl.updatedAt().isAfter(row.getLocalUpdatedAt());
+		String winner = ghlNewer ? "GHL" : "EVALOS";
+		log.info("Sync conflict on opportunity {} field {}: EvalOS '{}', GHL '{}', base '{}' — {} wins",
+				row.getId(), field, mine, theirs, base, winner);
+		if (audit != null) {
+			java.util.Map<String, Object> after = new java.util.LinkedHashMap<>();
+			after.put("conflict", field);
+			after.put("evalos", mine);
+			after.put("ghl", String.valueOf(theirs));
+			after.put("base", String.valueOf(base));
+			after.put("winner", winner);
+			audit.recordSystemEvent(row.getBrandId(), "GHL_OPPORTUNITY", row.getId(),
+					com.ie.evalos.domain.AuditAction.UPDATED, null, after);
+		}
+		return !ghlNewer;
+	}
+
+	/** Money compares by value (150 = 150.00); text and ids by their trimmed form. */
+	private static boolean sameValue(String field, String a, String b) {
+		if (a == null || b == null) {
+			return a == null && b == null;
+		}
+		if (FieldOwnership.AMOUNT.equals(field)) {
+			try {
+				return new java.math.BigDecimal(a.trim()).compareTo(new java.math.BigDecimal(b.trim())) == 0;
+			}
+			catch (NumberFormatException notMoney) {
+				return a.trim().equals(b.trim());
+			}
+		}
+		return a.trim().equals(b.trim());
 	}
 
 	/**
@@ -622,7 +708,14 @@ public class SyncOutboxService {
 		return "#" + noteId.toString().substring(0, 8);
 	}
 
-	/** How much is waiting and how much never arrived — the status surface's numbers. */
+	/**
+	 * How far back the status surface lists failed pushes (2026-10-28). Older dead rows stay in the
+	 * table as history; they stop being shown, so a failure that was dealt with does not sit on the
+	 * page for ever.
+	 */
+	static final java.time.Duration RECENT_FAILURES = java.time.Duration.ofDays(7);
+
+	/** How much is waiting and how much recently never arrived — the status surface's numbers. */
 	@Transactional(readOnly = true)
 	public Backlog backlog() {
 		if (sellingBrand.id() == null) {
@@ -630,11 +723,102 @@ public class SyncOutboxService {
 		}
 		List<SyncOutboxEntry> oldest = outbox
 				.findByBrandIdAndSentAtIsNullAndDeadAtIsNullOrderByQueuedAtAsc(sellingBrand.id(), Limit.of(1));
+		Instant since = Instant.now().minus(RECENT_FAILURES);
 		return new Backlog(
 				(int) outbox.countByBrandIdAndSentAtIsNullAndDeadAtIsNull(sellingBrand.id()),
-				(int) outbox.countByBrandIdAndDeadAtIsNotNull(sellingBrand.id()),
+				(int) outbox.countByBrandIdAndDeadAtAfter(sellingBrand.id(), since),
 				oldest.isEmpty() ? null : oldest.getFirst().getQueuedAt(),
-				outbox.findByBrandIdAndDeadAtIsNotNullOrderByDeadAtDesc(sellingBrand.id(), Limit.of(20)));
+				outbox.findByBrandIdAndDeadAtAfterOrderByDeadAtDesc(sellingBrand.id(), since, Limit.of(20)));
+	}
+
+	/** Spec 86 §3: a dead push waits this long before the drain re-queues it on its own. */
+	static final java.time.Duration RECOVERY_DELAY = java.time.Duration.ofHours(1);
+
+	/** Spec 86 §3: after this many deaths of one push in {@link #RECENT_FAILURES}, it is left for a person. */
+	static final int MAX_AUTOMATIC_DEATHS = 3;
+
+	/**
+	 * Re-queues dead pushes a later attempt can fix, with nobody pressing anything (spec 86 §3).
+	 *
+	 * <p>Only failures that are about timing — no answer, GHL's 5xx, the rate limit — and
+	 * {@code EMPTY_RESPONSE}, which is safe to repeat now that every push reads GHL's copy first and
+	 * sends nothing GHL already holds. A {@code REFUSED} push (a 4xx, or an EvalOS bug) is left for a person:
+	 * the same request fails the same way. A push that has died {@link #MAX_AUTOMATIC_DEATHS} times this week
+	 * is left too, so a broken one cannot loop.
+	 *
+	 * <p>No transaction of its own: {@link #drain} calls it on this object, past the proxy. Each stamp and
+	 * each enqueue commits by itself, so a failure part-way leaves every row either untouched or re-queued.
+	 */
+	public int recoverDead() {
+		if (sellingBrand.id() == null) {
+			return 0;
+		}
+		Instant now = Instant.now();
+		Instant since = now.minus(RECENT_FAILURES);
+		int requeued = 0;
+		for (SyncOutboxEntry dead : outbox.findByBrandIdAndDeadAtBetweenAndRetriedAtIsNullOrderByDeadAtAsc(
+				sellingBrand.id(), since, now.minus(RECOVERY_DELAY))) {
+			if (!recoverable(dead.getLastFailure())
+					|| outbox.countByBrandIdAndEntityTypeAndEntityIdAndIntentAndDeadAtAfter(dead.getBrandId(),
+							dead.getEntityType(), dead.getEntityId(), dead.getIntent(), since) >= MAX_AUTOMATIC_DEATHS) {
+				continue;
+			}
+			dead.retried(null);
+			outbox.save(dead);
+			outbox.enqueueIfAbsent(dead.getBrandId(), dead.getEntityType().name(), dead.getEntityId(),
+					dead.getIntent().name());
+			requeued++;
+		}
+		if (requeued > 0) {
+			log.info("Outbox re-queued {} failed push(es) automatically", requeued);
+		}
+		return requeued;
+	}
+
+	private static boolean recoverable(GhlFailure failure) {
+		return failure == GhlFailure.NO_ANSWER || failure == GhlFailure.UPSTREAM_ERROR
+				|| failure == GhlFailure.RATE_LIMITED || failure == GhlFailure.EMPTY_RESPONSE;
+	}
+
+	private AuditService audit;
+
+	@org.springframework.beans.factory.annotation.Autowired
+	void useAudit(AuditService audit) {
+		this.audit = audit;
+	}
+
+	/**
+	 * Re-queues a dead push — an Administrator's action from Sync health, once the cause is fixed.
+	 *
+	 * <p><strong>A new row, not the dead one revived.</strong> The dead row stays as the record of what
+	 * failed and is stamped retried; the new row reads the entity's <em>current</em> state at send time
+	 * and follows the ordinary retry rules, so a second failure shows up as its own row. If a push for
+	 * the same entity is already pending, the queue collapses onto it — that one carries the same
+	 * current state.
+	 *
+	 * <p>Scoped to the selling brand, the only brand whose outbox drains (Q24). An id outside it is the
+	 * same "no such push" as an id that does not exist.
+	 */
+	@Transactional
+	public void retry(UUID deadPushId, UUID by) {
+		SyncOutboxEntry dead = outbox.findById(deadPushId)
+				.filter((row) -> sellingBrand.id() != null && sellingBrand.id().equals(row.getBrandId()))
+				.orElseThrow(() -> new com.ie.evalos.common.NotFoundException("No such failed push"));
+		try {
+			dead.retried(by);
+		}
+		catch (IllegalStateException refused) {
+			throw new com.ie.evalos.common.InvalidRequestException(refused.getMessage());
+		}
+		outbox.save(dead);
+		outbox.enqueueIfAbsent(dead.getBrandId(), dead.getEntityType().name(), dead.getEntityId(),
+				dead.getIntent().name());
+		if (audit != null) {
+			audit.recordEvent("SYNC_OUTBOX", dead.getId(), com.ie.evalos.domain.AuditAction.UPDATED, by,
+					java.util.Map.of("deadReason", String.valueOf(dead.getDeadReason())),
+					java.util.Map.of("retried", true, "entityType", dead.getEntityType().name(),
+							"entityId", dead.getEntityId().toString(), "intent", dead.getIntent().name()));
+		}
 	}
 
 	/**

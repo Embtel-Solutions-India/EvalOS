@@ -269,7 +269,7 @@ async function openInTab(fetchUrl: () => Promise<string>): Promise<void> {
   }
 }
 
-/** The client-approved letter (Unit 66b): read the PDF in the browser, or download either file. */
+/** The client-approved letter (Unit 66b): read the PDF in the browser, or download whichever files it has. */
 function LetterFiles({ letter }: { letter: ExpertDocument }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -285,10 +285,12 @@ function LetterFiles({ letter }: { letter: ExpertDocument }) {
           Download PDF
         </Button>
       )}
-      <Button variant="outline" onClick={() => void openInTab(() => documentUrl(letter.id))}>
-        <Download className="h-4 w-4" />
-        Download Word
-      </Button>
+      {letter.hasWord && (
+        <Button variant="outline" onClick={() => void openInTab(() => documentUrl(letter.id))}>
+          <Download className="h-4 w-4" />
+          Download Word
+        </Button>
+      )}
     </div>
   )
 }

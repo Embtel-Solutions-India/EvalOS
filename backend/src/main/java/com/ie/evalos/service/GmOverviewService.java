@@ -158,8 +158,13 @@ public class GmOverviewService {
 	 * {@code team_member.ghl_pipeline_id}, which is the link Unit 36 built the whole
 	 * pipeline-scoped role on. A desk is therefore exactly what that member can already see.
 	 */
+	/**
+	 * @param hot      open deals in a Hot stage right now ({@link #tileOf}), like {@code open} independent of the window
+	 * @param invoiced value of open deals at Invoice Sent right now
+	 * @param meetings meetings this member booked that start inside the window (2026-10-28, the GM's Team card)
+	 */
 	public record DeskRow(UUID memberId, String name, Role role, int newLeads, int won, BigDecimal wonValue,
-			int open, BigDecimal openValue) {
+			int open, BigDecimal openValue, int hot, BigDecimal invoiced, int meetings) {
 	}
 
 	/**
@@ -355,6 +360,13 @@ public class GmOverviewService {
 		Instant since = java.util.stream.Stream.of(previousStart, windowStart, lastMonthStart, yesterdayStart, monthStart)
 				.min(Comparator.naturalOrder()).orElseThrow();
 
+		// Meetings per booking member in the window — one grouped read, not one per desk.
+		Map<UUID, Integer> meetingsBy = new java.util.HashMap<>();
+		jdbc.query("SELECT booked_by, count(*) AS n FROM meeting WHERE brand_id = ? AND starts_at >= ? AND starts_at < ?"
+				+ " GROUP BY booked_by", (rs) -> {
+					meetingsBy.put(rs.getObject("booked_by", UUID.class), rs.getInt("n"));
+				}, sellingBrand.id(), java.sql.Timestamp.from(windowStart), java.sql.Timestamp.from(windowEnd));
+
 		for (TeamMember desk : desks) {
 			// The desk's pipelines are the set they are granted (D19b), the same one their board draws —
 			// not `team_member.ghl_pipeline_id`, which nothing has written since Unit 44b. A desk on two
@@ -491,8 +503,12 @@ public class GmOverviewService {
 			List<Opportunity> openNow = rows.stream().filter(OpportunityBoardService::isOpen).toList();
 			BigDecimal openValue = openNow.stream().map(Opportunity::getAmount)
 					.filter((amount) -> amount != null).reduce(BigDecimal.ZERO, BigDecimal::add);
+			int deskHot = (int) openNow.stream().filter((row) -> "hot".equals(tileOf(stageNames.get(row.getGhlStageId())))).count();
+			BigDecimal deskInvoiced = openNow.stream()
+					.filter((row) -> "invoice".equals(tileOf(stageNames.get(row.getGhlStageId()))))
+					.map(Opportunity::getAmount).filter((amount) -> amount != null).reduce(BigDecimal.ZERO, BigDecimal::add);
 			deskRows.add(new DeskRow(desk.getId(), desk.getDisplayName(), desk.getRole(), deskNew, deskWon,
-					deskWonValue, openNow.size(), openValue));
+					deskWonValue, openNow.size(), openValue, deskHot, deskInvoiced, meetingsBy.getOrDefault(desk.getId(), 0)));
 		}
 
 		bySource.addAll(sourceTotals.values().stream()

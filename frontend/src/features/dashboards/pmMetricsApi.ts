@@ -305,6 +305,10 @@ export type CaseManagerWork = {
   offers: { open: number; rematch: number; rows: OfferRow[] }
   /** Open cases, each in exactly one bucket. */
   drafts: { beforeDraft: number; drafting: number; returned: number; withPm: number; withClient: number; approved: number }
+  /** Drafts the PM sent back, longest-waiting first, with the PM's reason. */
+  returned: { caseId: string; caseCode: string; reason: string | null; returnedAt: string | null }[]
+  /** Cases the expert put on hold for more evidence; `missing` is what they asked for. */
+  evidence: { caseId: string; caseCode: string; missing: string | null; askedAt: string }[]
 }
 
 export async function fetchCaseManagerWork(signal?: AbortSignal): Promise<CaseManagerWork> {
@@ -375,6 +379,12 @@ export type GmDeskRow = {
   /** Deals still open on this desk's pipelines right now (the board's header), whatever the date range. */
   open: number
   openValue: number
+  /** Open deals in a Hot stage right now. */
+  hot: number
+  /** Value of open deals at Invoice Sent right now. */
+  invoiced: number
+  /** Meetings this member booked that start in the range. */
+  meetings: number
 }
 
 /** `noSourcePct` is null, never 0, when the window held no opportunities to attribute. */

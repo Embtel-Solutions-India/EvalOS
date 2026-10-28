@@ -94,7 +94,7 @@ export default function DraftHistory({
                     {version.reviewComment}
                   </p>
                 )}
-                {version.filename && (
+                {(version.hasWord || version.hasPdf) && (
                   <p className="flex flex-wrap gap-1.5">
                     {/* View first (D51): the PDF opens in the browser; both files still download. */}
                     {version.hasPdf && (
@@ -109,13 +109,15 @@ export default function DraftHistory({
                         Download PDF
                       </button>
                     )}
-                    <button type="button" onClick={() => void open(version.id, false)} className={button.small}>
-                      <Download aria-hidden />
-                      Download Word
-                    </button>
+                    {version.hasWord && (
+                      <button type="button" onClick={() => void open(version.id, false)} className={button.small}>
+                        <Download aria-hidden />
+                        Download Word
+                      </button>
+                    )}
                   </p>
                 )}
-                {version.hasPdf && (
+                {(version.hasWord || version.hasPdf) && (
                   <DraftComments
                     caseId={caseId}
                     draftId={version.id}

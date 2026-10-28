@@ -60,36 +60,21 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
 
   return (
     <section>
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-        <div>
-          {isGm && memberId && (
-            <button
-              type="button"
-              onClick={() => setParams((previous) => {
-                const next = new URLSearchParams(previous)
-                next.delete('member')
-                next.delete('pipeline')
-                return next
-              }, { replace: true })}
-              className="mb-1 inline-flex items-center gap-1 text-sm font-medium"
-              style={{ color: 'var(--accent-primary)' }}
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden /> All {copy.team} / {person ?? '…'}
-            </button>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Dashboard filters">
-          <PillSelect label="Year" value={String(year)} onChange={(e) => set('year', e.target.value === String(thisYear) ? null : e.target.value)}>
-            {years.map((y) => <option key={y} value={y}>{y === thisYear ? `${y} · this year` : y}</option>)}
-          </PillSelect>
-          <PillSelect label="Lead source" value={source ?? ''} onChange={(e) => set('source', e.target.value || null)}>
-            <option value="">All sources</option>
-            {(data?.sources ?? []).map((s) => <option key={s.source} value={s.source}>{s.source}</option>)}
-            {source && !(data?.sources ?? []).some((s) => s.source.toLowerCase() === source.toLowerCase()) && <option value={source}>{source}</option>}
-          </PillSelect>
-        </div>
-      </header>
+      {isGm && memberId && (
+        <button
+          type="button"
+          onClick={() => setParams((previous) => {
+            const next = new URLSearchParams(previous)
+            next.delete('member')
+            next.delete('pipeline')
+            return next
+          }, { replace: true })}
+          className="mb-1 inline-flex items-center gap-1 text-sm font-medium"
+          style={{ color: 'var(--accent-primary)' }}
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden /> All {copy.team} / {person ?? '…'}
+        </button>
+      )}
 
       {(data?.pipelines?.length ?? 0) > 1 && (
         <div className="mt-4 flex flex-wrap gap-1.5" role="tablist" aria-label="Pipelines">
@@ -119,9 +104,27 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
       )}
 
       {/* The Sketch's grid: a main column and a 255px rail. Questions run down the main column in the order
-          a manager asks them; the rail answers "who" and "where from". */}
-      <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16rem]">
-        <div className="min-w-0 space-y-4">
+          a manager asks them; the rail answers "who" and "where from". The filters head the rail on a wide
+          screen (2026-10-28) rather than taking a row of their own, and come first when the rail stacks. Row one is
+          `auto` and row two `1fr`: the main column spans both, and without that the browser shares its height between
+          them and opens a gap under the filters. */}
+      <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_16rem] xl:grid-rows-[auto_1fr]">
+        <div
+          className="grid min-w-0 grid-cols-2 gap-2 xl:col-start-2 xl:row-start-1 [&>label]:min-w-0 [&_select]:w-full [&_select]:truncate"
+          role="group"
+          aria-label="Dashboard filters"
+        >
+          <PillSelect label="Year" value={String(year)} onChange={(e) => set('year', e.target.value === String(thisYear) ? null : e.target.value)}>
+            {years.map((y) => <option key={y} value={y}>{y === thisYear ? `${y} · this year` : y}</option>)}
+          </PillSelect>
+          <PillSelect label="Lead source" value={source ?? ''} onChange={(e) => set('source', e.target.value || null)}>
+            <option value="">All sources</option>
+            {(data?.sources ?? []).map((s) => <option key={s.source} value={s.source}>{s.source}</option>)}
+            {source && !(data?.sources ?? []).some((s) => s.source.toLowerCase() === source.toLowerCase()) && <option value={source}>{source}</option>}
+          </PillSelect>
+        </div>
+
+        <div className="min-w-0 space-y-4 xl:col-start-1 xl:row-span-2 xl:row-start-1">
           <KpiRow
             data={data}
             state={cardState}
@@ -163,7 +166,7 @@ export default function PipelineDashboard({ audience }: { audience: Audience }) 
           />
         </div>
 
-        <div className="min-w-0 space-y-4">
+        <div className="min-w-0 space-y-4 xl:col-start-2 xl:row-start-2">
           {isGm && !memberId && (
             <DeskCard desks={data?.desks ?? []} state={cardState} audience={audience} onOpen={(id) => set('member', id)} />
           )}

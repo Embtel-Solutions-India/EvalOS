@@ -36,7 +36,7 @@ export default function CaseDealDialog({
         )}
         {deal.isSuccess && !d && (
           <p className="mt-3 text-sm" style={{ color: 'var(--text-muted)' }}>
-            This case has no opportunity in EvalOS.
+            This case has no opportunity in EvalOS or GHL.
           </p>
         )}
         {d && (

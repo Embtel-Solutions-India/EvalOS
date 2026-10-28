@@ -102,7 +102,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D33.** **Client documents arrive only on a case**, uploaded in the portal against the checklist
   the PC or the CM sends (D60). There is no pre-case upload (Unit 64 removed Unit 53's request
   documents). Case documents live at `DocumentStore.clientKey` — `{brand}/client/{ghl_contact_id}/{doc}`
-  (D41). **Drafts are stored files too** (Unit 58, D51): Word + PDF on their `case_document` DRAFT
+  (D41). **Drafts are stored files too** (Unit 58, D51): Word, PDF or both on their `case_document` DRAFT
   versions.
 - **D34, D35 — retired by Unit 64.** There is no request for Sales to read beside the deal, and no
   request status. Review, approval and rejection are GHL pipeline stages.
@@ -152,12 +152,23 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   acknowledges the create. **A null `ghl_updated_at` is a conflict, never "GHL is newer"** — but
   only when there is an edit to defend, or the rule degrades into the blanket one it replaced.
   **Nothing is pushed to GHL by this**: correcting GHL is Unit 46's, through the outbox.
+  **Edited 2026-10-28 (spec 86): a push no longer overwrites GHL blindly.** Before an UPSERT the outbox
+  reads GHL's copy and decides each edited field three ways against its **base** (the value before the
+  desk's first unconfirmed edit, `opportunity.ghl_base`): GHL already holds EvalOS's value → not sent;
+  GHL still holds the base → sent; both changed it → **the newer edit wins** (GHL `updatedAt` vs
+  `local_updated_at`), audited and logged. A GHL win leaves the field out of the push and the next
+  mirror read brings GHL's value in. A CLOSE is skipped only if GHL already holds the status — a won
+  close is never discarded by timestamp.
 - **D43.** **A drift row is never resolved by a human pressing a button.** Clearing it clears the
   symptom while the two systems still disagree. `GET /api/sync/drift` instead answers *will this fix
   itself*: every row carries `owner` and `resolution` (`GHL_WINS` / `EVALOS_WINS` /
   `NEEDS_A_HUMAN`), derived at read time and never stored, and the envelope carries `needsAHuman`.
   **Only a row GHL no longer returns needs a person** — re-creating a lost deal, or deleting the
-  mirror's copy, is a business decision a sweep must not take.
+  mirror's copy, is a business decision a sweep must not take. **Since 2026-10-28 (spec 86)** a
+  `MISSING_LOCALLY` row also closes the moment the mirror absorbs that deal, not only at the next
+  audit; the audit is still the only thing that opens one. **Failed pushes recover on their own**: the
+  drain re-queues a dead push an hour after a timeout, a GHL 5xx, the rate limit or an empty answer,
+  at most three deaths a week per push; a 4xx or an EvalOS bug waits for the Administrator's Retry.
 - **D44.** **A desk edit writes the mirror and queues the push; it does not call GHL** (Unit 46,
   2026-09-17). Rename, re-price, stage move and close on both desks are now: edit the local row,
   `enqueue`, answer from the row. **A stage move must name a live mirrored stage of the deal's
@@ -256,7 +267,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   message and rule; **Ably relays live updates only** (one private channel per person, publish never
   granted to a browser); web push for anyone without the app open. No chat platform owns the data.
 - **D51.** **Drafts are uploaded versions** (Unit 58, `58-client-portal.md`, 2026-09-27, business
-  decision). **Only the Case Manager** uploads each version (edited 2026-10-02: the PC, PM and GM no longer may; `POST …/drafts` is `CASE_MANAGER` only, no `GM_OR`) as **Word + PDF** onto the
+  decision). **Only the Case Manager** uploads each version (edited 2026-10-02: the PC, PM and GM no longer may; `POST …/drafts` is `CASE_MANAGER` only, no `GM_OR`) as **Word, PDF or both — at least one** (edited 2026-10-28; was Word + PDF) onto the
   existing `case_document` DRAFT versions — no second version table. Each version carries an
   immutable comment thread (1–2,000 characters, optional page) open only while it is the one in
   client review. The client approves or requests changes **on a named version** (409
@@ -266,7 +277,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **The client portal is case-first** (Unit 58 phase 3, 2026-09-28): Home lists every case, each
   opens its own page, and no client route resolves a case from the token — which closes Q8.
   **The draft PDF is viewed first** (2026-09-28, closes Q13): it opens in the browser's own viewer,
-  with Download PDF and Download Word beside it. **Edited 2026-10-02 (Unit 74,
+  with Download PDF and Download Word beside it — **each shown only when that file exists** (2026-10-28,
+  staff, client and expert alike). A delivered Word-only approved draft is Download only; a view of it
+  is refused. **Edited 2026-10-02 (Unit 74,
   `74-view-and-download.md`): every document anyone may read has View and Download**, View first.
   A view is served `inline` with its type **forced** to `application/pdf`, `image/png` or
   `image/jpeg` from the filename's extension, so the browser opens it only in its PDF or image
@@ -369,7 +382,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   the member's next request** (`JwtFilter` re-reads `team_member.active`), not when their 8 h token
   expires; a role or brand change still waits for the next sign-in. The GM cannot deactivate
   themselves or change their own role; a desk holding pipeline grants keeps its role and brand
-  until they are revoked. Pipelines (purpose, D61's screen), sync health (read-only, D43) and the
+  until they are revoked. Pipelines (purpose, D61's screen), sync health (drift read-only, D43; **a failed push can be re-queued by the Administrator** since 2026-10-28 — once per dead row, audited, and the list shows the last 7 days) and the
   brands have GM screens too. **Brands: name, currency and payout term days are editable by the
   Administrator since 2026-10-10 (D83)**; creating a brand and its webhook token / signing secret stay
   migration-only and are never shown.
@@ -623,9 +636,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D79.** **A "blocked" case is one whose `exception_state` is not `NONE`** (2026-10-09, spec 79, was Q20). On hold
   awaiting client, expert declined / rematching, refund requested — the only recorded off-path states. Missing
   documents are not inferred as blocks until the business states a rule.
-- **D80.** **First-pass QC rate is not shown until a per-case QC outcome is stored** (2026-10-09, spec 79, was Q21).
-  The PM dashboard renders it "unavailable". Storing the outcome would be an append-only row written by the existing
-  Final QC action — a separate decision, not part of UI work.
+- **D80.** **There is no First-pass QC rate** (2026-10-09, spec 79, was Q21; **edited 2026-10-28**). The PM dashboard
+  showed it as "unavailable"; the business removed the card. The PM's QC approve / QC fail are already audited, so
+  the rate could be derived from that history if it is ever wanted — no new table needed.
 - **D81.** **"Cases requiring reassignment" is shown only as blocked cases in `EXPERT_DECLINED_REMATCHING`** (2026-10-09,
   spec 79, was Q22). No other reassignment state exists and none is invented.
 - **D82.** **Production monitoring is Actuator + Micrometer, in-process, Admin-only** (2026-10-10). Every Actuator

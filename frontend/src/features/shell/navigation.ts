@@ -427,7 +427,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   {
     path: "/experts",
-    label: "Expert database",
+    label: "Experts",
     roles: ["GM", "BRAND_MANAGER", "PROJECT_MANAGER", "EXPERT_NETWORK_MANAGER"],
     becomes: "Expert roster + sheet upload",
     group: "Records",
@@ -545,6 +545,9 @@ export const CASE_DETAIL_PATH = "/cases/:id";
  */
 export const DEAL_DETAIL_PATH = "/opportunities/:opportunityId";
 
+/** One contact: details, opportunities, cases in progress and delivered. Reached from a Contacts row. */
+export const CONTACT_DETAIL_PATH = "/contacts/:contactId";
+
 /** One conversation, open in the inbox. Where a staff push notification lands (`ChatPushNotifier`). */
 export const CONVERSATION_PATH = "/conversations/:conversationId";
 
@@ -553,6 +556,9 @@ export const EXPERT_PAYOUTS_PATH = "/payouts/experts/:expertId";
 
 /** One transfer and every draft it settled. Reached from a payment history row. */
 export const PAYMENT_DETAIL_PATH = "/payouts/payments/:paymentId";
+
+/** Every payout as one table with CSV and print export. Reached from the Export button on Payouts (2026-10-28). */
+export const PAYOUT_EXPORT_PATH = "/payouts/export";
 
 const PARAMETERIZED: readonly NavItem[] = [
   // Booking is a button on the diary now (2026-10-09), not a sidebar entry, so it is reached rather than listed.
@@ -584,6 +590,13 @@ const PARAMETERIZED: readonly NavItem[] = [
     group: "Sales",
   },
   {
+    path: CONTACT_DETAIL_PATH,
+    label: "Contact",
+    roles: ["GM", "BRAND_MANAGER", "SALES", "MARKETING"],
+    becomes: "One contact: deals and cases",
+    group: "Records",
+  },
+  {
     path: CASE_DETAIL_PATH,
     label: "Case",
     roles: PRODUCTION_ROLES,
@@ -602,6 +615,13 @@ const PARAMETERIZED: readonly NavItem[] = [
     label: "Payment",
     roles: PAYOUT_ROLES,
     becomes: "One transfer and the drafts it settled",
+    group: "Payouts",
+  },
+  {
+    path: PAYOUT_EXPORT_PATH,
+    label: "Export payouts",
+    roles: PAYOUT_ROLES,
+    becomes: "Every payout as a table, exported as CSV or printed",
     group: "Payouts",
   },
 ];

@@ -109,6 +109,15 @@ public class Opportunity extends ScopedEntity {
 	@Column(name = "locally_edited_fields")
 	private String locallyEditedFields;
 
+	/**
+	 * What each locally edited shared field held before the desk's first unconfirmed edit of it (spec 86,
+	 * V96): field name to value as text. The outbox reads GHL's current value against it to tell "GHL did
+	 * not touch this" from "GHL changed it too". Null at rest; cleared with {@link #locallyEditedFields}.
+	 */
+	@org.hibernate.annotations.JdbcTypeCode(org.hibernate.type.SqlTypes.JSON)
+	@Column(name = "ghl_base")
+	private java.util.Map<String, String> ghlBase;
+
 	@Column(name = "synced_at")
 	private Instant syncedAt;
 
@@ -192,6 +201,7 @@ public class Opportunity extends ScopedEntity {
 			// back door.
 			this.localUpdatedAt = null;
 			this.locallyEditedFields = null;
+			this.ghlBase = null;
 		}
 
 		this.syncedAt = Instant.now();
@@ -228,6 +238,7 @@ public class Opportunity extends ScopedEntity {
 			this.syncedAt = Instant.now();
 			this.localUpdatedAt = null;
 			this.locallyEditedFields = null;
+			this.ghlBase = null;
 		}
 	}
 
@@ -261,14 +272,17 @@ public class Opportunity extends ScopedEntity {
 	public void editedLocally(String name, BigDecimal amount, String ghlStageId, String status) {
 		java.util.Set<String> edited = new java.util.LinkedHashSet<>(locallyEdited());
 		if (name != null && !name.isBlank()) {
+			rememberBase(edited, FieldOwnership.NAME, this.name);
 			this.name = name;
 			edited.add(FieldOwnership.NAME);
 		}
 		if (amount != null) {
+			rememberBase(edited, FieldOwnership.AMOUNT, this.amount == null ? null : this.amount.toPlainString());
 			this.amount = amount;
 			edited.add(FieldOwnership.AMOUNT);
 		}
 		if (ghlStageId != null && !ghlStageId.isBlank()) {
+			rememberBase(edited, FieldOwnership.STAGE, this.ghlStageId);
 			this.ghlStageId = ghlStageId;
 			edited.add(FieldOwnership.STAGE);
 		}
@@ -285,6 +299,26 @@ public class Opportunity extends ScopedEntity {
 		// before the drain runs are two edits that must both travel on the one queued push.
 		this.locallyEditedFields = edited.isEmpty() ? null : String.join(",", edited);
 		touchedLocally();
+	}
+
+	/**
+	 * Keeps the value a field held before its <em>first</em> unconfirmed edit (spec 86). A second edit of
+	 * the same field before the push keeps the original base, because that is what GHL was last known to
+	 * hold. A field never held locally has no base; the outbox then decides by timestamp alone.
+	 */
+	private void rememberBase(java.util.Set<String> alreadyEdited, String field, String before) {
+		if (alreadyEdited.contains(field) || before == null) {
+			return;
+		}
+		java.util.Map<String, String> base = ghlBase == null ? new java.util.LinkedHashMap<>()
+				: new java.util.LinkedHashMap<>(ghlBase);
+		base.put(field, before);
+		this.ghlBase = base;
+	}
+
+	/** The value {@code field} held before the desk's unconfirmed edit, or null when unknown (spec 86). */
+	public String ghlBaseOf(String field) {
+		return ghlBase == null ? null : ghlBase.get(field);
 	}
 
 	/**

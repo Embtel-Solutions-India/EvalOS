@@ -4,7 +4,7 @@ import { postNote, uploadDraft } from './caseApi'
 import { submitDraft } from './draftRules'
 
 /**
- * The next draft version as Word + PDF, plus an optional note to the PM (Unit 66). One component for
+ * The next draft version as Word, PDF or both (at least one), plus an optional note to the PM (Unit 66). One component for
  * every place a CM starts an upload, each passing its own `trigger`. Submitting moves the case to
  * PM review, which is why this is a Dialog and not a Sheet.
  */
@@ -41,7 +41,7 @@ export default function UploadDraftDialog({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!docx || !pdf) return
+    if (!docx && !pdf) return
     setState('sending')
     try {
       const result = await submitDraft(
@@ -108,21 +108,22 @@ export default function UploadDraftDialog({
               <input
                 type="file"
                 accept=".docx"
-                required
                 onChange={(e) => setDocx(e.target.files?.[0] ?? null)}
                 className="field w-full"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span style={{ color: 'var(--text-muted)' }}>PDF of the same draft</span>
+              <span style={{ color: 'var(--text-muted)' }}>PDF (.pdf)</span>
               <input
                 type="file"
                 accept="application/pdf,.pdf"
-                required
                 onChange={(e) => setPdf(e.target.files?.[0] ?? null)}
                 className="field w-full"
               />
             </label>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+              Upload a Word file, a PDF, or both. The client can view a PDF in the browser and download either.
+            </p>
             <label className="flex flex-col gap-1">
               <span style={{ color: 'var(--text-muted)' }}>Note to PM (optional)</span>
               <textarea
@@ -134,7 +135,7 @@ export default function UploadDraftDialog({
             </label>
             {state === 'failed' && (
               <p role="alert" style={{ color: 'var(--status-red)' }}>
-                The draft was not uploaded. Check both files are a real Word document and PDF under 15MB, then try
+                The draft was not uploaded. Check each file is a real Word document or PDF under 15MB, then try
                 again.
               </p>
             )}
@@ -144,7 +145,7 @@ export default function UploadDraftDialog({
               </button>
               <button
                 type="submit"
-                disabled={!docx || !pdf || state === 'sending'}
+                disabled={(!docx && !pdf) || state === 'sending'}
                 className="rounded-md px-3 py-1.5 font-medium disabled:opacity-40"
                 style={{ background: 'var(--accent-primary)', color: 'var(--text-on-accent, white)' }}
               >

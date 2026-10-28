@@ -83,6 +83,10 @@ export type SyncHealth = {
       lastFailure: string | null;
       reason: string | null;
       deadAt: string;
+      /** When an Administrator re-queued it; a retried push offers no second retry. */
+      retriedAt: string | null;
+      /** Re-queued by the drain on its own (spec 86): a timeout, GHL's 5xx, the rate limit or an empty answer. */
+      retriedAutomatically: boolean;
     }[];
   };
 };
@@ -106,6 +110,9 @@ export const fetchPipelines = (signal?: AbortSignal) =>
   unwrap<MirroredPipeline[]>(api.get("/ghl/pipelines", { signal }));
 export const fetchSyncHealth = (signal?: AbortSignal) =>
   unwrap<SyncHealth>(api.get("/sync/drift", { signal }));
+/** Re-queues one failed push; answers the refreshed Sync health. */
+export const retryPush = (id: string) =>
+  unwrap<SyncHealth>(api.post(`/sync/outbox/${id}/retry`));
 export const fetchGrants = (id: string, signal?: AbortSignal) =>
   unwrap<{ id: string; ghlPipelineIds: string[] }>(
     api.get(`/team-members/${id}/pipelines`, { signal }),

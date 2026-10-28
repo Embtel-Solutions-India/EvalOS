@@ -98,7 +98,7 @@ export default function ExpertRoster() {
   return (
     <div className="flex flex-col gap-5">
       <header>
-        <h1 className="text-xl font-semibold tracking-tight">Expert database</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Experts</h1>
         {/* The count belongs to the roster's filtered read, so it is only shown there. Left
             standing over the availability board it claimed to describe a screen it had not
             counted — the same failure as a header contradicting the instrument beside it. */}
@@ -113,7 +113,7 @@ export default function ExpertRoster() {
         )}
       </header>
 
-      <nav className="flex gap-1.5" aria-label="Expert database views">
+      <nav className="flex gap-1.5" aria-label="Experts views">
         <Tab current={tab} value="roster" onSelect={setTab}>
           Roster
         </Tab>

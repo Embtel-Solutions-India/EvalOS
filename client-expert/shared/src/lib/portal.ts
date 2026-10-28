@@ -247,6 +247,8 @@ export type DeliveredFile = {
   kind: 'SIGNED_LETTER' | 'APPROVED_DRAFT'
   filename: string | null
   at: string
+  /** A PDF the browser can open. False for a Word-only approved draft, which only downloads. */
+  viewable: boolean
 }
 
 /**

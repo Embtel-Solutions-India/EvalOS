@@ -1,7 +1,9 @@
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Card, CapacityBar, ChartCard, KpiCard } from '../../components/ui/card'
 import type { CardState } from '../../components/ui/card'
-import { useFilters, rangeLabel } from '../shell/filtersContext'
+import { useState } from 'react'
+import ChartRange from '../shell/ChartRange'
+import { DEFAULT_RANGE, useFilters, rangeLabel, type DateRange } from '../shell/filtersContext'
 import { fetchPmMetrics, fetchPmOverview, type PmMetrics, type PmOverview } from './pmMetricsApi'
 import { QueueTable } from './QueueTable'
 import { StageFunnel } from './StageFunnel'
@@ -31,12 +33,6 @@ export default function PmDashboard() {
     { key: 'PmDashboard:1' },
   )
 
-  const onTime = metrics?.onTime
-  const onTimeState: CardState =
-    base.kind === 'ok' && onTime?.ratePct === null
-      ? { kind: 'empty', note: 'Nothing was delivered in this period.' }
-      : base
-
   return (
     <section>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -62,14 +58,11 @@ export default function PmDashboard() {
         />
       </div>
 
-      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <DeliveredCard
-          onTime={onTime}
-          points={overview?.throughput}
-          // Both reads feed it: the overview's chart and the metrics' rate.
-          state={overviewState.kind !== 'ok' ? overviewState : onTimeState}
-          period={rangeLabel(dateRange).toLowerCase()}
-        />
+      {/* Five columns on a wide screen (2026-10-28): the delivered chart (2) spans two rows on the left; at risk,
+          unassigned and revision rate sit on the right with Case manager workload (3) under them, so the small
+          cards keep their own height; completion by service type runs full width below. */}
+      <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <DeliveredOverTime brandId={activeBrandId} className="xl:row-span-2" />
 
         <KpiCard
           title="At risk right now"
@@ -97,9 +90,49 @@ export default function PmDashboard() {
           note="Arrived from sales, no Case Manager yet. This should be zero."
         />
 
+        <Card
+          title="Draft revision rate"
+          state={
+            base.kind === 'ok' && metrics!.revisionRateByCm.length === 0
+              ? { kind: 'empty', note: 'No drafts have been submitted yet.' }
+              : base
+          }
+          note="Share of cases needing more than one draft. A coaching signal, not a score."
+        >
+          <ul className="space-y-1.5">
+            {metrics?.revisionRateByCm.map((row) => (
+              <li key={row.cmId} className="flex items-baseline justify-between gap-2 text-sm">
+                <span className="truncate">{row.name}</span>
+                <span className="font-num tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                  {row.ratePct}% of {row.cases}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <Card
+          title="Case manager workload"
+          wide
+          className="xl:col-span-3"
+          state={
+            base.kind === 'ok' && metrics!.workload.length === 0
+              ? { kind: 'empty', note: 'No Case Managers on this brand yet.' }
+              : base
+          }
+          note="Green under 70% of capacity, amber to 90%, red above."
+        >
+          <div>
+            {metrics?.workload.map((row) => (
+              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} critical={row.critical} />
+            ))}
+          </div>
+        </Card>
+
         <ChartCard
           title="Completion by service type"
           wide
+          className="xl:col-span-5"
           state={
             base.kind === 'ok' && metrics!.completionByService.length === 0
               ? { kind: 'empty', note: 'No cases were delivered in this period.' }
@@ -144,43 +177,7 @@ export default function PmDashboard() {
           )}
         </ChartCard>
 
-        <Card
-          title="Case manager workload"
-          wide
-          state={
-            base.kind === 'ok' && metrics!.workload.length === 0
-              ? { kind: 'empty', note: 'No Case Managers on this brand yet.' }
-              : base
-          }
-          note="Green under 70% of capacity, amber to 90%, red above."
-        >
-          <div>
-            {metrics?.workload.map((row) => (
-              <CapacityBar key={row.cmId} label={row.name} used={row.active} capacity={row.capacity} critical={row.critical} />
-            ))}
-          </div>
-        </Card>
 
-        <Card
-          title="Draft revision rate"
-          state={
-            base.kind === 'ok' && metrics!.revisionRateByCm.length === 0
-              ? { kind: 'empty', note: 'No drafts have been submitted yet.' }
-              : base
-          }
-          note="Share of cases needing more than one draft. A coaching signal, not a score."
-        >
-          <ul className="space-y-1.5">
-            {metrics?.revisionRateByCm.map((row) => (
-              <li key={row.cmId} className="flex items-baseline justify-between gap-2 text-sm">
-                <span className="truncate">{row.name}</span>
-                <span className="font-num tabular-nums" style={{ color: 'var(--text-muted)' }}>
-                  {row.ratePct}% of {row.cases}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
 
       </div>
 
@@ -193,19 +190,39 @@ export default function PmDashboard() {
           state={overviewState}
           emptyNote="No drafts are waiting for review."
         />
-        <QueueTable
-          title="Final QC queue"
-          note="Cases waiting on final quality check. Owner is the assigned PM."
-          rows={overview?.queues.finalQc}
-          state={overviewState}
-          emptyNote="Nothing is waiting for final QC."
-        />
-        <Card
-          title="First-pass QC rate"
-          state={{ kind: 'unavailable', blockedBy: 'D80 — no QC outcome is recorded per case' }}
-        />
       </div>
     </section>
+  )
+}
+
+/**
+ * The delivered chart with its own period (2026-10-28): the date filter left the top bar, so this card reads the
+ * same two endpoints over the range its own picker names, and changing it moves nothing else on the page.
+ */
+function DeliveredOverTime({ brandId, className }: { brandId: string | null; className?: string }) {
+  const [range, setRange] = useState<DateRange>(DEFAULT_RANGE)
+  const { data: metrics, state: base } = useMetrics<PmMetrics>(
+    (signal) => fetchPmMetrics(range, brandId, signal),
+    [range, brandId],
+    { key: 'PmDashboard:delivered:0' },
+  )
+  const { data: overview, state: overviewState } = useMetrics<PmOverview>(
+    (signal) => fetchPmOverview(range, brandId, signal),
+    [range, brandId],
+    { key: 'PmDashboard:delivered:1' },
+  )
+  const onTime = metrics?.onTime
+  const onTimeState: CardState =
+    base.kind === 'ok' && onTime?.ratePct === null ? { kind: 'empty', note: 'Nothing was delivered in this period.' } : base
+  return (
+    <DeliveredCard
+      onTime={onTime}
+      points={overview?.throughput}
+      state={overviewState.kind !== 'ok' ? overviewState : onTimeState}
+      period={rangeLabel(range).toLowerCase()}
+      className={className}
+      action={<ChartRange range={range} onChange={setRange} />}
+    />
   )
 }
 

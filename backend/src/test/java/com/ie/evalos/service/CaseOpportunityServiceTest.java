@@ -1,24 +1,31 @@
 package com.ie.evalos.service;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Case;
+import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.integration.GhlPipelineClient;
+import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.security.StaffPrincipal;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /** The deal behind a case is read through the case: its scope, its brand, and a role that reads case content. */
 class CaseOpportunityServiceTest {
@@ -28,7 +35,9 @@ class CaseOpportunityServiceTest {
 
 	private final CaseLifecycleService lifecycle = mock(CaseLifecycleService.class);
 	private final OpportunityMirrorService mirror = mock(OpportunityMirrorService.class);
-	private final CaseOpportunityService service = new CaseOpportunityService(lifecycle, mirror);
+	private final GhlPipelineClient ghl = mock(GhlPipelineClient.class);
+	private final ContactSnapshotRepository contacts = mock(ContactSnapshotRepository.class);
+	private final CaseOpportunityService service = new CaseOpportunityService(lifecycle, mirror, ghl, contacts);
 
 	@AfterEach
 	void clearCaller() {
@@ -74,6 +83,32 @@ class CaseOpportunityServiceTest {
 		caseWithDeal(null);
 
 		assertThat(service.of(CASE_ID)).isEmpty();
+	}
+
+	@Test
+	void aDealTheMirrorLacksIsFetchedFromGhlThroughTheCaseContact() {
+		actAs(Role.CASE_MANAGER);
+		Case subject = caseWithDeal("opp1Real");
+		UUID contactId = UUID.randomUUID();
+		ReflectionTestUtils.setField(subject, "contactId", contactId);
+		given(contacts.findById(contactId)).willReturn(Optional.of(new ContactSnapshot(BRAND, "contact1Real")));
+		List<GhlPipelineClient.Opportunity> fromGhl = List.of();
+		given(ghl.forContact("contact1Real")).willReturn(fromGhl);
+		Opportunity deal = new Opportunity(BRAND, "opp1Real", UUID.randomUUID());
+		given(mirror.byGhlId("opp1Real")).willReturn(Optional.empty(), Optional.of(deal));
+
+		assertThat(service.of(CASE_ID)).containsSame(deal);
+		verify(mirror).absorbForContact(fromGhl);
+	}
+
+	@Test
+	void aSeededDealIsNeverSentToGhl() {
+		actAs(Role.CASE_MANAGER);
+		caseWithDeal("ghl-opp-tp-ie-0001");
+		given(mirror.byGhlId("ghl-opp-tp-ie-0001")).willReturn(Optional.empty());
+
+		assertThat(service.of(CASE_ID)).isEmpty();
+		verifyNoInteractions(ghl);
 	}
 
 	@Test

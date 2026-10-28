@@ -25,11 +25,13 @@ export function CaseDelivered({ caseId }: { caseId: string }) {
             <strong>{LABEL[file.kind]}</strong>
             {file.filename && <span className="ml-2 text-muted-foreground">{file.filename}</span>}
           </span>
-          {/* View first (Unit 74): both delivered files are PDFs, so both open in the browser. */}
+          {/* View first (Unit 74) when it is a PDF; a Word-only approved draft only downloads. */}
           <span className="flex shrink-0 gap-2">
-            <Button size="sm" onClick={() => void openFile(() => deliveredUrl(caseId, file.id, true))}>
-              View
-            </Button>
+            {file.viewable && (
+              <Button size="sm" onClick={() => void openFile(() => deliveredUrl(caseId, file.id, true))}>
+                View
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => void openFile(() => deliveredUrl(caseId, file.id))}>
               Download
             </Button>

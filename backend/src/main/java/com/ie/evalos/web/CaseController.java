@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import com.ie.evalos.common.ApiResponse;
+import com.ie.evalos.common.InvalidRequestException;
 import com.ie.evalos.common.UploadedFileType;
 import com.ie.evalos.domain.Case;
 import com.ie.evalos.domain.ClientApprovalStatus;
@@ -528,7 +529,7 @@ public class CaseController {
 	 *                       roster endpoint it may not be allowed to read.
 	 */
 	public record DocumentVersion(UUID id, int version, String status, String uploadedByName,
-			Instant uploadedAt, String notes, String reviewComment, String filename, boolean hasPdf) {
+			Instant uploadedAt, String notes, String reviewComment, String filename, boolean hasWord, boolean hasPdf) {
 
 		static DocumentVersion of(CaseLifecycleService.Version version) {
 			CaseDocument document = version.document();
@@ -536,7 +537,7 @@ public class CaseController {
 			// somebody will eventually try to turn into a URL. The filename is what a human reads.
 			return new DocumentVersion(document.getId(), document.getVersion(), document.getStatus().name(),
 					version.uploadedByName(), document.getUploadedAt(), document.getNotes(),
-					document.getReviewComment(), document.getFilename(), document.hasPdf());
+					document.getReviewComment(), document.getFilename(), document.getObjectKey() != null, document.hasPdf());
 		}
 	}
 
@@ -653,17 +654,27 @@ public class CaseController {
 	// --- the draft loops -----------------------------------------------------
 
 	/**
-	 * The next draft version, as Word and PDF (Unit 58 §3). The Case Manager, Coordinator or PM of
-	 * the case — the scoped load inside the service is the "of the case". Both parts are sniffed
-	 * here, so a renamed file never reaches S3.
+	 * The next draft version, as Word, PDF or both (Unit 58 §3; either alone since 2026-10-28). The
+	 * Case Manager of the case — the scoped load inside the service is the "of the case". Each part
+	 * present is sniffed here, so a renamed file never reaches S3; a request with neither is a 400.
 	 */
 	@PostMapping(value = "/{id}/drafts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	@PreAuthorize("hasRole('CASE_MANAGER')") // D51 (2026-10-02): the CM only, GM_OR deliberately absent
-	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id, @RequestParam("docx") MultipartFile docx,
-			@RequestParam("pdf") MultipartFile pdf) throws IOException {
-		UploadedFileType.require(docx, EnumSet.of(UploadedFileType.Kind.DOCX));
-		UploadedFileType.require(pdf, EnumSet.of(UploadedFileType.Kind.PDF));
-		return summary(lifecycle.submitDraft(id, DraftFile.of(docx), DraftFile.of(pdf)));
+	public ApiResponse<CaseSummary> submitDraft(@PathVariable UUID id,
+			@RequestParam(value = "docx", required = false) MultipartFile docx,
+			@RequestParam(value = "pdf", required = false) MultipartFile pdf) throws IOException {
+		boolean hasDocx = docx != null && !docx.isEmpty();
+		boolean hasPdf = pdf != null && !pdf.isEmpty();
+		if (!hasDocx && !hasPdf) {
+			throw new InvalidRequestException("Upload the draft as a Word file, a PDF, or both");
+		}
+		if (hasDocx) {
+			UploadedFileType.require(docx, EnumSet.of(UploadedFileType.Kind.DOCX));
+		}
+		if (hasPdf) {
+			UploadedFileType.require(pdf, EnumSet.of(UploadedFileType.Kind.PDF));
+		}
+		return summary(lifecycle.submitDraft(id, hasDocx ? DraftFile.of(docx) : null, hasPdf ? DraftFile.of(pdf) : null));
 	}
 
 	/**

@@ -133,7 +133,8 @@ public class ExpertPortalService {
 	 * @param kind {@code CLIENT_UPLOAD} or {@code LETTER} — the approved draft, named for what the
 	 *             expert signs rather than for its lifecycle
 	 */
-	public record ExpertDocument(UUID id, String kind, String filename, Instant uploadedAt, boolean hasPdf) {
+	public record ExpertDocument(UUID id, String kind, String filename, Instant uploadedAt, boolean hasWord,
+			boolean hasPdf) {
 	}
 
 	/**
@@ -317,7 +318,8 @@ public class ExpertPortalService {
 				expertDocuments(subject).stream()
 						.map(d -> new ExpertDocument(d.getId(),
 								d.getKind() == DocumentKind.DRAFT ? "LETTER" : d.getKind().name(),
-								d.getFilename(), d.getUploadedAt(), d.hasPdf()))
+								d.getFilename() != null ? d.getFilename() : d.getPdfFilename(), d.getUploadedAt(),
+								d.getObjectKey() != null, d.hasPdf()))
 						.toList(),
 				offer.map(ExpertCaseOffer::getNote).orElse(null));
 	}
@@ -330,7 +332,7 @@ public class ExpertPortalService {
 	private List<CaseDocument> expertDocuments(Case subject) {
 		Optional<CaseDocument> letter = documents
 				.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
-				.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.getObjectKey() != null)
+				.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && (d.getObjectKey() != null || d.hasPdf()))
 				.findFirst();
 		List<CaseDocument> uploads = documents
 				.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.CLIENT_UPLOAD).stream()
@@ -539,11 +541,12 @@ public class ExpertPortalService {
 		String link = subject.getDraftLink();
 		if (link == null || link.isBlank()) {
 			// Unit 58: a draft submitted as files has no link. The expert signs the version the client
-			// approved, handed over as its Word file on a five-minute link.
+			// approved, handed over as its Word file on a five-minute link — or its PDF when the CM
+			// uploaded only a PDF (D51, edited 2026-10-28).
 			link = documents.findByCaseIdAndKindOrderByVersionDesc(subject.getId(), DocumentKind.DRAFT).stream()
-					.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && d.getObjectKey() != null)
+					.filter(d -> d.getStatus() == DocumentStatus.CLIENT_APPROVED && (d.getObjectKey() != null || d.hasPdf()))
 					.findFirst()
-					.map(d -> store.presignedUrl(d.getObjectKey()))
+					.map(d -> store.presignedUrl(d.getObjectKey() != null ? d.getObjectKey() : d.getPdfObjectKey()))
 					.orElseThrow(() -> new IllegalTransitionException("there is no letter on this case yet"));
 		}
 

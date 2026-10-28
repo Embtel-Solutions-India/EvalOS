@@ -1,16 +1,14 @@
-import { useState } from 'react'
 import { useBoard } from '../board/useBoard'
 import { Link } from 'react-router-dom'
 import type { BoardCard } from '../board/boardRules'
-import AvailabilityBoard from '../experts/AvailabilityBoard'
-import ExpertProfile from '../experts/ExpertProfile'
 import { useFilters } from '../shell/filtersContext'
 import RowActions from './RowActions'
 import { awaitingExpert, expertSignOverdue, riskColor, riskLabel } from './queueRules'
 
 /**
- * The Project Manager's expert assignment board: who is waiting for an expert, who is free to
- * take one, and whose signature has run past its budget.
+ * The Project Manager's expert assignment board: who is waiting for an expert, and whose signature
+ * has run past its budget. The Expert availability section was removed on 2026-10-28 at the
+ * business's request; who is free is on the Experts screen.
  *
  * **Three questions on one screen because they are one decision.** `17-dashboards.md` asks for
  * cases waiting, expert availability, and overdue responses flagged red with a reassign prompt —
@@ -25,11 +23,10 @@ import { awaitingExpert, expertSignOverdue, riskColor, riskLabel } from './queue
 export default function ExpertAssignmentPage() {
   const { activeBrandId } = useFilters()
   // Unit 70a: the cached board read, shared with the board and the other queues.
-  const { data, error, load } = useBoard(null, activeBrandId)
+  const { data, error } = useBoard(null, activeBrandId)
   // No `dueBefore`: this screen's question is "who has no expert", which a deadline window
   // would silently narrow — a case with no date at all would drop out of a list whose whole
   // purpose is that nobody is working it.
-  const [openExpert, setOpenExpert] = useState<string | null>(null)
 
 
 
@@ -79,28 +76,9 @@ export default function ExpertAssignmentPage() {
             empty="Every open case has an expert on it."
             rows={waiting}
           />
-
-          <div>
-            <h2 className="text-sm font-semibold tracking-tight">Expert availability</h2>
-            <p className="mt-0.5 mb-3 text-xs" style={{ color: 'var(--text-muted)' }}>
-              Who can take the cases above, with each expert&apos;s live load beside the claim.
-            </p>
-            <AvailabilityBoard onOpen={setOpenExpert} />
-          </div>
         </>
       )}
 
-
-      {openExpert && (
-        // `mayWrite` is false and not derived: this screen is PM-only and a PM is never on
-        // `ExpertController.ROSTER_WRITE`. A live Save here would be a 403 wearing a button.
-        <ExpertProfile
-          expertId={openExpert}
-          mayWrite={false}
-          onSaved={() => void load()}
-          onClose={() => setOpenExpert(null)}
-        />
-      )}
     </section>
   )
 }

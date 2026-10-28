@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Search, Users } from 'lucide-react'
 
 import { Panel } from '../../components/ui/panel'
@@ -146,7 +147,11 @@ export default function ContactsPage() {
                         page 3 is #17, and restarting at 1 on every page makes the column a
                         decoration rather than a position. */}
                     <td className="num">{(found?.page ?? 0) * (found?.size ?? PAGE_SIZE) + index + 1}</td>
-                    <td className="font-medium">{contact.name?.trim() || '—'}</td>
+                    <td className="font-medium">
+                      <Link to={`/contacts/${contact.id}`} className="hover:underline" style={{ color: 'var(--accent-primary)' }}>
+                        {contact.name?.trim() || 'Unnamed contact'}
+                      </Link>
+                    </td>
                     <td>
                       {contact.email?.trim() ? (
                         <a

@@ -1,10 +1,11 @@
 package com.ie.evalos.job;
 
 import java.time.Duration;
-import java.util.List;
 
 import com.ie.evalos.service.OpportunityMirrorService;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -35,6 +36,8 @@ public class MirrorDeltaSweep implements Sweep {
 
 	static final String JOB_TYPE = "MIRROR_DELTA";
 
+	private static final Logger log = LoggerFactory.getLogger(MirrorDeltaSweep.class);
+
 	private final SweepRunner runner;
 	private final OpportunityMirrorService mirror;
 	private final Duration ttl;
@@ -54,10 +57,17 @@ public class MirrorDeltaSweep implements Sweep {
 	@Scheduled(fixedDelayString = "${evalos.jobs.intervals.MIRROR_DELTA}")
 	@Override
 	public boolean run() {
-		// One "item": the pass is a loop over pipelines inside the service, which owns the
-		// selling brand and the TTL comparison. The ledger still records it, so the admin panel's
-		// staleness warning covers a sweep that quietly stopped — the failure that matters here,
-		// because a mirror nobody is refreshing looks exactly like a mirror with nothing to do.
-		return runner.sweep(JOB_TYPE, () -> List.of(Boolean.TRUE), (item) -> mirror.refreshStale(ttl) > 0);
+		// One item per live pipeline, so a GHL failure on one (a 400, a read timeout) rolls back and
+		// skips only that one. It was a single item looping them all, and one failure cost the pass.
+		return runner.sweep(JOB_TYPE, mirror::livePipelineIds, (pipelineId) -> {
+			try {
+				return mirror.refreshIfStale(pipelineId, ttl);
+			}
+			catch (RuntimeException failed) {
+				// SweepRunner logs the exception but not the item; GHL's own 400 body does not name it either.
+				log.warn("MIRROR_DELTA could not refresh GHL pipeline {}", pipelineId);
+				throw failed;
+			}
+		});
 	}
 }

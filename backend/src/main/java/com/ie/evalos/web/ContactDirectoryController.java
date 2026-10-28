@@ -10,6 +10,7 @@ import com.ie.evalos.service.ContactDirectoryService;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -88,5 +89,12 @@ public class ContactDirectoryController {
 		// the client compute a page count the server does not agree with.
 		return ApiResponse.ok(new ContactPage(rows, found.total(), Math.max(page, 0),
 				found.appliedSize()));
+	}
+
+	/** One contact's page: who they are, their deals, and (GM / Brand Manager) their cases. */
+	@GetMapping("/{id}")
+	@PreAuthorize("hasAnyRole('GM', 'BRAND_MANAGER', 'SALES', 'MARKETING')")
+	public ApiResponse<ContactDirectoryService.Detail> detail(@PathVariable UUID id) {
+		return ApiResponse.ok(directory.detail(id));
 	}
 }

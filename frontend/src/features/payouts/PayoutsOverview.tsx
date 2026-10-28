@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Download } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -12,7 +13,7 @@ import {
 } from "recharts";
 
 import { Card } from "../../components/ui/card";
-import { Donut, PillToggle, Sparkline } from "../../components/ui/widgets";
+import { PillToggle, Sparkline } from "../../components/ui/widgets";
 import { formatPayout } from "../../lib/money";
 import { rangeLabel, useFilters } from "../shell/filtersContext";
 import PayoutSummary from "./PayoutSummary";
@@ -112,6 +113,10 @@ export default function PayoutsOverview() {
             promised to confirmed
           </p>
         </div>
+        <Link to="/payouts/export" className="btn">
+          <Download className="h-3.5 w-3.5" aria-hidden />
+          Export
+        </Link>
       </header>
 
       {failure && (
@@ -180,12 +185,10 @@ function Dashboard({
     queryFn: ({ signal }) => fetchSummary(period, signal),
   });
   const money = (value: number) => formatPayout(value, overview.currency);
-  const compact = (value: number) => compactMoney(value, overview.currency);
   const rows = (summary.data ?? [])
     .filter((r) => r.currency === overview.currency)
     .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
   const total = STAGES.reduce((sum, s) => sum + overview[s.key].amount, 0);
-  const cases = STAGES.reduce((n, s) => n + overview[s.key].count, 0);
 
   return (
     <section
@@ -221,55 +224,10 @@ function Dashboard({
         />
       ))}
 
-      <Card
-        className="col-span-12 md:col-span-5 xl:col-span-4"
-        title="Where the money is"
-        state={{ kind: "ok" }}
-      >
-        {total === 0 ? (
-          <p className="text-sm" style={MUTED}>
-            Nothing is committed, owed or paid in this period.
-          </p>
-        ) : (
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
-            <Donut
-              size={132}
-              centre={compact(total)}
-              caption={`${cases} ${cases === 1 ? "case" : "cases"}`}
-              slices={STAGES.map((s) => ({
-                name: s.label,
-                value: overview[s.key].amount,
-                color: STATUS_TONE[s.status],
-              }))}
-            />
-            <ul className="min-w-0 flex-1 space-y-2 text-sm">
-              {STAGES.map((s) => (
-                <li key={s.key} className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ background: STATUS_TONE[s.status] }}
-                  />
-                  <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                  <span className="font-num tabular-nums">
-                    {compact(overview[s.key].amount)}
-                  </span>
-                  <span
-                    className="font-num w-9 text-right text-xs tabular-nums"
-                    style={MUTED}
-                  >
-                    {Math.round((overview[s.key].amount / total) * 100)}%
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </Card>
-
       {/* Is it moving? The ENM's own period, not the shell's. */}
+      {/* Full width since "Where the money is" was removed (2026-10-28); the four stage tiles above carry the split. */}
       <Card
-        className="col-span-12 md:col-span-7 xl:col-span-8"
+        className="col-span-12"
         title="Payouts over time"
         action={
           <PillToggle

@@ -701,6 +701,50 @@ export type ContactPage = {
  * the CRM; shipping all of them to slice fifteen out would cost the payload of the whole roster on
  * every keystroke of the search box.
  */
+export type ContactDeal = {
+  /** GHL id — the deal page's key. Null for a deal not yet in GHL. */
+  ghlId: string | null
+  name: string | null
+  pipelineName: string | null
+  stageName: string | null
+  status: string | null
+  amount: number | null
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export type ContactCase = {
+  id: string
+  caseCode: string
+  stage: string
+  serviceType: string | null
+  serviceSubtype: string | null
+  dealValue: number | null
+  deadline: string | null
+  deliveryDate: string | null
+  createdAt: string
+}
+
+export type ContactDetail = {
+  contact: {
+    id: string
+    brandName: string | null
+    fullName: string | null
+    email: string | null
+    phone: string | null
+    company: string | null
+    sourceChannel: string | null
+  }
+  deals: readonly ContactDeal[]
+  /** Null for Sales and Marketing, who read no case (D19c). */
+  cases: readonly ContactCase[] | null
+}
+
+/** One contact's page, at the same width as the list; outside it the server answers 403. */
+export function fetchContactDetail(id: string, signal?: AbortSignal): Promise<ContactDetail> {
+  return unwrap<ContactDetail>(api.get(`/contacts/${id}`, { signal }))
+}
+
 export function fetchContacts(
   search: string,
   page: number,

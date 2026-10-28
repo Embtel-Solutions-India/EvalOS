@@ -191,7 +191,7 @@ DOC_COLLECTION ─ the PC or CM builds the checklist and SENDS it (Unit 61, D60:
                   are not in the portal; later additions wait for the next Send); PC/CM chase;
                   client uploads to S3 against each sent item
  → PM_REVIEW ─ PM writes strategy notes, assigns the CM (assign-cm, CM only — Unit 73)
- → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word + PDF (POST …/drafts); PM approves or returns;
+ → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word, PDF or both — at least one (POST …/drafts); PM approves or returns;
                   once a draft exists, PM / CM offer the expert an amount (PATCH …/expert, stage kept)
  → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
  → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs, signed in (Unit 59)
@@ -263,7 +263,7 @@ Client Portal /cases/:caseId (Unit 58 — every route names its case; the case-l
   GET  /api/portal/client/invoices?status=paid
 
 Staff     GET /api/cases/{id}/documents, …/{documentId}/url[?pdf=true]
-          POST /api/cases/{id}/drafts (docx + pdf)      GET|POST /api/cases/{id}/drafts/{draft}/comments
+          POST /api/cases/{id}/drafts (docx and/or pdf)    GET|POST /api/cases/{id}/drafts/{draft}/comments
 Expert    GET /api/portal/expert/letter, POST /api/portal/expert/signed-letter
 ```
 
@@ -373,6 +373,7 @@ messaging is the case chat (Unit 57, spec `57-case-chat.md`).
 | **A** | GHL → EvalOS | `opportunity.won` webhook creates the case | code complete |
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
 | **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row — country, tags and custom field values included (2026-09-30; `CONTACT_MIRROR` fills them for every contact) | code complete (2026-09-22) |
+| **push** | EvalOS → GHL | a desk edit queues `sync_outbox`; the drain (2m) reads GHL's copy first and sends only the fields GHL has not changed since — both changed → the newer edit wins (spec 86); a dead push re-queues itself after 1h when the cause was timing or GHL, max 3 times a week | code complete (2026-10-28) |
 | **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
 | **C** | EvalOS → GHL / client | — | **dropped (D53)** |
 

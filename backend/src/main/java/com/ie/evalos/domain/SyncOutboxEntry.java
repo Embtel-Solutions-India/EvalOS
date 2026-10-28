@@ -87,6 +87,13 @@ public class SyncOutboxEntry extends ScopedEntity {
 	@Column(name = "dead_reason")
 	private String deadReason;
 
+	/** When an Administrator re-queued this dead push (V95). The row itself stays dead. */
+	@Column(name = "retried_at")
+	private Instant retriedAt;
+
+	@Column(name = "retried_by")
+	private UUID retriedBy;
+
 	protected SyncOutboxEntry() {
 		// for JPA
 	}
@@ -174,5 +181,26 @@ public class SyncOutboxEntry extends ScopedEntity {
 
 	public boolean isPending() {
 		return sentAt == null && deadAt == null;
+	}
+
+	/** Marks a dead push as re-queued by {@code by}. The caller queues the new row. */
+	public void retried(UUID by) {
+		if (deadAt == null) {
+			throw new IllegalStateException("Only a failed push can be retried");
+		}
+		if (retriedAt != null) {
+			throw new IllegalStateException("This push was already retried");
+		}
+		this.retriedAt = Instant.now();
+		this.retriedBy = by;
+	}
+
+	public Instant getRetriedAt() {
+		return retriedAt;
+	}
+
+	/** Who re-queued it; null with a {@link #getRetriedAt()} means the drain did, automatically (spec 86 §3). */
+	public UUID getRetriedBy() {
+		return retriedBy;
 	}
 }

@@ -16,7 +16,7 @@ Unfinished requests screen were all removed. Nothing below describes them.
 
 Production, and it is now a stated business rule rather than an accident of the code (D36):
 Handoff A creates the case → a **PM** takes it → the PM assigns **Coordinator** and, at PM Review,
-the **Case Manager** only → the **CM uploads the draft as Word + PDF** → **once a draft exists the PM
+the **Case Manager** only → the **CM uploads the draft as Word, PDF or both** → **once a draft exists the PM
 or CM offers the Expert an amount** (Unit 73, 2026-10-02) → the **client comments and approves that
 version in the portal** (Unit 58) → only then
 the **expert** downloads, signs and uploads back. `CaseLifecycleService` already implements all of
@@ -90,3 +90,5 @@ over REST, live via each member's private Ably channel, web push when the app is
 **Checklist send (Unit 61, D60, 2026-09-29).** PC or CM adds items (unsent, hidden from the portal) → **Send** publishes every unsent item, stamps `sent_at/sent_by`, publishes `CHECKLIST_REQUESTED` → client uploads against each sent item. Nothing unsent = "already sent by … on …". Evidence-request items are unsent too; the board lists any case with unsent items **or held `ON_HOLD_AWAITING_CLIENT`** (2026-10-01, chip "Expert asked for more evidence" at signing), and a held case may be chased. The request notifies Coordinators + the case's CM and PM; the case page shows it as a banner until Resume.
 
 **Expert lifecycle (Unit 63, 2026-09-29).** GHL hiring pipeline (tagged `EXPERT_HIRING`; stages are GHL's) → ENM board `/hiring` (stage moves go mirror + outbox → GHL; GHL-side moves notify the ENMs) → Onboarded → pre-filled expert create → directory (verify credentials, case history) → declined case may be retaken (D62) → delivered → payout Pending → ENM records transfer (Processing) → **expert confirms in portal** (Paid) → weekly / monthly summary + CSV. **Unit 65 (built 2026-09-30):** the offer carries the amount (editable while open, expert sees it and accepts it, stale fee → 409), delivery pays that amount, staff Payouts module = Overview · Cases register (per-offer log) · Experts · Payment batch.
+
+**EvalOS → GHL push (spec 86, 2026-10-28):** the drain reads GHL first and sends only fields GHL has not changed since the edit; both changed → newer edit wins (audited). Dead pushes from timing/GHL faults re-queue themselves after 1h (max 3/week); a 4xx waits for the Admin's Retry. MISSING_LOCALLY drift closes when the mirror absorbs the deal.

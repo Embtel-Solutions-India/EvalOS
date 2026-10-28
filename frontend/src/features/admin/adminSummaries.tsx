@@ -12,7 +12,7 @@ import { Donut } from "../../components/ui/widgets";
 import { ROLE_LABELS } from "../../lib/session";
 import { emptyWhen } from "../dashboards/useMetrics";
 import { SERIES } from "../dashboards/journeyWidgets";
-import type { JobRun } from "../jobs/jobsApi";
+import type { DayRuns } from "../jobs/jobsApi";
 import type { MirroredPipeline, StaffMember, SyncHealth } from "./adminApi";
 
 /**
@@ -98,13 +98,14 @@ export function SyncSummary({ health, state }: { health?: SyncHealth; state: Car
   );
 }
 
-export function RunsByDayCard({ runs, state }: { runs?: JobRun[]; state: CardState }) {
+export function RunsByDayCard({ days, state }: { days?: DayRuns[]; state: CardState }) {
+  const total = (days ?? []).reduce((sum, d) => sum + d.ok + d.failed, 0);
   return (
     <Card
       title="Sweep runs, last 7 days"
-      state={emptyWhen(state, (runs?.length ?? 0) === 0, "No sweep has run yet.")}
+      state={emptyWhen(state, total === 0, "No sweep has run in the last 7 days.")}
     >
-      <RunsByDay runs={runs ?? []} />
+      <RunsByDay days={days ?? []} />
     </Card>
   );
 }
@@ -155,16 +156,13 @@ function BarList({
 }
 
 /** Runs per local day for the last week, OK against FAILED — a failure shows as red on its day. */
-function RunsByDay({ runs }: { runs: JobRun[] }) {
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    return { key: d.toDateString(), name: d.toLocaleDateString("en-US", { weekday: "short" }), OK: 0, Failed: 0 };
-  });
-  for (const run of runs) {
-    const day = days.find((d) => d.key === new Date(run.startedAt).toDateString());
-    if (day) day[run.status === "FAILED" ? "Failed" : "OK"] += 1;
-  }
+function RunsByDay({ days: counted }: { days: DayRuns[] }) {
+  // `day` is the server's yyyy-MM-dd in the viewer's zone; noon UTC keeps the weekday right in any zone.
+  const days = counted.map((d) => ({
+    name: new Date(`${d.day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" }),
+    OK: d.ok,
+    Failed: d.failed,
+  }));
   return (
     <>
       <ul className="mb-2 flex gap-4 text-xs">

@@ -208,7 +208,8 @@ class OpportunityMirrorSyncTest {
 		given(pipelines.findByBrandIdOrderByPositionAscNameAsc(BRAND)).willReturn(List.of(sales));
 		sales.opportunitiesSynced();
 
-		assertThat(mirror.refreshStale(Duration.ofMinutes(10))).isEqualTo(1);
+		assertThat(mirror.livePipelineIds()).containsExactly("pipe-1");
+		assertThat(mirror.refreshIfStale("pipe-1", Duration.ofMinutes(10))).isFalse();
 		verify(ghl, never()).allIn(any());
 	}
 
@@ -220,10 +221,22 @@ class OpportunityMirrorSyncTest {
 		given(opportunities.findByPipelineIdIn(List.of(sales.getId()))).willReturn(List.of());
 		given(ghl.allIn("pipe-1")).willReturn(List.of(fromGhl("opp-1", "pipe-1", "s", "Rao", "open")));
 
-		mirror.refreshStale(Duration.ofMinutes(10));
+		assertThat(mirror.refreshIfStale("pipe-1", Duration.ofMinutes(10))).isTrue();
 
 		verify(ghl).allIn("pipe-1");
 		assertThat(saved).hasSize(1);
+	}
+
+	/** Spec 86 §4: a deal the mirror just absorbed is no longer "missing locally" — the drift closes now. */
+	@Test
+	void absorbingADealClosesItsMissingLocallyDrift() {
+		com.ie.evalos.repository.SyncDriftRepository drifts = mock(com.ie.evalos.repository.SyncDriftRepository.class);
+		mirror.useDrifts(drifts);
+		given(opportunities.findByPipelineIdIn(List.of(sales.getId()))).willReturn(List.of());
+
+		mirror.absorb(sales, List.of(fromGhl("opp-1", "pipe-1", "s", "Rao", "open")));
+
+		verify(drifts).resolveMissingLocally(BRAND, List.of("opp-1"));
 	}
 
 	/** A pipeline GHL stopped returning keeps its row and is not re-read — 44a stamps it missing. */
@@ -232,7 +245,7 @@ class OpportunityMirrorSyncTest {
 		sales.markMissing(Instant.now());
 		given(pipelines.findByBrandIdOrderByPositionAscNameAsc(BRAND)).willReturn(List.of(sales));
 
-		assertThat(mirror.refreshStale(Duration.ofMinutes(10))).isZero();
+		assertThat(mirror.livePipelineIds()).isEmpty();
 		verify(ghl, never()).allIn(any());
 	}
 
