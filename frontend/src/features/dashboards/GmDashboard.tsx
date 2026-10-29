@@ -70,11 +70,15 @@ import { emptyWhen, useMetrics } from "./useMetrics";
  * recruitment funnel (Unit 50). A tile that names a metric it cannot compute is the
  * header-contradicting-the-instrument failure this project has already had to clean up once.
  */
+/** Where the Expert management cards open: every hiring pipeline combined (2026-10-30). */
+const ALL_HIRING_BOARD = "/opportunities/board?pipeline=all-hiring";
+
 /** The roles the Team card lists, grouped into departments. */
 const DEPARTMENTS: { name: string; roles: Role[]; dashboard?: "sales" | "marketing" }[] = [
   { name: "Sales", roles: ["SALES"], dashboard: "sales" },
   { name: "Marketing", roles: ["MARKETING"], dashboard: "marketing" },
-  { name: "Production", roles: ["PROJECT_MANAGER", "PROJECT_COORDINATOR", "CASE_MANAGER"] },
+  // ENM added 2026-10-30. Each production member opens their own dashboard (MemberDashboardPage).
+  { name: "Production", roles: ["PROJECT_MANAGER", "PROJECT_COORDINATOR", "CASE_MANAGER", "EXPERT_NETWORK_MANAGER"] },
 ];
 const PAYOUT_STAGES = [
   ["committed", "Committed"],
@@ -330,7 +334,9 @@ export default function GmDashboard() {
                     })}
                   </>
                 );
-                const href = department.dashboard && `/dashboard/${department.dashboard}?member=${member.id}`;
+                const href = department.dashboard
+                  ? `/dashboard/${department.dashboard}?member=${member.id}`
+                  : `/dashboard/member/${member.id}?${new URLSearchParams({ role: member.role, name: member.label })}`;
                 return (
                   <li key={member.id}>
                     {href ? (
@@ -528,7 +534,7 @@ export default function GmDashboard() {
             title="Total experts"
             state={roster.state}
             value={roster.data ? roster.data.roster.available + roster.data.roster.atCapacity : null}
-            to="/experts"
+            to={ALL_HIRING_BOARD}
             action={
               roster.data && (
                 <p className="font-num mt-1.5 text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
@@ -543,7 +549,7 @@ export default function GmDashboard() {
             note="Candidates opened this month on the hiring pipeline"
             state={stageState(today?.hiringInterested)}
             value={today?.hiringInterested ?? null}
-            to="/hiring"
+            to={ALL_HIRING_BOARD}
             action={<p className="mt-1.5 text-xs" style={{ color: "var(--text-muted)" }}>this month</p>}
           />
           <KpiCard
@@ -552,7 +558,7 @@ export default function GmDashboard() {
             note="This month's candidates now at Meeting Done or a later stage. A candidate dropped after the meeting is not counted."
             state={stageState(today?.hiringMet)}
             value={today?.hiringMet ?? null}
-            to="/hiring"
+            to={ALL_HIRING_BOARD}
             action={
               today?.hiringInterested != null && (
                 <p className="font-num mt-1.5 text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
@@ -576,7 +582,7 @@ export default function GmDashboard() {
                     unit: "",
                   }
             }
-            to="/experts"
+            to={ALL_HIRING_BOARD}
             action={
               roster.data && (
                 <p className="font-num mt-1.5 text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>

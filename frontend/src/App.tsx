@@ -32,10 +32,12 @@ import AppShell from './features/shell/AppShell'
 import PlaceholderPage from './features/shell/PlaceholderPage'
 import CaseDetailPage from './features/case/CaseDetail'
 import ConversationsPage from './features/chat/ConversationsPage'
+import MemberDashboardPage from './features/dashboards/MemberDashboardPage'
 import {
   CASE_DETAIL_PATH,
   CONTACT_DETAIL_PATH,
   CONVERSATION_PATH,
+  MEMBER_DASHBOARD_PATH,
   DEAL_DETAIL_PATH,
   EXPERT_PAYOUTS_PATH,
   NAV_ITEMS,
@@ -194,6 +196,16 @@ function StaffApp() {
           element={
             <RoleRoute path={CASE_DETAIL_PATH}>
               <CaseDetailPage />
+            </RoleRoute>
+          }
+        />
+
+        {/* Reached from the GM's Team card, never listed — so it needs its own route (the Add meeting lesson). */}
+        <Route
+          path={MEMBER_DASHBOARD_PATH}
+          element={
+            <RoleRoute path={MEMBER_DASHBOARD_PATH}>
+              <MemberDashboardPage />
             </RoleRoute>
           }
         />

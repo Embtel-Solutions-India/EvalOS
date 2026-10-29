@@ -30,6 +30,23 @@ public class JwtFilter extends OncePerRequestFilter {
 
 	private static final String BEARER = "Bearer ";
 
+	/**
+	 * The GM opens one production member's own dashboard (2026-10-30): {@code ?viewAs=<memberId>} on a GET of
+	 * exactly these reads runs the request <em>as that member</em>, so their role gate and their scope apply and
+	 * the figures are the ones they see. GM only, GET only, these paths only, and only a PM, Coordinator, Case
+	 * Manager or ENM who is active — anything else is a 403, never a silent fall back to the GM's own view.
+	 */
+	static final String VIEW_AS = "viewAs";
+	static final java.util.Set<String> VIEW_AS_PATHS = java.util.Set.of(
+			"/api/metrics/pm", "/api/metrics/pm/overview",
+			"/api/metrics/coordinator", "/api/metrics/coordinator/work",
+			"/api/metrics/case-manager", "/api/metrics/case-manager/work",
+			"/api/metrics/expert-network", "/api/metrics/expert-network/work",
+			"/api/opportunities/board", "/api/payouts/summary");
+	static final java.util.Set<com.ie.evalos.domain.Role> VIEWABLE = java.util.EnumSet.of(
+			com.ie.evalos.domain.Role.PROJECT_MANAGER, com.ie.evalos.domain.Role.PROJECT_COORDINATOR,
+			com.ie.evalos.domain.Role.CASE_MANAGER, com.ie.evalos.domain.Role.EXPERT_NETWORK_MANAGER);
+
 	private final JwtService jwtService;
 	/**
 	 * Unit 68: a deactivated member is refused on their next request, not when their 8 h token
@@ -69,6 +86,15 @@ public class JwtFilter extends OncePerRequestFilter {
 							principal.role(), principal.brandId(), principal.teamId(),
 							assignments.ghlIdsFor(principal.memberId()), principal.passwordHash(), principal.active());
 				}
+				String viewAs = request.getParameter(VIEW_AS);
+				if (viewAs != null) {
+					principal = viewedAs(request, principal, viewAs, repository, assignments);
+					if (principal == null) {
+						SecurityContextHolder.clearContext();
+						response.sendError(HttpServletResponse.SC_FORBIDDEN, "Not a dashboard the GM may view as that member");
+						return;
+					}
+				}
 				var authentication = new UsernamePasswordAuthenticationToken(
 						principal, null, principal.getAuthorities());
 				authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
@@ -83,5 +109,27 @@ public class JwtFilter extends OncePerRequestFilter {
 		}
 
 		chain.doFilter(request, response);
+	}
+
+	/** The member the GM views as, or null when the request may not do that. */
+	static StaffPrincipal viewedAs(HttpServletRequest request, StaffPrincipal caller, String viewAs,
+			com.ie.evalos.repository.TeamMemberRepository members,
+			com.ie.evalos.repository.TeamMemberPipelineRepository assignments) {
+		if (caller.role() != com.ie.evalos.domain.Role.GM || !"GET".equals(request.getMethod())
+				|| !VIEW_AS_PATHS.contains(request.getRequestURI()) || members == null || assignments == null) {
+			return null;
+		}
+		java.util.UUID id;
+		try {
+			id = java.util.UUID.fromString(viewAs);
+		}
+		catch (IllegalArgumentException notAnId) {
+			return null;
+		}
+		return members.findById(id)
+				.filter(com.ie.evalos.domain.TeamMember::isActive)
+				.filter((member) -> VIEWABLE.contains(member.getRole()))
+				.map((member) -> StaffPrincipal.of(member, assignments.ghlIdsFor(member.getId())))
+				.orElse(null);
 	}
 }

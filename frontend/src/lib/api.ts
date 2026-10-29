@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { afterRequest } from './queryClient'
 import { clearToken, getToken } from './session'
+import { VIEW_AS_PATHS, viewAs } from './viewAs'
 
 /**
  * Shared HTTP client for the EvalOS Spring Boot API.
@@ -19,6 +20,11 @@ export const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = getToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // The GM viewing one member's dashboard (2026-10-30): only those reads, only while the page is open.
+  const member = viewAs()
+  if (member && (config.method ?? 'get') === 'get' && VIEW_AS_PATHS.includes(config.url ?? '')) {
+    config.params = { ...config.params, viewAs: member }
+  }
   return config
 })
 

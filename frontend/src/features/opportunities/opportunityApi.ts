@@ -30,6 +30,8 @@ export type Deal = {
 
 /** The GM's first drop-down option and default: every SALES pipeline at once (`OpportunityBoardService.ALL_SALES`). */
 export const ALL_SALES = 'all-sales'
+/** Every EXPERT_HIRING pipeline at once (`OpportunityBoardService.ALL_HIRING`, 2026-10-30); the GM dashboard's Expert cards open it. */
+export const ALL_HIRING = 'all-hiring'
 
 /** One stage of the pipeline, named by GHL and ordered by GHL's own `position`. */
 export type BoardColumn = {

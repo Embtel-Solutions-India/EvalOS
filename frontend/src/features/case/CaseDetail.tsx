@@ -27,8 +27,8 @@ import {
 } from './caseApi'
 
 /**
- * One case: documents, draft and expert on the left, the append-only notes-and-timeline panel on
- * the right, with the stage actions in a sticky header.
+ * One case: the stage actions in a sticky header, then six tabs — documents and checklist, drafts,
+ * expert and offer, conversation, notes, and the append-only timeline (2026-10-30).
  *
  * The dialog and the transition POST are the board's — a transition is the same operation
  * from either screen, so reusing them is what keeps the two surfaces honest with each other.
@@ -177,38 +177,32 @@ export default function CaseDetailPage() {
 
       <CaseTabs tab={tab} onChange={setTab} chatUnread={unread.total} />
 
-      {/* Two tabs. Work is the job in hand: documents and the draft on the left, the conversation on the
-          right (stacked below `xl`). Overview is everything that describes the case. Each panel still
-          renders nothing for a role that may not read it. */}
+      {/* Six tabs (2026-10-30). Each panel still renders nothing for a role that may not read it. */}
       <div role="tabpanel" id="case-tabpanel" aria-labelledby={`case-tab-${tab}`} className="min-w-0">
-        {tab === 'work' && (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-            <div className="flex min-w-0 flex-col gap-4">
-              <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />
-              <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />
-            </div>
-            <div className="min-w-0">
-              <CaseChat caseId={detail.summary.id} />
-            </div>
+        {tab === 'documents' && <DocumentsPanel detail={detail} role={me.role} onChanged={() => void load()} />}
+        {tab === 'drafts' && <DraftPanel detail={detail} role={me.role} onUploaded={() => void load()} />}
+        {tab === 'expert' && (
+          <div className="flex min-w-0 flex-col gap-4">
+            <ExpertCard detail={detail} />
+            {/* Read-only: written where the expert is chosen. A Case Manager sees the notes and not
+                this, an ENM sees this and not the notes. */}
+            <ExpertRationale detail={detail} />
           </div>
         )}
-
-        {tab === 'overview' && (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-            <div className="flex min-w-0 flex-col gap-4">
-              <ClientRemarks detail={detail} role={me.role} />
-              <SalesNote detail={detail} />
-              <StrategyNotes detail={detail} onSave={onSaveNotes} />
-              <ExpertCard detail={detail} />
-              {/* Read-only: written where the expert is chosen. A Case Manager sees the notes and not
-                  this, an ENM sees this and not the notes. */}
-              <ExpertRationale detail={detail} />
-            </div>
-            <div className="min-w-0">
-              <Timeline entries={timeline} onPostNote={onPostNote} />
-            </div>
+        {tab === 'conversation' && (
+          <div className="flex min-w-0 flex-col gap-4">
+            {/* What the client reads as their case's latest word (D74) — client communication, beside the chat. */}
+            <ClientRemarks detail={detail} role={me.role} />
+            <CaseChat caseId={detail.summary.id} />
           </div>
         )}
+        {tab === 'notes' && (
+          <div className="flex min-w-0 flex-col gap-4">
+            <SalesNote detail={detail} />
+            <StrategyNotes detail={detail} onSave={onSaveNotes} />
+          </div>
+        )}
+        {tab === 'timeline' && <Timeline entries={timeline} onPostNote={onPostNote} />}
       </div>
 
       {pending && (

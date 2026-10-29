@@ -1,5 +1,5 @@
 import { memo, useDeferredValue, useMemo, useRef, useState, type DragEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { useMe } from '../../lib/authContext'
 import { useMetrics } from '../dashboards/useMetrics'
@@ -14,6 +14,7 @@ import MyTarget from './MyTarget'
 import WinNote from './WinNote'
 import {
   ALL_SALES,
+  ALL_HIRING,
   fetchPipelineBoard,
   moveStage,
   refreshPipelineBoard,
@@ -66,7 +67,9 @@ export default function OpportunityBoardPage() {
   const gmView = role === 'GM' || role === 'ADMIN'
   // One pipeline at a time. Null until chosen: the server then draws the default (a desk's first; the GM's
   // "All sales pipelines", 2026-10-29) and says which one it drew.
-  const [pipeline, setPipeline] = useState<string | null>(null)
+  // `?pipeline=` opens a given one (2026-10-30: the GM dashboard's Expert cards open all-hiring); the server still checks it.
+  const [searchParams] = useSearchParams()
+  const [pipeline, setPipeline] = useState<string | null>(() => searchParams.get('pipeline'))
   // The sweeps rewrite the mirror every few minutes and tell no browser, so a desk's board re-reads once a
   // minute while visible. Not the GM's: every sales pipeline (or the Master) is thousands of cards and a poll would be heavy.
   const { data, state, reload } = useMetrics((signal) => fetchPipelineBoard(pipeline, signal), [pipeline], {
@@ -80,7 +83,7 @@ export default function OpportunityBoardPage() {
   // Every pipeline's owner moves its deals, the GM moves any (2026-10-29) — the same stage route.
   // Not on all-sales: its columns fold several pipelines' stages, so a drop there has no one stage to land on.
   const canMove = role === 'SALES' || role === 'MARKETING' || role === 'EXPERT_NETWORK_MANAGER'
-    || (role === 'GM' && active !== ALL_SALES)
+    || (role === 'GM' && active !== ALL_SALES && active !== ALL_HIRING)
   const hiring = role === 'EXPERT_NETWORK_MANAGER'
 
   // The columns as drawn: the last read, plus any moves made since. A new read replaces them —
@@ -458,7 +461,7 @@ export default function OpportunityBoardPage() {
               addHref={role === 'SALES' ? `/opportunities/new?stage=${encodeURIComponent(column.stageId)}` : undefined}
               over={over === column.stageId}
               canMove={canMove}
-              showPipeline={active === ALL_SALES}
+              showPipeline={active === ALL_SALES || active === ALL_HIRING}
             />
           ))}
         </div>

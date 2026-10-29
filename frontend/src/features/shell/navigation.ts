@@ -560,7 +560,20 @@ export const PAYMENT_DETAIL_PATH = "/payouts/payments/:paymentId";
 /** Every payout as one table with CSV and print export. Reached from the Export button on Payouts (2026-10-28). */
 export const PAYOUT_EXPORT_PATH = "/payouts/export";
 
+/** One production member's own dashboard, opened by the GM from the Team card (2026-10-30). */
+export const MEMBER_DASHBOARD_PATH = "/dashboard/member/:memberId";
+
 const PARAMETERIZED: readonly NavItem[] = [
+  // GM only: the server runs these reads as the member (`JwtFilter.viewAs`), which it allows the GM alone.
+  // Reads the GHL location through the ENM's hiring board, which is GM-safe for the reason the GM's board is.
+  {
+    path: MEMBER_DASHBOARD_PATH,
+    readsGhlLocation: true,
+    label: "Member dashboard",
+    roles: ["GM"],
+    becomes: "One member's own dashboard, as they see it",
+    group: "Overview",
+  },
   // Booking is a button on the diary now (2026-10-09), not a sidebar entry, so it is reached rather than listed.
   // Marked `readsGhlLocation` because the form reads the location's calendars, users and — live, always — its
   // free slots; both desks that book are brand-proven for the reason the opportunity board is.

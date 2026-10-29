@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { viewAs } from '../../lib/viewAs'
 import { useCallback, useId } from 'react'
 import type { CardState } from '../../components/ui/card'
 
@@ -42,7 +43,8 @@ export function useMetrics<T>(
   options?: { refreshEvery?: number; key?: string },
 ): { data: T | null; state: CardState; reload: () => void } {
   const id = useId()
-  const query = useQuery({ queryKey: ['metrics', options?.key ?? id, ...deps], queryFn: ({ signal }) => load(signal),
+  // `viewAs()`: the GM looking at one member's dashboard caches it apart from their own and everyone else's.
+  const query = useQuery({ queryKey: ['metrics', options?.key ?? id, viewAs(), ...deps], queryFn: ({ signal }) => load(signal),
     ...refreshOptions(options),
   })
   const data = query.data ?? null

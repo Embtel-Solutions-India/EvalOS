@@ -193,7 +193,7 @@ class OpportunityBoardServiceTest {
 		OpportunityBoardService.Board board = service().forPipeline(null);
 
 		assertThat(board.pipelines()).extracting(OpportunityBoardService.PipelineOption::id)
-				.containsExactly(OpportunityBoardService.ALL_SALES, MINE, "pipe_master");
+				.containsExactly(OpportunityBoardService.ALL_SALES, OpportunityBoardService.ALL_HIRING, MINE, "pipe_master");
 		assertThat(board.pipelineId()).isEqualTo(OpportunityBoardService.ALL_SALES);
 		// The sales pipelines only — the Master Pipeline is one pick away, not part of the default.
 		verify(deals).onPipelines(List.of(MINE));
@@ -202,6 +202,33 @@ class OpportunityBoardServiceTest {
 
 		service().forPipeline("pipe_master");
 		verify(deals).onPipelines(List.of("pipe_master"));
+	}
+
+	/** 2026-10-30: every EXPERT_HIRING pipeline at once — where the GM dashboard's Expert cards open. */
+	@Test
+	void allHiringCombinesEveryHiringPipelineAndNothingElse() {
+		authenticate(Role.GM, null);
+		Pipeline hiringA = mirrored("pipe_hire_a", "Hiring A", 0);
+		hiringA.setPurpose(com.ie.evalos.domain.PipelinePurpose.EXPERT_HIRING);
+		Pipeline hiringB = mirrored("pipe_hire_b", "Hiring B", 1);
+		hiringB.setPurpose(com.ie.evalos.domain.PipelinePurpose.EXPERT_HIRING);
+		when(pipelines.all()).thenReturn(List.of(hiringA, mirrored(MINE, "Sales desk", 2), hiringB));
+		givenMirrored(List.of());
+
+		OpportunityBoardService.Board board = service().forPipeline(OpportunityBoardService.ALL_HIRING);
+
+		assertThat(board.pipelineId()).isEqualTo(OpportunityBoardService.ALL_HIRING);
+		verify(deals).onPipelines(List.of("pipe_hire_a", "pipe_hire_b"));
+	}
+
+	/** A desk is never offered the GM's combined views. */
+	@Test
+	void aDeskCannotAskForAllHiring() {
+		authenticate(Role.EXPERT_NETWORK_MANAGER, null);
+		when(assignments.ghlIdsFor(MEMBER)).thenReturn(List.of(MINE));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> service().forPipeline(OpportunityBoardService.ALL_HIRING))
+				.isInstanceOf(com.ie.evalos.common.ForbiddenException.class);
 	}
 
 	/** Refresh on the all-sales view syncs each sales pipeline, and nothing else. */
