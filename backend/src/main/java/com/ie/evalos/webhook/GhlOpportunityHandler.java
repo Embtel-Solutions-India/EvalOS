@@ -264,7 +264,7 @@ public class GhlOpportunityHandler {
 	/**
 	 * The workflow's {@code service_type} if it sent one; else the won deal's own <em>Service Requested</em>
 	 * (2026-10-30: GHL's workflow cannot carry that dropdown, so every case was Credential evaluation);
-	 * else {@link #DEFAULT_SERVICE}, which the hourly SERVICE_TYPE_RECONCILE sweep still corrects.
+	 * else {@link #DEFAULT_SERVICE}, which CaseServiceTypeListener (on creation) and the 5-minute SERVICE_TYPE_RECONCILE sweep still correct.
 	 */
 	private ServiceType serviceOf(Brand brand, OpportunityWon payload, Optional<GhlPipelineClient.Opportunity> deal) {
 		if (payload != null && payload.customData() != null && payload.customData().serviceType() != null) {

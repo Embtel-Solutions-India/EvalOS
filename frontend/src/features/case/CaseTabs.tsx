@@ -1,6 +1,6 @@
 import { CASE_TABS, type CaseTab } from './useCaseTab'
 
-/** The case page's tab bar. Work holds the chat, so it carries the case's unread count and a new message is seen from Overview. */
+/** The case page's tab bar. Conversation holds the chat, so it carries the case's unread count, seen from every other tab. */
 export default function CaseTabs({
   tab,
   onChange,
@@ -35,7 +35,7 @@ export default function CaseTabs({
             }}
           >
             {t.label}
-            {t.id === 'work' && chatUnread > 0 && (
+            {t.id === 'conversation' && chatUnread > 0 && (
               <span
                 className="font-num rounded-full px-1.5 text-[11px] leading-5 font-semibold tabular-nums"
                 style={{ background: 'var(--accent-primary)', color: '#fff' }}

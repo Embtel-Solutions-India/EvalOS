@@ -92,6 +92,8 @@ public class OpportunityBoardService {
 	 * same union {@link #forCaller} draws. Not a GHL id — GHL's are 20-character ids, so this cannot collide.
 	 */
 	public static final String ALL_SALES = "all-sales";
+	/** 2026-10-30: every live EXPERT_HIRING pipeline at once — where the GM dashboard's Expert management cards open. */
+	public static final String ALL_HIRING = "all-hiring";
 
 	/** GHL's field keys for the two custom fields the card reads. Keys, not ids — see NewDealForm. */
 	static final String SERVICE_FIELD = "opportunity.service_requested";
@@ -256,8 +258,8 @@ public class OpportunityBoardService {
 		// An empty mirror has no pipeline to offer, so read the structure first.
 		syncStructureIfEmpty();
 		Choice choice = choose(caller, requested);
-		if (ALL_SALES.equals(choice.id())) {
-			salesPipelines().forEach((id) -> deals.refreshIfStale(id, manualSyncFloor()));
+		if (isUnion(choice.id())) {
+			union(choice.id()).forEach((id) -> deals.refreshIfStale(id, manualSyncFloor()));
 		}
 		else if (choice.id() != null) {
 			deals.refreshIfStale(choice.id(), manualSyncFloor());
@@ -269,14 +271,14 @@ public class OpportunityBoardService {
 		if (choice.id() == null) {
 			return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrand.id() != null);
 		}
-		if (ALL_SALES.equals(choice.id())) {
-			List<String> sales = salesPipelines();
-			if (sales.isEmpty()) {
+		if (isUnion(choice.id())) {
+			List<String> pipelines = union(choice.id());
+			if (pipelines.isEmpty()) {
 				return new Board(List.of(), 0, BigDecimal.ZERO, null, true, sellingBrand.id() != null)
-						.choosing(choice.options(), ALL_SALES);
+						.choosing(choice.options(), choice.id());
 			}
-			// Folded like the union read: a GM moves no card, so a column may stand for several pipelines' stages.
-			return draw(sales, deals.onPipelines(sales), true).choosing(choice.options(), ALL_SALES);
+			// Folded like the union read: no card is dragged here, so a column may stand for several pipelines' stages.
+			return draw(pipelines, deals.onPipelines(pipelines), true).choosing(choice.options(), choice.id());
 		}
 		List<String> one = List.of(choice.id());
 		return draw(one, deals.onPipelines(one), false).choosing(choice.options(), choice.id());
@@ -303,6 +305,7 @@ public class OpportunityBoardService {
 		if (caller.role().hasGmView()) {
 			List<PipelineOption> all = new ArrayList<>();
 			all.add(new PipelineOption(ALL_SALES, "All sales pipelines"));
+			all.add(new PipelineOption(ALL_HIRING, "All hiring pipelines"));
 			live.stream().map((p) -> new PipelineOption(p.getGhlId(), p.getName())).forEach(all::add);
 			return all;
 		}
@@ -407,6 +410,22 @@ public class OpportunityBoardService {
 		// removes the trap. It widens nothing: it is the same member's own row, read by their own
 		// id, and a member with no assignment still gets an empty list.
 		return assignments.ghlIdsFor(caller.memberId());
+	}
+
+	private static boolean isUnion(String id) {
+		return ALL_SALES.equals(id) || ALL_HIRING.equals(id);
+	}
+
+	private List<String> union(String id) {
+		return ALL_HIRING.equals(id) ? hiringPipelines() : salesPipelines();
+	}
+
+	/** Every live pipeline tagged EXPERT_HIRING (D61) — the ENMs' desks, combined for the GM. */
+	private List<String> hiringPipelines() {
+		return livePipelines().stream()
+				.filter((p) -> p.getPurpose() == com.ie.evalos.domain.PipelinePurpose.EXPERT_HIRING)
+				.map(com.ie.evalos.domain.Pipeline::getGhlId)
+				.toList();
 	}
 
 	/**
