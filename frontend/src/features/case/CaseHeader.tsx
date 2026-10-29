@@ -179,7 +179,7 @@ export default function CaseHeader({
             : <span style={{ color: 'var(--text-muted)' }}>Client withheld</span>}
           </h1>
           <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-            {mayChangeServiceType(role) && !finished ?
+            {mayChangeServiceType(role) && !finished && card.serviceType ?
               <ServiceTypeDialog
                 caseId={card.id}
                 serviceType={card.serviceType}
