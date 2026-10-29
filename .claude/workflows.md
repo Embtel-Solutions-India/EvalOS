@@ -101,10 +101,17 @@ Won in EvalOS (D70)                Won button, or a move to the Won stage (board
                                    Sales writes a required note for production: a deal note
                                    flagged `handoff` (synced to GHL), shown on the case
 
+PM "New case" (a GHL opportunity or contact id, D9 2026-10-30)
+                                  → POST /api/cases/from-ghl → GhlOpportunityHandler.openFromGhl
+                                       (deal must be won in GHL; contact, amount, service read from GHL)
+                                  → the same CaseIntakeService path as below
+PM "Cancel case" (reason)         → POST /api/cases/{id}/cancel → CLOSED, exception CANCELLED,
+                                       pending payouts voided, chat read-only, client reads "Closed"
 GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        WebhookGateway → WebhookRouter → GhlOpportunityHandler
                                        → CaseIntakeService → INSERT evalos_case (paid = true)
-                                       service type from customData.serviceType
+                                       service type from customData.serviceType, else the won
+                                       deal's Service Requested (D77), else Credential evaluation
                                   → CASE_CREATED (after commit)
                                        → chat conversations (Unit 57)
                                        → the client's portal account + case-opened mail (§1, D65:

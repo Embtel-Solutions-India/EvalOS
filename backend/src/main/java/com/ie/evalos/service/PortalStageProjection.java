@@ -47,6 +47,8 @@ public final class PortalStageProjection {
 				"The draft is ready for you to review and confirm factual details."),
 		UNDER_EXPERT_REVIEW("Under Expert Review", "The expert is independently reviewing and finalizing the opinion."),
 		DELIVERED("Delivered", "Final documents are available to download."),
+		/** 2026-10-30: closed without delivery — cancelled, or refunded. Was shown as Delivered. */
+		CLOSED("Closed", "This case was closed without a delivery. Your case team can tell you more."),
 		ON_HOLD("On Hold", "Work is paused.");
 
 		private final String label;
@@ -73,6 +75,9 @@ public final class PortalStageProjection {
 			if (exception == ExceptionState.ON_HOLD_AWAITING_CLIENT) {
 				return ON_HOLD;
 			}
+			if (closedUndelivered(stage, exception)) {
+				return CLOSED;
+			}
 			return switch (stage) {
 				case DOC_COLLECTION -> AWAITING_DOCUMENTS;
 				case PM_REVIEW, DRAFT_IN_PROGRESS, DRAFT_REVIEW, READY_TO_SEND -> IN_PREPARATION;
@@ -90,6 +95,12 @@ public final class PortalStageProjection {
 	private PortalStageProjection() {
 	}
 
+	/** A cancelled or refunded case: CLOSED, still holding the exception that closed it. */
+	static boolean closedUndelivered(Stage stage, ExceptionState exception) {
+		return stage == Stage.CLOSED
+				&& (exception == ExceptionState.CANCELLED || exception == ExceptionState.REFUND_REQUESTED);
+	}
+
 	/**
 	 * What the client sees. Every stage answers something — a client always has a case to look at.
 	 *
@@ -98,7 +109,10 @@ public final class PortalStageProjection {
 	 * {@code CLIENT_APPROVAL} is deliberately <em>not</em> one of them — by then they have
 	 * approved and the case is EvalOS's again.
 	 */
-	public static PortalStep forClient(Stage stage) {
+	public static PortalStep forClient(Stage stage, ExceptionState exception) {
+		if (closedUndelivered(stage, exception)) {
+			return new PortalStep("Closed", false);
+		}
 		return switch (stage) {
 			case DOC_COLLECTION -> new PortalStep("Upload", true);
 			case CLIENT_REVIEW -> new PortalStep("Review", true);

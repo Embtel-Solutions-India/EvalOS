@@ -1,6 +1,7 @@
 package com.ie.evalos.service;
 
 import java.util.Arrays;
+import java.util.List;
 
 import com.ie.evalos.domain.Stage;
 import com.ie.evalos.service.PortalStageProjection.PortalStep;
@@ -25,7 +26,7 @@ class PortalStageProjectionTest {
 		// would render a blank row for a case the client can see the existence of, which reads as
 		// a bug in the case rather than a gap in a table.
 		for (Stage stage : Stage.values()) {
-			assertThat(PortalStageProjection.forClient(stage))
+			assertThat(PortalStageProjection.forClient(stage, com.ie.evalos.domain.ExceptionState.NONE))
 					.as("client step for %s", stage)
 					.isNotNull();
 		}
@@ -33,16 +34,16 @@ class PortalStageProjectionTest {
 
 	@Test
 	void theClientsTwoActionsAreTheOnesTheyCanActOn() {
-		assertThat(PortalStageProjection.forClient(Stage.DOC_COLLECTION))
+		assertThat(PortalStageProjection.forClient(Stage.DOC_COLLECTION, com.ie.evalos.domain.ExceptionState.NONE))
 				.isEqualTo(new PortalStep("Upload", true));
-		assertThat(PortalStageProjection.forClient(Stage.CLIENT_REVIEW))
+		assertThat(PortalStageProjection.forClient(Stage.CLIENT_REVIEW, com.ie.evalos.domain.ExceptionState.NONE))
 				.isEqualTo(new PortalStep("Review", true));
 
 		// Exactly two, and CLIENT_APPROVAL is deliberately not a third: by then they have approved
 		// and the case is EvalOS's again. A client chased for an action they already took is the
 		// specific failure this asserts against.
 		assertThat(Arrays.stream(Stage.values())
-				.filter(stage -> PortalStageProjection.forClient(stage).actionRequired())
+				.filter(stage -> PortalStageProjection.forClient(stage, com.ie.evalos.domain.ExceptionState.NONE).actionRequired())
 				.toList())
 				.containsExactlyInAnyOrder(Stage.DOC_COLLECTION, Stage.CLIENT_REVIEW);
 	}
@@ -51,8 +52,8 @@ class PortalStageProjectionTest {
 	void theClientSeesTheEndStatesAsDifferentThings() {
 		// Delivered and Closed are one thing to EvalOS's board and two to the client: one has a
 		// letter to fetch, the other is finished business.
-		assertThat(PortalStageProjection.forClient(Stage.DELIVERED).label()).isEqualTo("Ready to download");
-		assertThat(PortalStageProjection.forClient(Stage.CLOSED).label()).isEqualTo("Complete");
+		assertThat(PortalStageProjection.forClient(Stage.DELIVERED, com.ie.evalos.domain.ExceptionState.NONE).label()).isEqualTo("Ready to download");
+		assertThat(PortalStageProjection.forClient(Stage.CLOSED, com.ie.evalos.domain.ExceptionState.NONE).label()).isEqualTo("Complete");
 	}
 
 	@Test
@@ -98,5 +99,18 @@ class PortalStageProjectionTest {
 		assertThat(PortalStageProjection.clientStepIndex(Stage.CLIENT_APPROVAL)).isEqualTo(2);
 		assertThat(PortalStageProjection.clientStepIndex(Stage.READY_TO_DELIVER)).isEqualTo(2);
 		assertThat(PortalStageProjection.clientStepIndex(Stage.CLOSED)).isEqualTo(3);
+	}
+
+	/** 2026-10-30: a cancelled or refunded case reads "Closed", never "Delivered" or "Complete". */
+	@Test
+	void aCaseClosedWithoutDeliveryReadsClosed() {
+		for (com.ie.evalos.domain.ExceptionState why : List.of(com.ie.evalos.domain.ExceptionState.CANCELLED,
+				com.ie.evalos.domain.ExceptionState.REFUND_REQUESTED)) {
+			assertThat(PortalStageProjection.forClient(Stage.CLOSED, why).label()).isEqualTo("Closed");
+			assertThat(PortalStageProjection.ClientStatus.of(Stage.CLOSED, why))
+					.isEqualTo(PortalStageProjection.ClientStatus.CLOSED);
+		}
+		assertThat(PortalStageProjection.ClientStatus.of(Stage.CLOSED, com.ie.evalos.domain.ExceptionState.NONE))
+				.isEqualTo(PortalStageProjection.ClientStatus.DELIVERED);
 	}
 }

@@ -79,7 +79,7 @@ public enum Role {
 		ALL,
 		/** Own brand. */
 		BRAND,
-		/** Own brand + own team. */
+		/** Own brand — the Project Manager. Was "+ own team"; teams were dropped 2026-10-29 (Q30). */
 		TEAM,
 		/** Own brand + rows assigned to the caller. */
 		SELF,

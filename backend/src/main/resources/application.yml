@@ -404,6 +404,9 @@ evalos:
       # Case chat (Unit 57): hourly, the floor under the lifecycle listener - revoked pipelines,
       # ENM changes, late portal accounts, and the first-run backfill of every open case.
       CHAT_RECONCILE: ${JOBS_CHAT_RECONCILE_INTERVAL:1h}
+      # A case still collecting documents follows its deal's Service Requested (2026-10-30). Hourly and
+      # mirror-only (no GHL reads); intake already sets the type, so this catches backfill and later edits.
+      SERVICE_TYPE_RECONCILE: ${JOBS_SERVICE_TYPE_RECONCILE_INTERVAL:1h}
       # The nightly sync audit (Unit 45b). **24 hours, and the length is a budget decision.** This
       # is the longest read EvalOS makes -- a paged full list of every opportunity on every mirrored
       # pipeline, roughly 30 seconds of GHL's shared 100-per-10-seconds allowance. Hourly would

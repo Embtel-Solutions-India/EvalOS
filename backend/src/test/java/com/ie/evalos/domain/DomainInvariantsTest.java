@@ -104,21 +104,12 @@ class DomainInvariantsTest {
 	void everyScopeFieldNamesARealMappedAttribute(ScopePredicate.Fields scope, Class<?> entity) {
 		assertThat(scope.brand()).isNotNull();
 		Stream<String> attributes = Stream.concat(
-				Stream.of(scope.brand(), scope.team()),
+				Stream.of(scope.brand()),
 				scope.assignees().stream());
 		attributes.filter(Objects::nonNull).forEach(attribute ->
 				assertThat(declaresField(entity, attribute))
 						.as("%s has no field '%s'", entity.getSimpleName(), attribute)
 						.isTrue());
-		// Forgetting an axis the entity actually has widens reads silently, which is
-		// the one failure direction ScopePredicate cannot fail closed on. The team
-		// axis is mechanical, so it is checked; the assignee axis is a judgement
-		// (PayoutLedger.recorded_by is not one) and stays the repository's to state.
-		if (declaresField(entity, "teamId")) {
-			assertThat(scope.team())
-					.as("%s has a team_id column, so its scope must narrow by it", entity.getSimpleName())
-					.isEqualTo("teamId");
-		}
 	}
 
 	/**

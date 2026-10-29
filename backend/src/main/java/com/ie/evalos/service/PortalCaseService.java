@@ -166,7 +166,7 @@ public class PortalCaseService {
 			throw new ForbiddenException("This link admits you to one case, not a list");
 		}
 		return partyCases(principal).stream().map(subject -> {
-			PortalStageProjection.PortalStep step = PortalStageProjection.forClient(subject.getCurrentStage());
+			PortalStageProjection.PortalStep step = PortalStageProjection.forClient(subject.getCurrentStage(), subject.getExceptionState());
 			return new ClientCaseSummary(subject.getId(), subject.getCaseCode(), subject.getServiceType(),
 					step.label(), step.actionRequired(),
 					PortalStageProjection.clientStepIndex(subject.getCurrentStage()));
@@ -215,7 +215,7 @@ public class PortalCaseService {
 				subject.getDraftVersionCount(),
 				subject.getClientApprovalStatus(),
 				subject.getClientApprovalStatus() == ClientApprovalStatus.PENDING,
-				PortalStageProjection.forClient(subject.getCurrentStage()).label(),
+				PortalStageProjection.forClient(subject.getCurrentStage(), subject.getExceptionState()).label(),
 				PortalStageProjection.clientStepIndex(subject.getCurrentStage()),
 				current(history), history);
 	}

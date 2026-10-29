@@ -78,6 +78,13 @@ class InboundWebhookTest {
 	@MockitoBean
 	CaseIntakeService intake;
 
+	/** 2026-10-30: the won deal's Service Requested; empty here, so intake falls back as before. */
+	@MockitoBean
+	com.ie.evalos.service.CaseServiceTypeService serviceTypes;
+
+	@MockitoBean
+	com.ie.evalos.integration.GhlContactClient ghlContacts;
+
 	/** Unit 45d's three collaborators. The mirror's own behaviour is asserted in its own tests. */
 	@MockitoBean
 	com.ie.evalos.service.ContactSnapshotService contacts;

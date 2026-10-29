@@ -217,6 +217,19 @@ export async function changeDeadline(caseId: string, deadline: string): Promise<
   await unwrap(api.patch(`/cases/${caseId}/deadline`, { deadline }))
 }
 
+/** GM, Brand Manager, PM (2026-10-30): the webhook's intake from one GHL id. Answers the case to open. */
+export function openCaseFromGhl(
+  opportunityId: string | null,
+  contactId: string | null,
+): Promise<{ id: string; caseCode: string }> {
+  return unwrap<{ id: string; caseCode: string }>(api.post('/cases/from-ghl', { opportunityId, contactId }))
+}
+
+/** GM, Brand Manager, PM (2026-10-30). The checklist follows the new type; touched documents stay. */
+export async function changeServiceType(caseId: string, serviceType: string): Promise<void> {
+  await unwrap(api.put(`/cases/${caseId}/service-type`, { serviceType }))
+}
+
 /** Word, PDF or both (D51, edited 2026-10-28) — at least one; the server refuses neither. */
 export async function uploadDraft(caseId: string, docx: File | null, pdf: File | null): Promise<void> {
   const body = new FormData()

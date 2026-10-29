@@ -90,7 +90,8 @@ public class ExpertCaseHistoryService {
 					yield WorkStatus.ACCEPTED;
 				}
 				Stage stage = subject.getCurrentStage();
-				if (stage == Stage.DELIVERED || stage == Stage.CLOSED) {
+				// CLOSED counts only once delivered: a case cancelled before delivery (2026-10-30) was not.
+				if (stage == Stage.DELIVERED || (stage == Stage.CLOSED && subject.getDeliveryDate() != null)) {
 					yield WorkStatus.DELIVERED;
 				}
 				yield subject.getExpertSignStatus() == ExpertSignStatus.SIGNED ? WorkStatus.SUBMITTED

@@ -1,6 +1,8 @@
 package com.ie.evalos.webhook;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -57,8 +59,8 @@ public class GhlOpportunityHandler {
 	 * paid for — so refusing the delivery would lose a paid case over a field GHL was never
 	 * asked to send. Credential evaluation is the flagship service and its checklist is the
 	 * identity-and-credential set every service starts from, so a PM correcting the odd case
-	 * is cheaper than a dropped one. Add {@code service_type} to the workflow's customData and
-	 * nothing here guesses.
+	 * is cheaper than a dropped one. Reached only when neither the workflow's {@code service_type} nor the
+	 * won deal's Service Requested names a mapped service (2026-10-30).
 	 */
 	private static final ServiceType DEFAULT_SERVICE = ServiceType.CREDENTIAL_EVALUATION;
 
@@ -151,20 +153,126 @@ public class GhlOpportunityHandler {
 	private final GhlPipelineClient ghl;
 	private final GhlHttp ghlHttp;
 	private final SellingBrand sellingBrand;
+	private final com.ie.evalos.service.CaseServiceTypeService serviceTypes;
+	private final com.ie.evalos.integration.GhlContactClient ghlContacts;
+	private final com.ie.evalos.repository.BrandRepository brands;
 
 	GhlOpportunityHandler(CaseIntakeService intake, WebhookPayload payloads, GhlPipelineClient ghl, GhlHttp ghlHttp,
-			SellingBrand sellingBrand) {
+			SellingBrand sellingBrand, com.ie.evalos.service.CaseServiceTypeService serviceTypes,
+			com.ie.evalos.integration.GhlContactClient ghlContacts, com.ie.evalos.repository.BrandRepository brands) {
+		this.ghlContacts = ghlContacts;
+		this.brands = brands;
 		this.intake = intake;
 		this.payloads = payloads;
 		this.ghl = ghl;
 		this.ghlHttp = ghlHttp;
 		this.sellingBrand = sellingBrand;
+		this.serviceTypes = serviceTypes;
 	}
 
 	void handle(Brand brand, String rawBody) {
 		OpportunityWon payload = payloads.read(rawBody, OpportunityWon.class, "opportunity");
-		confirmWonInGhl(brand, payload);
-		intake.intake(brand, toCommand(payload));
+		Optional<GhlPipelineClient.Opportunity> deal = confirmWonInGhl(brand, payload);
+		intake.intake(brand, toCommand(payload, serviceOf(brand, payload, deal)));
+	}
+
+	/**
+	 * The PM's <strong>New case</strong> (2026-10-30, D9 edited): the webhook's own intake, started from a GHL
+	 * opportunity id or contact id instead of a delivery — for a win whose webhook never came. Nothing is
+	 * typed in: the deal must be <em>won in GHL</em> (the same proof the webhook needs), and the contact, the
+	 * amount and the service are read from GHL. Intake is create-or-refresh, so a case already open for that
+	 * contact and service is returned, not duplicated. Still the only door into custody (invariant 8).
+	 */
+	public com.ie.evalos.domain.Case openFromGhl(String opportunityId, String contactId) {
+		boolean byDeal = opportunityId != null && !opportunityId.isBlank();
+		if (!byDeal && (contactId == null || contactId.isBlank())) {
+			throw new com.ie.evalos.common.InvalidRequestException("Give the GHL opportunity ID or the GHL contact ID");
+		}
+		if (!ghlHttp.isConfigured() || !sellingBrand.isConfigured()) {
+			throw new com.ie.evalos.common.InvalidRequestException(
+					"GHL is not connected, so a case cannot be opened from it. An administrator sets it up in Settings.");
+		}
+		// GHL is one location, owned by the selling brand (D19d): its deals open that brand's cases only.
+		com.ie.evalos.security.TenantContext caller = com.ie.evalos.security.TenantContext.current();
+		if (!caller.isCrossBrand() && !sellingBrand.id().equals(caller.brandId())) {
+			throw new com.ie.evalos.common.ForbiddenException("Cases from GHL open in the brand that owns the GHL location");
+		}
+		Brand brand = brands.findById(sellingBrand.id()).orElseThrow();
+
+		GhlPipelineClient.Opportunity deal = byDeal ? wonDeal(opportunityId.trim()) : wonDealOf(contactId.trim());
+		com.ie.evalos.integration.GhlContactClient.Contact contact;
+		try {
+			contact = ghlContacts.byId(deal.contactId());
+		}
+		catch (com.ie.evalos.integration.GhlUnavailableException missing) {
+			throw refused(missing, "GHL has no contact " + deal.contactId() + " for that opportunity");
+		}
+		BigDecimal amount = deal.monetaryValue() != null && deal.monetaryValue().signum() > 0 ? deal.monetaryValue() : null;
+		return intake.intake(brand, new CaseIntakeService.NewCase(
+				new CaseIntakeService.ContactDetails(contact.id(), contact.name(), contact.email(), contact.phone(),
+						contact.company(), null, null, null, null, null),
+				serviceOf(brand, null, Optional.of(deal)),
+				null, null, null, deal.id(), amount, null, null, null, null));
+	}
+
+	private GhlPipelineClient.Opportunity wonDeal(String opportunityId) {
+		GhlPipelineClient.Opportunity deal;
+		try {
+			deal = ghl.byId(opportunityId);
+		}
+		catch (com.ie.evalos.integration.GhlUnavailableException missing) {
+			throw refused(missing, "GHL has no opportunity " + opportunityId);
+		}
+		if (deal == null) {
+			throw new com.ie.evalos.common.InvalidRequestException("GHL has no opportunity " + opportunityId);
+		}
+		if (!"won".equalsIgnoreCase(deal.status())) {
+			throw new com.ie.evalos.common.InvalidRequestException("That opportunity is " + deal.status()
+					+ " in GHL, not won. A case opens from a won deal: mark it won in GHL (that opens the case too).");
+		}
+		return deal;
+	}
+
+	/** The contact's most recently won deal. */
+	private GhlPipelineClient.Opportunity wonDealOf(String contactId) {
+		List<GhlPipelineClient.Opportunity> deals;
+		try {
+			deals = ghl.forContact(contactId);
+		}
+		catch (com.ie.evalos.integration.GhlUnavailableException missing) {
+			throw refused(missing, "GHL has no contact " + contactId);
+		}
+		return deals.stream()
+				.filter((deal) -> "won".equalsIgnoreCase(deal.status()))
+				.max(java.util.Comparator.comparing(GhlPipelineClient.Opportunity::lastStatusChangeAt,
+						java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())))
+				.orElseThrow(() -> new com.ie.evalos.common.InvalidRequestException(
+						"That contact has no won opportunity in GHL. A case opens from a won deal."));
+	}
+
+	/**
+	 * GHL's "no such id" (400, 404, 422) is a wrong id, said plainly. Everything else — a missing scope (401/403),
+	 * the rate limit (429), an outage — stays the 502 naming the real cause.
+	 */
+	private static RuntimeException refused(com.ie.evalos.integration.GhlUnavailableException failure, String message) {
+		Integer status = failure.status();
+		return status != null && (status == 400 || status == 404 || status == 422)
+				? new com.ie.evalos.common.InvalidRequestException(message)
+				: failure;
+	}
+
+	/**
+	 * The workflow's {@code service_type} if it sent one; else the won deal's own <em>Service Requested</em>
+	 * (2026-10-30: GHL's workflow cannot carry that dropdown, so every case was Credential evaluation);
+	 * else {@link #DEFAULT_SERVICE}, which the hourly SERVICE_TYPE_RECONCILE sweep still corrects.
+	 */
+	private ServiceType serviceOf(Brand brand, OpportunityWon payload, Optional<GhlPipelineClient.Opportunity> deal) {
+		if (payload != null && payload.customData() != null && payload.customData().serviceType() != null) {
+			return payload.customData().serviceType();
+		}
+		return deal.flatMap((won) -> serviceTypes.requestedOn(brand.getId(),
+				GhlPipelineClient.CustomFieldValue.toMap(won.customFields())))
+				.orElse(DEFAULT_SERVICE);
 	}
 
 	/**
@@ -184,21 +292,23 @@ public class GhlOpportunityHandler {
 	 * no GHL token has nothing to ask — refusing those would lose every paid case, which is the
 	 * worse failure (the same ruling as {@link #DEFAULT_SERVICE}). Both are logged at WARN.
 	 */
-	private void confirmWonInGhl(Brand brand, OpportunityWon payload) {
+	private Optional<GhlPipelineClient.Opportunity> confirmWonInGhl(Brand brand, OpportunityWon payload) {
 		if (!ghlHttp.isConfigured() || !sellingBrand.isConfigured() || !sellingBrand.id().equals(brand.getId())) {
 			log.warn("Won delivery for contact {} accepted WITHOUT confirming it in GHL: brand {} has no reachable GHL location",
 					payload.contactId(), brand.getId());
-			return;
+			return Optional.empty();
 		}
 		String wanted = payload.customData() == null ? null : payload.customData().opportunityId();
-		boolean won = ghl.forContact(payload.contactId()).stream()
+		Optional<GhlPipelineClient.Opportunity> won = ghl.forContact(payload.contactId()).stream()
 				.filter((deal) -> wanted == null || wanted.isBlank() || wanted.equals(deal.id()))
-				.anyMatch((deal) -> "won".equalsIgnoreCase(deal.status()));
-		if (!won) {
+				.filter((deal) -> "won".equalsIgnoreCase(deal.status()))
+				.findFirst();
+		if (won.isEmpty()) {
 			log.warn("Refused a won delivery for contact {}: GHL holds no matching won opportunity", payload.contactId());
 			throw new WebhookRejected(HttpStatus.CONFLICT, "NOT_WON_IN_GHL",
 					"GHL does not show a won opportunity for this contact");
 		}
+		return won;
 	}
 
 	/**
@@ -209,12 +319,12 @@ public class GhlOpportunityHandler {
 	 * away: GHL sends the person and the deal, and that is all. Visa category, subtype,
 	 * deadline, invoice ref, expert and the intake note are a PM's to fill in.
 	 */
-	private static CaseIntakeService.NewCase toCommand(OpportunityWon payload) {
+	private static CaseIntakeService.NewCase toCommand(OpportunityWon payload, ServiceType service) {
 		OpportunityWon.CustomData extra = payload.customData() != null ? payload.customData() : NO_CUSTOM_DATA;
 		return new CaseIntakeService.NewCase(
 				new CaseIntakeService.ContactDetails(payload.contactId(), payload.fullName(), payload.email(),
 						payload.phone(), payload.companyName(), null, null, null, null, null),
-				extra.serviceType() != null ? extra.serviceType() : DEFAULT_SERVICE,
+				service,
 				null,
 				null,
 				null,

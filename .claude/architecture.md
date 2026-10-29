@@ -113,7 +113,9 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 6. Controllers stay thin; long work is a sweep.
 7. EvalOS is system of record for cases, experts and payouts. GHL owns contact identity
    (the three-identifier rule is load-bearing).
-8. **A case is created only by the per-brand GHL webhook.** Build-enforced.
+8. **A case is created only from a deal won in GHL** — the per-brand webhook, or the PM's New case through
+   the same handler (D9, 2026-10-30). Build-enforced: one class injects `CaseIntakeService`. A case is never
+   deleted; it is cancelled (closed with a reason).
 9. Schema changes are new Flyway migrations; applied migrations are never edited.
 10. Every inbound webhook is brand-resolved from its endpoint token.
 11. ~~Outbound webhooks are HMAC-signed, retried, dead-lettered~~ — dropped with Handoff C (D53).
