@@ -1593,6 +1593,29 @@ class LocalPostgresIntegrationTest {
 	 * Unit 60: {@code linkGhlUser} links on a case-insensitive email in the brand, once, and never
 	 * overwrites — so a hand correction survives the next sweep.
 	 */
+	/** 2026-10-29: the Admin's delete removes only a member nothing remembers — every FK counts, and the trail. */
+	@Test
+	void staffHistoryCountsEveryForeignKeyAndTheAuditTrail() {
+		UUID fresh = UUID.randomUUID();
+		UUID granted = UUID.randomUUID();
+		UUID acted = UUID.randomUUID();
+		for (UUID id : List.of(fresh, granted, acted)) {
+			jdbc.update("INSERT INTO team_member (id, brand_id, role, email, password_hash, display_name) "
+					+ "VALUES (?, ?, 'SALES', ?, 'x', 'History')", id, BRAND_IE, "hist-" + id + "@evalos.local");
+		}
+		com.ie.evalos.domain.Pipeline pipe = mirroredPipelines.save(
+				new com.ie.evalos.domain.Pipeline(BRAND_IE, "pipe-" + UUID.randomUUID(), "History", 0));
+		jdbc.update("INSERT INTO team_member_pipeline (team_member_id, pipeline_id) VALUES (?, ?)", granted, pipe.getId());
+		auditService.recordEvent("TEAM_MEMBER", fresh, com.ie.evalos.domain.AuditAction.UPDATED, acted, null, "x");
+
+		assertThat(staffHistory.hasHistory(fresh)).isFalse();
+		assertThat(staffHistory.hasHistory(granted)).isTrue();
+		assertThat(staffHistory.hasHistory(acted)).isTrue();
+	}
+
+	@Autowired
+	StaffHistoryRepository staffHistory;
+
 	@Test
 	void aGhlUserLinksToTheTeamMemberWithTheSameEmailOnlyOnce() {
 		String email = "link-" + UUID.randomUUID() + "@evalos.local";

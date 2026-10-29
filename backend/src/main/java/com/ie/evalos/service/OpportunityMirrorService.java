@@ -644,6 +644,13 @@ public class OpportunityMirrorService {
 				: opportunities.findByBrandIdAndGhlId(sellingBrand.id(), ghlOpportunityId);
 	}
 
+	/** The GHL id of the pipeline the mirror holds this deal on. */
+	@Transactional(readOnly = true)
+	public Optional<String> ghlPipelineIdOf(String ghlOpportunityId) {
+		return byGhlId(ghlOpportunityId).flatMap((deal) -> pipelines.findById(deal.getPipelineId()))
+				.map(Pipeline::getGhlId);
+	}
+
 	/**
 	 * The contact's GHL-linked deals on this pipeline, as the mirror holds them (D56).
 	 *

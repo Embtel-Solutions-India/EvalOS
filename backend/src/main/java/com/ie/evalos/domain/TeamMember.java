@@ -71,6 +71,10 @@ public class TeamMember {
 	@Column(name = "created_at", nullable = false, insertable = false, updatable = false)
 	private Instant createdAt;
 
+	/** V98: deleted by the Admin but kept, because history names them. Archived members are never active. */
+	@Column(name = "archived_at")
+	private Instant archivedAt;
+
 	protected TeamMember() {
 		// for JPA
 	}
@@ -96,6 +100,15 @@ public class TeamMember {
 
 	public void setActive(boolean active) {
 		this.active = active;
+	}
+
+	public void archive() {
+		this.active = false;
+		this.archivedAt = Instant.now();
+	}
+
+	public Instant getArchivedAt() {
+		return archivedAt;
 	}
 
 	public void setPasswordHash(String passwordHash) {

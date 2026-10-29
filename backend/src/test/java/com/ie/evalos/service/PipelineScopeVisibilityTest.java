@@ -74,6 +74,26 @@ class PipelineScopeVisibilityTest {
 				.isThrownBy(() -> scope.requireMine(DEAL));
 	}
 
+	/** 2026-10-29: the one write the GM gets on every pipeline is the stage move. */
+	@Test
+	void theGmMovesADealOnAnyPipeline() {
+		given(deals.ghlPipelineIdOf(DEAL)).willReturn(Optional.of("pipe_theirs"));
+		authenticate(Role.GM, null, List.of());
+
+		assertThat(scope.requireMovable(DEAL)).isEqualTo("pipe_theirs");
+	}
+
+	/** Every other role moves only on the pipelines it was given — both of them, if it holds two. */
+	@Test
+	void aDeskMovesOnEachOfItsPipelinesAndNoOther() {
+		given(deals.isOnPipeline(DEAL, "pipe_second")).willReturn(true);
+		authenticate(Role.MARKETING, BRAND, List.of(MY_PIPELINE, "pipe_second"));
+
+		assertThat(scope.requireMovable(DEAL)).isEqualTo("pipe_second");
+		assertThatExceptionOfType(ForbiddenException.class)
+				.isThrownBy(() -> scope.requireMovable("opp_elsewhere"));
+	}
+
 	@Test
 	void aBrandManagerReadsItsOwnBrandsDeal() {
 		givenDeal(BRAND);

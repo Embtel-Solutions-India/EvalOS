@@ -42,8 +42,10 @@ class TeamMemberAdminServiceTest {
 	private final TeamMemberPipelineRepository grants = mock(TeamMemberPipelineRepository.class);
 	private final BrandRepository brands = mock(BrandRepository.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final com.ie.evalos.repository.StaffHistoryRepository history =
+			mock(com.ie.evalos.repository.StaffHistoryRepository.class);
 	private final TeamMemberAdminService service = new TeamMemberAdminService(members, grants, brands,
-			new BCryptPasswordEncoder(4), audit);
+			new BCryptPasswordEncoder(4), audit, history);
 
 	@BeforeEach
 	void asTheGm() {
@@ -108,6 +110,56 @@ class TeamMemberAdminServiceTest {
 		assertThatThrownBy(() -> service.update(GM_ID, details(Role.BRAND_MANAGER, BRAND)))
 				.isInstanceOf(InvalidRequestException.class).hasMessageContaining("own role");
 		verify(members, never()).save(me);
+	}
+
+	/** 2026-10-29: a member nothing remembers is deleted, and the trail says so. */
+	@Test
+	void aMemberWithNoHistoryIsDeleted() {
+		TeamMember member = new TeamMember("new@ie.test", "x");
+		UUID id = UUID.randomUUID();
+		org.springframework.test.util.ReflectionTestUtils.setField(member, "id", id);
+		when(members.findById(id)).thenReturn(Optional.of(member));
+
+		assertThat(service.delete(id)).isEqualTo(TeamMemberAdminService.Removal.DELETED);
+		verify(members).delete(member);
+		verify(audit).recordEvent(eq("TEAM_MEMBER"), eq(id), eq(AuditAction.DELETED), eq(GM_ID), any(), isNull());
+	}
+
+	/** Anyone with history is archived: off the list and unable to sign in, the row kept for the trail. */
+	@Test
+	void aMemberWithHistoryIsArchivedNotDeleted() {
+		TeamMember member = new TeamMember("old@ie.test", "x");
+		UUID id = UUID.randomUUID();
+		org.springframework.test.util.ReflectionTestUtils.setField(member, "id", id);
+		when(members.findById(id)).thenReturn(Optional.of(member));
+		when(history.hasHistory(id)).thenReturn(true);
+
+		assertThat(service.delete(id)).isEqualTo(TeamMemberAdminService.Removal.ARCHIVED);
+		assertThat(member.isActive()).isFalse();
+		assertThat(member.getArchivedAt()).isNotNull();
+		verify(members, never()).delete(any(TeamMember.class));
+	}
+
+	@Test
+	void anArchivedMemberCannotBeReactivated() {
+		TeamMember member = new TeamMember("old@ie.test", "x");
+		UUID id = UUID.randomUUID();
+		org.springframework.test.util.ReflectionTestUtils.setField(member, "id", id);
+		member.archive();
+		when(members.findById(id)).thenReturn(Optional.of(member));
+
+		assertThatThrownBy(() -> service.setActive(id, true)).isInstanceOf(InvalidRequestException.class);
+		assertThat(member.isActive()).isFalse();
+	}
+
+	@Test
+	void nobodyDeletesThemselves() {
+		TeamMember me = new TeamMember("gm@ie.test", "x");
+		org.springframework.test.util.ReflectionTestUtils.setField(me, "id", GM_ID);
+		when(members.findById(GM_ID)).thenReturn(Optional.of(me));
+
+		assertThatThrownBy(() -> service.delete(GM_ID)).isInstanceOf(InvalidRequestException.class);
+		verify(members, never()).delete(any(TeamMember.class));
 	}
 
 	@Test

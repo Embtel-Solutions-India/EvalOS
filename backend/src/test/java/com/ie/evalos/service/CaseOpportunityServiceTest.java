@@ -10,7 +10,9 @@ import com.ie.evalos.domain.ContactSnapshot;
 import com.ie.evalos.domain.Opportunity;
 import com.ie.evalos.domain.Role;
 import com.ie.evalos.domain.Stage;
+import com.ie.evalos.integration.GhlFailure;
 import com.ie.evalos.integration.GhlPipelineClient;
+import com.ie.evalos.integration.GhlUnavailableException;
 import com.ie.evalos.repository.ContactSnapshotRepository;
 import com.ie.evalos.security.StaffPrincipal;
 
@@ -23,7 +25,9 @@ import org.springframework.test.util.ReflectionTestUtils;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -85,20 +89,61 @@ class CaseOpportunityServiceTest {
 		assertThat(service.of(CASE_ID)).isEmpty();
 	}
 
-	@Test
-	void aDealTheMirrorLacksIsFetchedFromGhlThroughTheCaseContact() {
-		actAs(Role.CASE_MANAGER);
-		Case subject = caseWithDeal("opp1Real");
+	private static GhlPipelineClient.Opportunity ghlDeal(String id, String status, String createdAt) {
+		return new GhlPipelineClient.Opportunity(id, "Deal", "contact1Real", "pipe", "stage", status, null, null, null,
+				java.time.Instant.parse(createdAt), null, null, null, List.of(), null, List.of(), List.of());
+	}
+
+	private void withContact(Case subject) {
 		UUID contactId = UUID.randomUUID();
 		ReflectionTestUtils.setField(subject, "contactId", contactId);
 		given(contacts.findById(contactId)).willReturn(Optional.of(new ContactSnapshot(BRAND, "contact1Real")));
-		List<GhlPipelineClient.Opportunity> fromGhl = List.of();
-		given(ghl.forContact("contact1Real")).willReturn(fromGhl);
+	}
+
+	/** 2026-10-29: fetched by its own id first, so a case with no linked contact still opens its deal. */
+	@Test
+	void aDealTheMirrorLacksIsFetchedFromGhlByItsId() {
+		actAs(Role.CASE_MANAGER);
+		caseWithDeal("opp1Real");
+		GhlPipelineClient.Opportunity row = ghlDeal("opp1Real", "won", "2026-10-01T00:00:00Z");
+		given(ghl.byId("opp1Real")).willReturn(row);
 		Opportunity deal = new Opportunity(BRAND, "opp1Real", UUID.randomUUID());
 		given(mirror.byGhlId("opp1Real")).willReturn(Optional.empty(), Optional.of(deal));
 
 		assertThat(service.of(CASE_ID)).containsSame(deal);
+		verify(mirror).absorbForContact(List.of(row));
+		verify(ghl, never()).forContact(any());
+	}
+
+	/** GHL refusing the id read is not the end: the case contact's deals are read next. */
+	@Test
+	void whenTheIdReadFailsTheCaseContactsDealsAreRead() {
+		actAs(Role.CASE_MANAGER);
+		Case subject = caseWithDeal("opp1Real");
+		withContact(subject);
+		given(ghl.byId("opp1Real")).willThrow(new GhlUnavailableException("404", null, GhlFailure.REFUSED, 404));
+		List<GhlPipelineClient.Opportunity> fromGhl = List.of(ghlDeal("opp1Real", "won", "2026-10-01T00:00:00Z"));
+		given(ghl.forContact("contact1Real")).willReturn(fromGhl);
+		Opportunity deal = new Opportunity(BRAND, "opp1Real", UUID.randomUUID());
+		given(mirror.byGhlId("opp1Real")).willReturn(Optional.empty(), Optional.empty(), Optional.of(deal));
+
+		assertThat(service.of(CASE_ID)).containsSame(deal);
 		verify(mirror).absorbForContact(fromGhl);
+	}
+
+	/** A case that names no deal opens its contact's: the won one before a newer open one. */
+	@Test
+	void aCaseWithNoDealIdOpensItsContactsWonDeal() {
+		actAs(Role.CASE_MANAGER);
+		Case subject = caseWithDeal(null);
+		withContact(subject);
+		given(ghl.forContact("contact1Real")).willReturn(List.of(
+				ghlDeal("oppNewer", "open", "2026-10-20T00:00:00Z"), ghlDeal("oppWon", "won", "2026-09-01T00:00:00Z")));
+		Opportunity won = new Opportunity(BRAND, "oppWon", UUID.randomUUID());
+		given(mirror.byGhlId("oppWon")).willReturn(Optional.of(won));
+		given(mirror.byGhlId("oppNewer")).willReturn(Optional.of(new Opportunity(BRAND, "oppNewer", UUID.randomUUID())));
+
+		assertThat(service.of(CASE_ID)).containsSame(won);
 	}
 
 	@Test

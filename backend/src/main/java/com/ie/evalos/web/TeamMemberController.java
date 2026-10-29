@@ -92,6 +92,13 @@ public class TeamMemberController {
 		return ApiResponse.ok(TeamMemberSummary.of(admin.setActive(id, r.active())));
 	}
 
+	/** 2026-10-29: deleted outright when nothing remembers them, archived otherwise; the answer says which. */
+	@DeleteMapping("/{id}")
+	@PreAuthorize("hasRole('ADMIN')")
+	public ApiResponse<com.ie.evalos.service.TeamMemberAdminService.Removal> delete(@PathVariable UUID id) {
+		return ApiResponse.ok(admin.delete(id));
+	}
+
 	@PutMapping("/{id}/password")
 	@PreAuthorize("hasRole('ADMIN')")
 	public ApiResponse<Void> setPassword(@PathVariable UUID id, @RequestBody @jakarta.validation.Valid PasswordRequest r) {

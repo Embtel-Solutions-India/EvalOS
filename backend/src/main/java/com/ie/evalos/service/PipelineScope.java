@@ -127,7 +127,8 @@ public class PipelineScope {
 	 * <p><strong>Reading is widened; writing is not.</strong> The rule is that a GM sees
 	 * everything, a Brand Manager sees their brand, and a desk sees its own pipelines — and
 	 * <em>sees</em> is the operative word. {@link #requireMine} still guards every edit, close,
-	 * booking and note, so a GM can now open any deal and still cannot move one. Widening the one
+	 * booking and note, so a GM can open any deal and still cannot edit one — the stage move alone
+	 * goes through {@link #requireMovable} (2026-10-29). Widening the one
 	 * method both paths shared would have handed out write access nobody asked for, which is why
 	 * this is a second method rather than a looser first one.
 	 *
@@ -167,6 +168,18 @@ public class PipelineScope {
 
 	private static ForbiddenException notYours() {
 		return new ForbiddenException("That opportunity is not on a pipeline you can read.");
+	}
+
+	/**
+	 * The pipeline a stage move lands on, or a refusal (2026-10-29, the business): every pipeline's
+	 * owner moves deals on it, and the GM moves them on every pipeline. Only the move — the GM's
+	 * other writes still go through {@link #requireMine}.
+	 */
+	public String requireMovable(String opportunityId) {
+		if (TenantContext.current().role() == com.ie.evalos.domain.Role.GM) {
+			return deals.ghlPipelineIdOf(opportunityId).orElseThrow(PipelineScope::notYours);
+		}
+		return requireMine(opportunityId);
 	}
 
 	public String requireMine(String opportunityId) {

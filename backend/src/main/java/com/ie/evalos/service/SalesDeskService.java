@@ -269,7 +269,7 @@ public class SalesDeskService {
 	 */
 	@org.springframework.transaction.annotation.Transactional
 	public Deal moveToStage(String opportunityId, String stageId, String note) {
-		scope.requireMine(opportunityId);
+		scope.requireMovable(opportunityId);
 		if (stageId == null || stageId.isBlank()) {
 			throw new InvalidRequestException("A stage is required");
 		}

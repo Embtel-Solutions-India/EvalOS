@@ -77,8 +77,10 @@ export default function OpportunityBoardPage() {
   const active = data?.pipelineId ?? pipeline
   const [syncing, setSyncing] = useState(false)
   // The server refuses a stage move to anyone else, and a drag that 403s is worse than none.
-  // Unit 63: the ENM moves candidates on their hiring pipeline, through the same stage route.
-  const canMove = role === 'SALES' || role === 'EXPERT_NETWORK_MANAGER'
+  // Every pipeline's owner moves its deals, the GM moves any (2026-10-29) — the same stage route.
+  // Not on all-sales: its columns fold several pipelines' stages, so a drop there has no one stage to land on.
+  const canMove = role === 'SALES' || role === 'MARKETING' || role === 'EXPERT_NETWORK_MANAGER'
+    || (role === 'GM' && active !== ALL_SALES)
   const hiring = role === 'EXPERT_NETWORK_MANAGER'
 
   // The columns as drawn: the last read, plus any moves made since. A new read replaces them —

@@ -102,7 +102,7 @@ public class GhlPipelineController {
 	 * route keyed on a foreign id would be one recreate away from addressing nothing.
 	 */
 	@PutMapping("/pipelines/{mirrorId}/purpose")
-	@PreAuthorize("hasRole('GM')")
+	@PreAuthorize("hasAnyRole('ADMIN', 'GM')")
 	public ApiResponse<PipelineOption> setPurpose(@PathVariable UUID mirrorId,
 			@RequestBody PurposeRequest request) {
 		return ApiResponse.ok(option(mirror.setPurpose(mirrorId, parse(request.purpose()))));

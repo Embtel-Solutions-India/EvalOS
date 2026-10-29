@@ -424,6 +424,15 @@ public class GhlPipelineClient {
 		return opportunitiesIn(pipelineId, null, null, null);
 	}
 
+	public record OpportunityEnvelope(Opportunity opportunity) {
+	}
+
+	/** One opportunity by its GHL id ({@code GET /opportunities/:id}), or null when GHL answers without one. */
+	public Opportunity byId(String opportunityId) {
+		return http.get(OpportunityEnvelope.class, (uri) -> uri.path("/opportunities/{id}").build(opportunityId))
+				.opportunity();
+	}
+
 	/**
 	 * Every opportunity GHL holds for one contact — <strong>the retry-after-timeout read</strong>
 	 * (Unit 45c).

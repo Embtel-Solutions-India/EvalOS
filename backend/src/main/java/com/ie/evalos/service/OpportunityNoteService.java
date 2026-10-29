@@ -194,20 +194,23 @@ public class OpportunityNoteService {
 	}
 
 	private Note add(String opportunityId, String body, boolean handoff) {
-		String pipelineId = scope.requireMine(opportunityId);
+		// A handoff rides a stage move, so it is allowed wherever the move is — the GM's included.
+		String pipelineId = handoff ? scope.requireMovable(opportunityId) : scope.requireMine(opportunityId);
 		if (body == null || body.isBlank()) {
 			throw new InvalidRequestException(handoff ? "Winning a deal needs a note for the production team"
 					: "A note needs a body");
 		}
 
 		TenantContext caller = TenantContext.current();
-		OpportunityNote note = new OpportunityNote(opportunityId, caller.brandId(), pipelineId, caller.memberId(),
+		// The GM has no brand of their own; the note takes the deal's.
+		UUID brand = caller.brandId() != null ? caller.brandId() : scope.requireVisible(opportunityId).getBrandId();
+		OpportunityNote note = new OpportunityNote(opportunityId, brand, pipelineId, caller.memberId(),
 				body.strip());
 		if (handoff) {
 			note.markHandoff();
 		}
 		OpportunityNote saved = notes.save(note);
-		enqueueAfterCommit(caller.brandId(), saved.getId(), SyncOutboxEntry.Intent.UPSERT);
+		enqueueAfterCommit(brand, saved.getId(), SyncOutboxEntry.Intent.UPSERT);
 		String author = teamMembers.findById(caller.memberId()).map(TeamMember::getDisplayName).orElse(null);
 		return new Note(saved.getId(), saved.getBody(), saved.getAuthorId(), saved.getCreatedAt(),
 				Origin.EVALOS, author, null, false, false, null);
