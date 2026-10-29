@@ -83,6 +83,8 @@ public final class CaseTransitions {
 		RESUME_FROM_HOLD(CaseEvents.Type.CASE_RESUMED, AuditAction.UPDATED),
 		REQUEST_REFUND(CaseEvents.Type.CASE_REFUND_REQUESTED, AuditAction.UPDATED),
 		APPROVE_REFUND(CaseEvents.Type.CASE_REFUNDED, AuditAction.STAGE_CHANGED),
+		/** 2026-10-30: closes an undelivered case with a reason — the PM's "delete". */
+		CANCEL_CASE(CaseEvents.Type.CASE_CLOSED, AuditAction.STAGE_CHANGED),
 		DENY_REFUND(CaseEvents.Type.CASE_REFUND_DENIED, AuditAction.UPDATED);
 
 		private final CaseEvents.Type event;
@@ -166,6 +168,10 @@ public final class CaseTransitions {
 			declare(active, Action.ASSIGN_COORDINATOR, active);
 			declare(active, Action.PUT_ON_HOLD, active);
 			declare(active, Action.REQUEST_REFUND, active);
+			// Not from DELIVERED: the client has the letter and the value is earned; that is a refund.
+			if (active != Stage.DELIVERED) {
+				declare(active, Action.CANCEL_CASE, Stage.CLOSED);
+			}
 		}
 	}
 

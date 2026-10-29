@@ -56,7 +56,8 @@ export function PortalLayout() {
       <div className="flex min-h-dvh flex-col bg-muted/30">
         <div className="flex-1 lg:grid lg:grid-cols-[16rem_1fr]">
           <aside className="hidden bg-sidebar lg:block">
-            <div className="sticky top-0 flex max-h-dvh flex-col">
+            {/* h-dvh, not max-h-dvh: the nav's flex-1 needs a height to fill, or Sign out rides up under it. */}
+            <div className="sticky top-0 flex h-dvh flex-col">
               <PortalSidebar />
             </div>
           </aside>

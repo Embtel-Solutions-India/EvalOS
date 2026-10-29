@@ -9,6 +9,8 @@ import AssignPopover from './AssignPopover'
 import ViewToggle from './ViewToggle'
 import { useViewMode } from './useViewMode'
 import { stageColor } from '../board/stageColors'
+import NewCaseDialog from '../case/NewCaseDialog'
+import { useMe } from '../../lib/authContext'
 
 /**
  * The cases inbox: the queue a Project Manager *works*, as opposed to the board they *watch*.
@@ -18,8 +20,9 @@ import { stageColor } from '../board/stageColors'
  * coordinator and the case manager from the case. The GM's board no longer carries a pool lane
  * and the GM no longer carries this screen: one queue, worked by the person whose job it is.
  *
- * A PM can see a pooled case at all because `CaseRepository.SCOPE` marks unteamed rows visible
- * to the TEAM tier. Before that this preset filtered a set that was always empty here.
+ * A PM reads every case of their brand (teams were dropped, D20 2026-10-29), pooled ones included.
+ *
+ * **New case** (2026-10-30, D9 edited) opens one from a won GHL deal whose webhook never came.
  *
  * **The deadline view is a preset here, not a route.** Overdue / today / this week / later are
  * questions about the same queue, and giving each a URL would be four screens that share every
@@ -42,6 +45,7 @@ export default function InboxPage() {
   const view = isInboxView(raw) ? raw : 'all'
   // Cards or the table, like the other queues; remembered per browser.
   const [mode, setMode] = useViewMode('inbox')
+  const role = useMe().role
 
 
   // `?stage=` is how a dashboard funnel row opens exactly the cases it counted. Unknown values are ignored.
@@ -58,7 +62,10 @@ export default function InboxPage() {
             {data ? `${rows.length} of ${inboxQueue(data, 'all', new Date(), stage).length}` : ''}
           </p>
         </div>
-        <ViewToggle mode={mode} onChange={setMode} />
+        <div className="flex items-center gap-2">
+          {(role === 'GM' || role === 'BRAND_MANAGER' || role === 'PROJECT_MANAGER') && <NewCaseDialog />}
+          <ViewToggle mode={mode} onChange={setMode} />
+        </div>
       </header>
 
       {stage && (

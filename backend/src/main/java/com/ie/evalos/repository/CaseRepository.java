@@ -28,15 +28,8 @@ import org.springframework.data.repository.query.Param;
  */
 public interface CaseRepository extends ScopedRepository<Case> {
 
-	/**
-	 * The last argument is {@code unteamedVisible}, and it is the pool (Unit 23): a case with
-	 * no {@code team_id} has not been claimed by anybody, so a {@code TEAM} caller — the
-	 * Project Manager — reads it alongside their own team's. Without it the PM inbox's
-	 * <em>Unassigned</em> preset filtered a set that was empty for the only role that can
-	 * reach the screen. Cases are the one place it is set; see {@code ScopePredicate.Fields}.
-	 */
-	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId", "teamId",
-			List.of("assignedCm", "assignedCoordinator"), true);
+	ScopePredicate.Fields SCOPE = new ScopePredicate.Fields("brandId",
+			List.of("assignedCm", "assignedCoordinator"));
 
 	@Override
 	default ScopePredicate.Fields scopeFields() {
@@ -124,7 +117,7 @@ public interface CaseRepository extends ScopedRepository<Case> {
 			SELECT expert_id,
 			       count(*) FILTER (WHERE current_stage <> 'CLOSED')                     AS active,
 			       count(*) FILTER (WHERE current_stage = 'CLOSED'
-			                          AND exception_state <> 'REFUND_REQUESTED')         AS completed
+			                          AND exception_state NOT IN ('REFUND_REQUESTED', 'CANCELLED')) AS completed
 			  FROM evalos_case
 			 WHERE expert_id IN (:expertIds)
 			 GROUP BY expert_id

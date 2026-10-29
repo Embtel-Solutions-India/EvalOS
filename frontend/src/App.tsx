@@ -108,7 +108,6 @@ const SCREENS: Record<string, React.ReactNode> = {
   // Unit 63: the ENM's hiring desk is the same board and lead form, on their hiring pipeline.
   '/hiring': <OpportunityBoardPage />,
   '/hiring/new': <NewLeadPage />,
-  '/meetings/new': <NewMeetingPage />,
   '/conversations': <ConversationsPage />,
 }
 
@@ -204,6 +203,17 @@ function StaffApp() {
           element={
             <RoleRoute path={CONVERSATION_PATH}>
               <ConversationsPage />
+            </RoleRoute>
+          }
+        />
+
+        {/* Reached from the diary's "Add meeting" button, not the sidebar (2026-10-09), so the NAV_ITEMS loop
+            below never routed it and every click landed on the 404 page. */}
+        <Route
+          path="/meetings/new"
+          element={
+            <RoleRoute path="/meetings/new">
+              <NewMeetingPage />
             </RoleRoute>
           }
         />

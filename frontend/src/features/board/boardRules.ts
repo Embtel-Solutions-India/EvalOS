@@ -629,6 +629,18 @@ export const QUICK_ACTIONS: readonly QuickAction[] = [
     stages: null,
     fields: REASON,
   },
+  // 2026-10-30: the PM's "delete". Closes an undelivered case with a reason; nothing is removed (chat
+  // membership is history). Not from DELIVERED — that is a refund. Mirrors `CaseController.cancel`.
+  {
+    path: 'cancel',
+    label: 'Cancel case',
+    roles: ['BRAND_MANAGER', 'PROJECT_MANAGER'],
+    stages: [
+      'DOC_COLLECTION', 'PM_REVIEW', 'DRAFT_IN_PROGRESS', 'DRAFT_REVIEW', 'READY_TO_SEND', 'CLIENT_REVIEW',
+      'CLIENT_APPROVAL', 'EXPERT_SIGNING', 'FINAL_QC', 'READY_TO_DELIVER',
+    ],
+    fields: [{ name: 'reason', label: 'Why is it being cancelled? (the case closes; history is kept)', kind: 'text' }],
+  },
 
   // The human answer to the 24h sign prompt. **Not `requiresException` — this is what *sets*
   // one**, and it is the only door to `reassign-expert` below: `CaseTransitions` declares

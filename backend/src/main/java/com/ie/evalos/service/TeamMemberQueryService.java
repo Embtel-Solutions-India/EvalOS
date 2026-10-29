@@ -27,7 +27,7 @@ public class TeamMemberQueryService {
 	 * themselves.
 	 */
 	private static final ScopePredicate.Fields SCOPE =
-			new ScopePredicate.Fields("brandId", "teamId", List.of("id"));
+			new ScopePredicate.Fields("brandId", List.of("id"));
 
 	private final TeamMemberRepository teamMembers;
 

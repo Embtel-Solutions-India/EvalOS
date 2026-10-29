@@ -212,7 +212,7 @@ public class CaseLifecycleService {
 
 	// --- assignment ----------------------------------------------------------
 
-	/** Pool → PM. Stamps the case with the PM's team, which is what opens it to that team. */
+	/** Pool → PM. Any PM of the brand reads the case already; no team is stamped (teams dropped, Q30). */
 	@Transactional
 	public Case assignPm(UUID caseId, UUID pmId) {
 		Case subject = load(caseId);
@@ -222,7 +222,6 @@ public class CaseLifecycleService {
 
 		return apply(subject, to, Action.ASSIGN_PM, "Project manager: " + pm.getDisplayName(), c -> {
 			c.setAssignedPm(pm.getId());
-			c.setTeamId(pm.getTeamId());
 			c.setPoolStatus(PoolStatus.ASSIGNED);
 		});
 	}
@@ -262,8 +261,6 @@ public class CaseLifecycleService {
 		Case subject = load(caseId);
 		Stage to = CaseTransitions.target(subject, Action.ASSIGN_CASE_MANAGER);
 		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
-		requireState(cm.getTeamId() != null && cm.getTeamId().equals(subject.getTeamId()),
-				"case manager is not on this case's team");
 		return apply(subject, to, Action.ASSIGN_CASE_MANAGER, "Case manager: " + cm.getDisplayName(),
 				c -> c.setAssignedCm(cm.getId()));
 	}
@@ -340,8 +337,6 @@ public class CaseLifecycleService {
 		Case subject = load(caseId);
 		requireState(subject.getCurrentStage() != Stage.CLOSED, "a closed case cannot be reassigned");
 		TeamMember cm = member(cmId, Role.CASE_MANAGER, subject.getBrandId());
-		requireState(cm.getTeamId() != null && cm.getTeamId().equals(subject.getTeamId()),
-				"case manager is not on this case's team");
 		requireState(!cm.getId().equals(subject.getAssignedCm()),
 				"that case manager already holds this case");
 

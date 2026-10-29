@@ -8,6 +8,10 @@ import ProgressStrip from './ProgressStrip'
 import DeadlineDialog from './DeadlineDialog'
 import UploadDraftDialog from './UploadDraftDialog'
 import CaseDealDialog from './CaseDealDialog'
+import ServiceTypeDialog from './ServiceTypeDialog'
+
+/** Who corrects what the case was sold as — the server's gate on PUT /service-type. */
+const mayChangeServiceType = (role: Role) => role === 'GM' || role === 'BRAND_MANAGER' || role === 'PROJECT_MANAGER'
 import { STAGE_SHORT } from './caseProgress'
 import { button, sentence, type Tone } from './caseUi'
 import { StatusPill } from './StatusPill'
@@ -175,7 +179,19 @@ export default function CaseHeader({
             : <span style={{ color: 'var(--text-muted)' }}>Client withheld</span>}
           </h1>
           <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
-            {sentence(card.serviceType)}
+            {mayChangeServiceType(role) && !finished && card.serviceType ?
+              <ServiceTypeDialog
+                caseId={card.id}
+                serviceType={card.serviceType}
+                onSaved={onChanged}
+                trigger={
+                  <button type="button" className="inline-flex items-center gap-1 hover:underline" title="Change service type">
+                    {sentence(card.serviceType)}
+                    <Pencil aria-hidden className="h-3 w-3" />
+                  </button>
+                }
+              />
+            : sentence(card.serviceType)}
           </p>
           {/* Unit 67: who is on the case, so "who do I ask?" is not a trip to the timeline. */}
           <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">

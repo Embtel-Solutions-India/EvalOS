@@ -864,4 +864,11 @@ public class CaseController {
 	public ApiResponse<CaseSummary> denyRefund(@PathVariable UUID id, @Valid @RequestBody ReasonRequest request) {
 		return summary(refunds.denyRefund(id, request.reason()));
 	}
+
+	/** 2026-10-30: the PM's "delete" — closes an undelivered case with a reason; nothing is removed. */
+	@PostMapping("/{id}/cancel")
+	@PreAuthorize(GM_OR + "hasAnyRole('BRAND_MANAGER', 'PROJECT_MANAGER')")
+	public ApiResponse<CaseSummary> cancel(@PathVariable UUID id, @Valid @RequestBody ReasonRequest request) {
+		return summary(refunds.cancel(id, request.reason()));
+	}
 }

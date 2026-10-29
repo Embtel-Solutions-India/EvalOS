@@ -32,7 +32,7 @@ class ScopePredicateTest {
 	 * Coordinator and the Case Manager on it hold different slots.
 	 */
 	private static final ScopePredicate.Fields FIELDS =
-			new ScopePredicate.Fields("brandId", "teamId", List.of("assignedTo", "assignedAlso"));
+			new ScopePredicate.Fields("brandId", List.of("assignedTo", "assignedAlso"));
 
 	/** Unit 36: a brand-scoped entity that also carries the owning GHL pipeline. */
 	private static final ScopePredicate.Fields PIPELINE_FIELDS =
@@ -103,51 +103,18 @@ class ScopePredicateTest {
 		verify(cb, never()).equal(assigneePath, MEMBER);
 	}
 
+	/**
+	 * Q30 (2026-10-29): teams were dropped. A Project Manager reads their whole brand — even one
+	 * whose principal still carries a team id from an old token.
+	 */
 	@Test
-	void projectManagerNarrowsToOwnTeamWithinTheBrand() {
+	void projectManagerReadsTheWholeBrand() {
 		applyAs(Role.PROJECT_MANAGER, BRAND, TEAM);
 
 		verify(cb).equal(brandPath, BRAND);
-		verify(cb).equal(teamPath, TEAM);
-		// Off by default: the strict reading is the one every axis but cases takes.
+		verify(cb, never()).equal(teamPath, TEAM);
 		verify(cb, never()).isNull(teamPath);
-	}
-
-	/**
-	 * The pool, expressed as a predicate (Unit 23).
-	 *
-	 * <p>A paid case with no {@code team_id} belongs to nobody, and the Project Manager who is
-	 * expected to claim it out of their inbox has to be able to read it first. Before this the
-	 * TEAM predicate was {@code team = mine} alone, so a pooled case matched no PM at all and the
-	 * inbox's <em>Unassigned</em> preset filtered a permanently empty set.
-	 *
-	 * <p>The brand predicate is still unconditional, which is the part that matters: this widens
-	 * a tier <em>inside</em> one brand and never across brands.
-	 */
-	@Test
-	void aTeamCallerAlsoSeesUnteamedRowsWhenTheAxisSaysUnclaimed() {
-		ScopePredicate.Fields unclaimedVisible =
-				new ScopePredicate.Fields("brandId", "teamId", List.of("assignedTo"), true);
-
-		ScopePredicate.<Object>of(new TenantContext(MEMBER, Role.PROJECT_MANAGER, BRAND, TEAM), unclaimedVisible)
-				.toPredicate(root, null, cb);
-
-		verify(cb).equal(brandPath, BRAND);
-		verify(cb).equal(teamPath, TEAM);
-		verify(cb).isNull(teamPath);
-	}
-
-	/** A SELF caller is unaffected by the flag — they match by assignment, never by team. */
-	@Test
-	void unteamedVisibilityDoesNotLeakToTheSelfTier() {
-		ScopePredicate.Fields unclaimedVisible =
-				new ScopePredicate.Fields("brandId", "teamId", List.of("assignedTo"), true);
-
-		ScopePredicate.<Object>of(new TenantContext(MEMBER, Role.CASE_MANAGER, BRAND, TEAM), unclaimedVisible)
-				.toPredicate(root, null, cb);
-
-		verify(cb).equal(brandPath, BRAND);
-		verify(cb, never()).isNull(teamPath);
+		verify(cb, never()).equal(assigneePath, MEMBER);
 	}
 
 	@Test

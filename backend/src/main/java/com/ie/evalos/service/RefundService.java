@@ -65,6 +65,29 @@ public class RefundService {
 				c -> c.setCaseClosedDate(Instant.now()));
 	}
 
+	/**
+	 * Cancels a case that was never delivered (2026-10-30, the PM's "delete"). Closed, never removed —
+	 * its chat membership, audit and documents are history — and marked {@code CANCELLED} so the client
+	 * reads "Closed", not "Delivered". Pending payouts are voided as a refund voids them; nothing was earned.
+	 */
+	@Transactional
+	public Case cancel(UUID caseId, String reason) {
+		if (reason == null || reason.isBlank()) {
+			throw new com.ie.evalos.common.InvalidRequestException("Say why the case is being cancelled");
+		}
+		Case subject = lifecycle.load(caseId);
+		Stage to = CaseTransitions.target(subject, Action.CANCEL_CASE);
+
+		List<PayoutLedger> pending = payouts.findByCaseIdAndStatus(subject.getId(), PayoutStatus.PENDING);
+		pending.forEach(payout -> payout.setStatus(PayoutStatus.VOIDED));
+		payouts.saveAll(pending);
+
+		return lifecycle.apply(subject, to, Action.CANCEL_CASE, "Cancelled: " + reason.trim(), c -> {
+			c.setExceptionState(ExceptionState.CANCELLED);
+			c.setCaseClosedDate(Instant.now());
+		});
+	}
+
 	/** Deny: the case goes back to the stage it never actually left. */
 	@Transactional
 	public Case denyRefund(UUID caseId, String reason) {

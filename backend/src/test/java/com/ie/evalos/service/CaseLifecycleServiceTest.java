@@ -281,7 +281,7 @@ class CaseLifecycleServiceTest {
 		walkToDraftGeneration();
 		assertEquals(Stage.DRAFT_IN_PROGRESS, subject.getCurrentStage());
 		assertEquals(PoolStatus.ASSIGNED, subject.getPoolStatus());
-		assertEquals(TEAM, subject.getTeamId(), "the PM's team is what opens the case to that team");
+		assertNull(subject.getTeamId(), "no team is stamped: teams were dropped (Q30)");
 
 		actAs(Role.CASE_MANAGER);
 		lifecycle.submitDraft(CASE_ID, WORD, PDF);
@@ -1076,6 +1076,38 @@ class CaseLifecycleServiceTest {
 				publishedEventTypes(2));
 	}
 
+	/** 2026-10-30: the PM's "delete" closes the case, marks it cancelled and voids what was owed. */
+	@Test
+	void aCancelledCaseClosesWithoutDeliveryAndVoidsPendingPayouts() {
+		PayoutLedger pending = mock(PayoutLedger.class);
+		given(payouts.findByCaseIdAndStatus(any(), any())).willReturn(List.of(pending));
+		actAs(Role.PROJECT_MANAGER);
+
+		refunds.cancel(CASE_ID, "opened by mistake");
+
+		assertEquals(Stage.CLOSED, subject.getCurrentStage());
+		assertEquals(ExceptionState.CANCELLED, subject.getExceptionState());
+		assertFalse(RefundService.isRevenueRecognized(subject));
+		verify(pending).setStatus(PayoutStatus.VOIDED);
+		assertEquals(List.of(CaseEvents.Type.CASE_CLOSED), publishedEventTypes(1));
+	}
+
+	/** A delivered case is earned: taking it back is a refund, not a cancel. */
+	@Test
+	void aDeliveredCaseCannotBeCancelled() {
+		subject.setCurrentStage(Stage.DELIVERED);
+		actAs(Role.PROJECT_MANAGER);
+
+		assertThrows(IllegalTransitionException.class, () -> refunds.cancel(CASE_ID, "too late"));
+	}
+
+	@Test
+	void aCancelNeedsAReason() {
+		actAs(Role.PROJECT_MANAGER);
+
+		assertThrows(com.ie.evalos.common.InvalidRequestException.class, () -> refunds.cancel(CASE_ID, " "));
+	}
+
 	@Test
 	void aDeniedRefundPutsTheCaseBackWhereItWas() {
 		subject.setCurrentStage(Stage.READY_TO_DELIVER);
@@ -1195,6 +1227,22 @@ class CaseLifecycleServiceTest {
 
 		verify(events).publishEvent(org.mockito.ArgumentMatchers.<Object>argThat((e) -> e instanceof CaseEvents.CaseEvent ce
 				&& ce.type() == CaseEvents.Type.CASE_MANAGER_REASSIGNED));
+	}
+
+	/**
+	 * Q30 (2026-10-29): teams were dropped. Any active CM of the case's brand may take it, whatever
+	 * team id an old row still carries — production's PM was refused every CM before this.
+	 */
+	@Test
+	void anyCaseManagerOfTheBrandTakesTheCase() {
+		TeamMember elsewhere = member(CM_ID, Role.CASE_MANAGER, UUID.randomUUID());
+		given(teamMembers.findByIdAndBrandIdAndRoleAndActiveTrue(CM_ID, BRAND, Role.CASE_MANAGER))
+				.willReturn(Optional.of(elsewhere));
+
+		walkToDraftGeneration();
+
+		assertEquals(CM_ID, subject.getAssignedCm());
+		assertEquals(OTHER_CM_ID, lifecycle.reassignCaseManager(CASE_ID, OTHER_CM_ID).getAssignedCm());
 	}
 
 	/** Unit 73: PM Review → Drafting names the CM only; nobody is offered yet. */

@@ -74,10 +74,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D8.** **There is no client request** (Unit 64, 2026-09-29). An **Opportunity** (GHL) is the
   commercial process and starts in GHL — a form, a call, Sales or Marketing. A **Case**
   (`evalos_case`) is production work. The portal never opens a deal. Spec `64`.
-- **D9.** A case is created **only** by the `opportunity.won` GHL webhook (Handoff A). No other
-  code path may create one; `DomainInvariantsTest` fails the build if a second class injects
-  `CaseIntakeService`. (Invariant 8.) The service type comes from the webhook's
-  `customData.serviceType`.
+- **D9.** A case is created **only from a deal won in GHL** (Handoff A) — edited 2026-10-30, was "only by
+  the `opportunity.won` webhook". Two doors, one class: the webhook, and the GM / Brand Manager / PM's
+  **New case** (`POST /api/cases/from-ghl`, a GHL opportunity id or contact id), which runs the webhook's own
+  `GhlOpportunityHandler` intake — the deal must be won in GHL, and contact, amount and service are read from
+  GHL, never typed. `DomainInvariantsTest` still fails the build if a second class injects `CaseIntakeService`.
+  (Invariant 8.) **A case is never deleted** (chat membership is append-only, V69): the PM's "delete" is
+  **Cancel case** (`POST /api/cases/{id}/cancel`, GM/BM/PM, a reason required), which closes any
+  undelivered case with `exception_state = CANCELLED`, voids pending payouts, and reads "Closed" to the client
+  (as an approved refund now does too, instead of "Delivered"); a delivered case is a refund. The service type comes from the webhook's
+  `customData.serviceType`, else the won deal's Service Requested (D77, 2026-10-30), else Credential evaluation.
   **Amended 2026-10-07 (security review): the win is confirmed with GHL first.** The endpoint token is the
   webhook's whole credential (GHL's Custom Webhook cannot sign), so a delivery is a trigger, not proof:
   `GhlOpportunityHandler` re-reads the contact's deals from GHL and creates the case only if one is won
@@ -359,6 +365,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D20.** Eight staff roles with ABAC tiers: `GM`(ALL), `BRAND_MANAGER`(BRAND),
   `PROJECT_MANAGER`(TEAM), `PROJECT_COORDINATOR`/`CASE_MANAGER`(SELF),
   `EXPERT_NETWORK_MANAGER`(SUPPLY), `SALES`/`MARKETING`(PIPELINE).
+  **There are no teams** (2026-10-29, the business, closing Q30): the `TEAM` tier reads the PM's whole
+  brand. Teams were never decided — no `team` table, no screen, NULL for every production member — and
+  the axis only refused work (a PM was refused every Case Manager). `ScopePredicate` has no team axis,
+  `assignPm` stamps no team, and any active CM of the case's brand may be assigned.
+  `team_member.team_id` / `evalos_case.team_id` are VESTIGIAL (applied seeds write them; the principal
+  and JWT still carry the value, unread).
 - **D21.** Sales and Marketing are roles, and **the role is all EvalOS records** (edited
   2026-10-13). The attorney / employer-firm / individual split is not stored: `team_member.segment`
   was display-only, changed no permission, and is now VESTIGIAL (`V91` drops its CHECK and empties
@@ -616,7 +628,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 - **D76.** **The Sales and Marketing dashboards read the mirror, and only the GM drills down** (2026-10-08). `GET /api/metrics/journey` answers a year of leads by month and source, deals by the stage they stand in (any status, so Won and Lost stages count too — edited 2026-10-14) and this month; a desk holding two or more pipelines reads one at a time by tab (`pipelineId`, narrows only, 403 otherwise; default the first, as the board — 2026-10-14)'s target from the local `opportunity` mirror — never GHL live, so a dashboard left open spends no rate budget. A SALES or MARKETING member reads their own pipelines only; asking for another member is a 403 (D19c). The GM reads one audience's desks or one desk of it; there is no sales-manager role, so nobody else is offered the picker. A lead is counted in the month GHL created it, a win in the month its status last changed. Date filters beyond year and source are not offered until a read can serve them.
 
-- **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. Mapping GHL's Service Requested values onto the types is a follow-up.
+- **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. **Mapping GHL's Service Requested onto the types (edited 2026-10-30, was "a follow-up"):** GHL's won webhook cannot carry the opportunity's dropdown, so every case opened as Credential evaluation. EvalOS now reads the deal itself (`CaseServiceTypeService`, a static label map): at intake from the won deal it already re-reads to confirm the win; hourly (`SERVICE_TYPE_RECONCILE`, mirror only) for a case still on that fallback type, in document collection, with an untouched checklist; and the GM, Brand Manager or PM changes it on any open case (`PUT /api/cases/{id}/service-type`, the pencil on the case header's service line). A change keeps every checklist item sent, uploaded or reviewed, drops untouched ones the new type does not need, adds the new type's missing ones, and is audited. Unmapped, so the case keeps its type: EB-1B Expert Opinion Letter, Cover Letter & Support Letter, Immigration Business Plans, Pre-Filing Documentation Review. The checklists themselves stay a static map (`ChecklistTemplates`), not editable without a deploy.
 - **D78.** **A separate Administrator account owns the admin functions; the GM no longer does** (2026-10-08, spec 78).
   `Role.ADMIN` (cross-brand, `Tier.ALL`, NULL brand, `V88`) owns staff create/edit/deactivate/password/**delete**, pipeline
   assignment, background jobs, sync health, and reads brands. **Pipeline purpose is set by the GM or the Admin; won

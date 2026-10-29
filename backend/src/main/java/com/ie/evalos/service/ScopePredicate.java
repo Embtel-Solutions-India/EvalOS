@@ -10,7 +10,7 @@ import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
 /**
- * The one place brand/team/assignee/pipeline predicates are built. Every scoped read
+ * The one place brand/assignee/pipeline predicates are built. Every scoped read
  * composes its Specification from here — a repository query that skips it can
  * cross brands, which is a defect, not a feature.
  *
@@ -20,44 +20,32 @@ import org.springframework.data.jpa.domain.Specification;
 public final class ScopePredicate {
 
 	/**
-	 * Which attributes on the target entity carry the scope. Team may be null and
-	 * assignees may be empty when the entity has no such axis.
+	 * Which attributes on the target entity carry the scope. Assignees may be empty when the
+	 * entity has no such axis.
 	 *
-	 * @param brand           attribute holding the owning brand id
-	 * @param team            attribute holding the owning team id, or null
-	 * @param assignees       every attribute that can name an assigned member, possibly
-	 *                        empty. A {@code SELF} caller matches when <em>any</em> of them
-	 *                        is them — a case is one pipeline and the people on it hold
-	 *                        different slots, so a single column would only ever show the
-	 *                        work to one of them.
-	 * @param unteamedVisible whether a row with no team is visible to a {@code TEAM} caller
-	 *                        of the same brand. Set when an absent team means <em>unclaimed
-	 *                        work</em>, which on a case is exactly {@code PoolStatus.IN_POOL}
-	 *                        — the Project Manager who claims a pooled case has to be able to
-	 *                        read it first (Unit 23). It is <strong>off everywhere else</strong>
-	 *                        and specifically off for {@code TeamMemberQueryService}: an
-	 *                        unteamed <em>person</em> is not unclaimed work, and one flag
-	 *                        meaning both is how a scope starts asserting something the
-	 *                        schema never said.
+	 * <p><strong>No team axis</strong> (dropped 2026-10-29, Q30): teams were never a business
+	 * concept, no member in production had one, and the axis only ever refused work. A Project
+	 * Manager reads their brand.
+	 *
+	 * @param brand     attribute holding the owning brand id
+	 * @param assignees every attribute that can name an assigned member, possibly
+	 *                  empty. A {@code SELF} caller matches when <em>any</em> of them
+	 *                  is them — a case is one pipeline and the people on it hold
+	 *                  different slots, so a single column would only ever show the
+	 *                  work to one of them.
 	 */
-	public record Fields(String brand, String team, List<String> assignees, boolean unteamedVisible,
-			String pipeline) {
+	public record Fields(String brand, List<String> assignees, String pipeline) {
 
 		public Fields {
 			assignees = List.copyOf(assignees);
 		}
 
-		public Fields(String brand, String team, List<String> assignees, boolean unteamedVisible) {
-			this(brand, team, assignees, unteamedVisible, null);
-		}
-
-		/** The strict reading: an unteamed row belongs to nobody and is shown to nobody. */
-		public Fields(String brand, String team, List<String> assignees) {
-			this(brand, team, assignees, false, null);
+		public Fields(String brand, List<String> assignees) {
+			this(brand, assignees, null);
 		}
 
 		public static Fields brandOnly(String brand) {
-			return new Fields(brand, null, List.of());
+			return new Fields(brand, List.of());
 		}
 
 		/**
@@ -69,7 +57,7 @@ public final class ScopePredicate {
 		 * and a second argument about how scoping works.
 		 */
 		public static Fields brandAndPipeline(String brand, String pipeline) {
-			return new Fields(brand, null, List.of(), false, pipeline);
+			return new Fields(brand, List.of(), pipeline);
 		}
 	}
 
@@ -90,18 +78,6 @@ public final class ScopePredicate {
 			predicates.add(cb.equal(root.get(fields.brand()), ctx.brandId()));
 
 			switch (ctx.role().tier()) {
-				case TEAM -> {
-					if (fields.team() != null && ctx.teamId() != null) {
-						Predicate mine = cb.equal(root.get(fields.team()), ctx.teamId());
-						// `IS NULL` is not a hole in the predicate, it is the pool. A paid case
-						// with no team is work nobody has taken, and the PM inbox is where it is
-						// taken from — so the role that claims it must be able to read it. Still
-						// inside the brand: the brand predicate above is unconditional.
-						predicates.add(fields.unteamedVisible()
-								? cb.or(mine, cb.isNull(root.get(fields.team())))
-								: mine);
-					}
-				}
 				case SELF -> {
 					// Any slot naming the caller is enough: the Coordinator who chases the
 					// documents and the Case Manager who writes the draft are on the same
@@ -134,7 +110,7 @@ public final class ScopePredicate {
 					// longer the only legal size.
 					predicates.add(root.get(fields.pipeline()).in(ctx.ghlPipelineIds()));
 				}
-				// BRAND and SUPPLY read their whole brand; ALL returned above.
+				// BRAND, TEAM (the PM — no team axis since Q30) and SUPPLY read their whole brand; ALL returned above.
 				default -> {
 				}
 			}
