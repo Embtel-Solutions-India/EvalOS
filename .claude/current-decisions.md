@@ -330,9 +330,13 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   Master Pipeline are mirrored but are **not** on this board; they have their own screens. Stages are
   matched by name (trimmed, case-insensitive) across those pipelines and drawn as ONE column in the
   position of the first, holding every pipeline's deals with the summed value — so no stage name
-  appears twice. **Only the GM's board folds:** a salesperson drags cards, and a drop onto a column that
-  stands for several pipelines' stages has no single stage to move the deal to. The GM cannot drag
-  (`canMove` is SALES/ENM), so nothing is lost. The reason the 2026-09-17 rule is gone: it existed to
+  appears twice. **Only the GM's board folds:** a desk drags cards, and a drop onto a column that
+  stands for several pipelines' stages has no single stage to move the deal to. **Who moves a deal**
+  (edited 2026-10-29 on the business's instruction; was SALES/ENM only): every pipeline's owner —
+  SALES, MARKETING or ENM — on each pipeline they hold, and the GM on every pipeline
+  (`PipelineScope.requireMovable`; the route is `hasAnyRole('SALES','MARKETING','EXPERT_NETWORK_MANAGER','GM')`).
+  The GM drags on a single-pipeline view only, never on the folded all-sales view. The move is the
+  GM's only write on a deal (with the handoff note a drop on Won carries): edit, close, other notes and bookings stay `requireMine`. The reason the 2026-09-17 rule is gone: it existed to
   stop deriving the GM's view from the roster hiding unowned pipelines, and "unowned" is exactly what
   Case Delivery and the Master Pipeline are — they are not sales, so showing them was the error.
   Still gated on the mirror, so a pipeline GHL stopped returning is not offered.
@@ -614,10 +618,10 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 - **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. Mapping GHL's Service Requested values onto the types is a follow-up.
 - **D78.** **A separate Administrator account owns the admin functions; the GM no longer does** (2026-10-08, spec 78).
-  `Role.ADMIN` (cross-brand, `Tier.ALL`, NULL brand, `V88`) owns staff create/edit/deactivate/password, pipeline
-  assignment, background jobs, sync health, and reads brands. **Pipeline purpose and won stages are the GM's** (2026-10-15,
-  the business: the Admin sees the Pipelines screen but cannot change it; both routes are `hasRole('GM')` and audited
-  with the GM's brand — this closed Q23). The GM keeps business views, targets
+  `Role.ADMIN` (cross-brand, `Tier.ALL`, NULL brand, `V88`) owns staff create/edit/deactivate/password/**delete**, pipeline
+  assignment, background jobs, sync health, and reads brands. **Pipeline purpose is set by the GM or the Admin; won
+  stages are the GM's** (2026-10-15 closed Q23 with both GM-only; edited 2026-10-29 on the business's instruction: the
+  purpose route is `hasAnyRole('ADMIN', 'GM')`, the won route stays `hasRole('GM')`; both audited with the selling brand). The GM keeps business views, targets
   and refunds, and reads brands, but loses the Admin nav group except Pipelines (2026-10-15). **The Admin has no Sales or Pipeline screens**
   (2026-10-14, on the business's instruction): Sales performance, Marketing performance, My pipeline and the
   production board left its nav, and so its routes (one table, `navigation.ts`). `AdminAllowlist` still lets it read
@@ -629,7 +633,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   The Admin's `/dashboard` is not the GM's, because the GM overview reads revenue, which is gated to whoever
   may see a deal value. **It is System health** (2026-10-10, D82, spec 84); the staff, pipeline, sync and job
   figures the old `AdminDashboard` carried sit at the top of the Staff, Pipelines, Sync health and Background
-  jobs screens (`adminSummaries.tsx`), and `AdminDashboard` is deleted. Only an Admin creates an Admin; the first
+  jobs screens (`adminSummaries.tsx`), and `AdminDashboard` is deleted. **Deleting a staff member** (2026-10-29, the business): a member nothing remembers (no foreign key onto them, no audit event they performed) is deleted outright; anyone else is **archived** — `team_member.archived_at` (`V98`), deactivated, gone from the Staff list (pickers already skip inactive), the row kept so append-only history still names them. An archived member's email and GHL user stay theirs. Nobody deletes themselves. Only an Admin creates an Admin; the first
   comes from the seed (`V916` local, `V954` testprod, `V961` prod — all applied). **Production's Admin, the brands'
   webhook tokens and the testprod seed hash are entered in the database by hand** (2026-10-14, on the business's
   instruction): `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH`, `SEED_PASSWORD_HASH`, `IE_WEBHOOK_TOKEN` and `XP_WEBHOOK_TOKEN`

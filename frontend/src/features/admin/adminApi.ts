@@ -124,6 +124,9 @@ export const updateStaff = (id: string, form: StaffForm) =>
   unwrap<StaffMember>(api.put(`/team-members/${id}`, form));
 export const setStaffActive = (id: string, active: boolean) =>
   unwrap<StaffMember>(api.put(`/team-members/${id}/active`, { active }));
+/** Deleted outright when nothing remembers them, otherwise archived (deactivated, hidden, kept for history). */
+export const deleteStaff = (id: string) =>
+  unwrap<"DELETED" | "ARCHIVED">(api.delete(`/team-members/${id}`));
 export const setStaffPassword = (id: string, password: string) =>
   unwrap<void>(api.put(`/team-members/${id}/password`, { password }));
 export const grantPipeline = (id: string, pipelineId: string) =>

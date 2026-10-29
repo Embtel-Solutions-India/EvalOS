@@ -37,7 +37,9 @@ public class TeamMemberQueryService {
 
 	@Transactional(readOnly = true)
 	public List<TeamMember> listForCaller() {
-		return teamMembers.findAll(ScopePredicate.of(TenantContext.current(), SCOPE));
+		// An archived member was deleted by the Admin; the row stays only for history (V98).
+		return teamMembers.findAll(ScopePredicate.<TeamMember>of(TenantContext.current(), SCOPE)
+				.and((root, query, cb) -> cb.isNull(root.get("archivedAt"))));
 	}
 
 	/**

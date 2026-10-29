@@ -42,7 +42,7 @@ _Q17 (expert offer mail) was answered on 2026-09-30 — yes, D67, built with Uni
 
 ## Raised by the ponytail-debt upgrades (2026-10-15)
 
-_Q23–Q25 were all answered on 2026-10-15. Q23: the Admin is view-only on Pipelines; the GM sets purpose and won
+_Q23–Q25 were all answered on 2026-10-15. Q23: the Admin was view-only on Pipelines (since 2026-10-29 it also sets purpose — D78); the GM sets purpose and won
 stages, so both changes are audited with the GM's brand (D78 edited). Q24: one brand only for now, so the
 selling-brand-only outbox drain stays; a per-brand drain comes with Unit 25. Q25: the unused all-pipelines
 `POST /board/refresh` was deleted._

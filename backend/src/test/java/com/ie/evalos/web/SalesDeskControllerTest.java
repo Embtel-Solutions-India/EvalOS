@@ -111,14 +111,27 @@ class SalesDeskControllerTest {
 				.andExpect(status().isForbidden());
 	}
 
-	@Test
-	void aSalespersonMovesADealToAnotherStage() throws Exception {
+	/** 2026-10-29: every pipeline owner and the GM move a deal; the service bounds which pipelines. */
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.EnumSource(value = Role.class,
+			names = {"SALES", "MARKETING", "EXPERT_NETWORK_MANAGER", "GM"})
+	void aPipelineOwnerOrTheGmMovesADealToAnotherStage(Role role) throws Exception {
 		given(desk.moveToStage(any(), any(), any())).willReturn(DEAL);
 
 		mockMvc.perform(put("/api/sales/opportunities/{id}/stage", OPPORTUNITY)
-				.header(HttpHeaders.AUTHORIZATION, bearer(Role.SALES))
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
 				.contentType(MediaType.APPLICATION_JSON).content("{\"stageId\":\"s2\"}"))
 				.andExpect(status().isOk());
+	}
+
+	@org.junit.jupiter.params.ParameterizedTest
+	@org.junit.jupiter.params.provider.EnumSource(value = Role.class, mode = org.junit.jupiter.params.provider.EnumSource.Mode.EXCLUDE,
+			names = {"SALES", "MARKETING", "EXPERT_NETWORK_MANAGER", "GM"})
+	void nobodyElseMovesADeal(Role role) throws Exception {
+		mockMvc.perform(put("/api/sales/opportunities/{id}/stage", OPPORTUNITY)
+				.header(HttpHeaders.AUTHORIZATION, bearer(role))
+				.contentType(MediaType.APPLICATION_JSON).content("{\"stageId\":\"s2\"}"))
+				.andExpect(status().isForbidden());
 	}
 
 	@Test

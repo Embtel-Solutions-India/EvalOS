@@ -135,8 +135,8 @@ public class SalesDeskController {
 	}
 
 	@PutMapping("/stage")
-	// Unit 63: the ENM moves candidates on their hiring pipeline; requireMine still bounds it.
-	@PreAuthorize("hasAnyRole('SALES', 'EXPERT_NETWORK_MANAGER')")
+	// Every pipeline's owner moves its deals, the GM moves any (2026-10-29); requireMovable bounds it.
+	@PreAuthorize("hasAnyRole('SALES', 'MARKETING', 'EXPERT_NETWORK_MANAGER', 'GM')")
 	public ApiResponse<SalesDeskService.Deal> moveStage(@PathVariable String opportunityId,
 			@RequestBody @Valid MoveStageRequest request) {
 		return ApiResponse.ok(desk.moveToStage(opportunityId, request.stageId(), request.note()));

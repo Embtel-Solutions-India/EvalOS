@@ -48,14 +48,16 @@ public class TeamMemberAdminService {
 	private final BrandRepository brands;
 	private final PasswordEncoder passwords;
 	private final AuditService audit;
+	private final com.ie.evalos.repository.StaffHistoryRepository history;
 
 	TeamMemberAdminService(TeamMemberRepository members, TeamMemberPipelineRepository grants, BrandRepository brands,
-			PasswordEncoder passwords, AuditService audit) {
+			PasswordEncoder passwords, AuditService audit, com.ie.evalos.repository.StaffHistoryRepository history) {
 		this.members = members;
 		this.grants = grants;
 		this.brands = brands;
 		this.passwords = passwords;
 		this.audit = audit;
+		this.history = history;
 	}
 
 	@Transactional
@@ -99,11 +101,40 @@ public class TeamMemberAdminService {
 		if (!active && member.getId().equals(me())) {
 			throw new InvalidRequestException("You cannot deactivate yourself");
 		}
+		if (active && member.getArchivedAt() != null) {
+			throw new InvalidRequestException("This member was deleted and is kept only for history");
+		}
 		Snapshot before = Snapshot.of(member);
 		member.setActive(active);
 		TeamMember saved = members.save(member);
 		audit.recordEvent(OBJECT_TYPE, saved.getId(), AuditAction.UPDATED, me(), before, Snapshot.of(saved));
 		return saved;
+	}
+
+	/** What the Admin's delete did: removed the row, or kept it hidden because history names them. */
+	public enum Removal { DELETED, ARCHIVED }
+
+	/**
+	 * The Admin deletes a staff member (2026-10-29). Nobody remembers them — gone. Anything does (an
+	 * action on the trail, a case, a note, a pipeline grant) — archived: deactivated and off the Staff
+	 * screen, the row kept so append-only history still resolves their name.
+	 */
+	@Transactional
+	public Removal delete(UUID id) {
+		TeamMember member = existing(id);
+		if (member.getId().equals(me())) {
+			throw new InvalidRequestException("You cannot delete yourself");
+		}
+		Snapshot before = Snapshot.of(member);
+		if (history.hasHistory(id)) {
+			member.archive();
+			members.save(member);
+			audit.recordEvent(OBJECT_TYPE, id, AuditAction.UPDATED, me(), before, "archived by an administrator");
+			return Removal.ARCHIVED;
+		}
+		members.delete(member);
+		audit.recordEvent(OBJECT_TYPE, id, AuditAction.DELETED, me(), before, null);
+		return Removal.DELETED;
 	}
 
 	@Transactional
@@ -129,7 +160,9 @@ public class TeamMemberAdminService {
 		}
 		members.findByEmailIgnoreCase(email).filter(other -> current == null || !other.getId().equals(current.getId()))
 				.ifPresent(other -> {
-					throw new InvalidRequestException("Another staff member already signs in with " + email);
+					throw new InvalidRequestException(other.getArchivedAt() != null
+							? email + " belongs to a deleted member kept for history. Use another email."
+							: "Another staff member already signs in with " + email);
 				});
 		// The GM and the Admin are cross-brand and only they are (team_member_brand_required).
 		boolean crossBrand = d.role() == Role.GM || d.role() == Role.ADMIN;

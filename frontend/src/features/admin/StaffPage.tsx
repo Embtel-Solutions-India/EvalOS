@@ -17,6 +17,7 @@ import {
   holdsPipelines,
   revokePipeline,
   setStaffActive,
+  deleteStaff,
   setStaffPassword,
   updateStaff,
   type StaffForm,
@@ -197,6 +198,7 @@ function StaffSheet({
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const self = member?.id === me.id;
 
   const attempt = async (work: () => Promise<unknown>, done?: string) => {
@@ -372,6 +374,30 @@ function StaffSheet({
                 >
                   {member.active ? "Deactivate" : "Reactivate"}
                 </button>
+              )}
+              {!self && (
+                <button
+                  type="button"
+                  className="btn w-fit"
+                  style={{ color: "var(--status-red)" }}
+                  disabled={busy}
+                  onClick={() =>
+                    confirmDelete
+                      ? void attempt(() => deleteStaff(member.id))
+                      : setConfirmDelete(true)
+                  }
+                >
+                  {confirmDelete
+                    ? `Confirm: delete ${member.displayName}`
+                    : "Delete"}
+                </button>
+              )}
+              {confirmDelete && (
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Someone with no work on record is removed for good. Anyone
+                  else is deactivated and hidden from this list, so their cases,
+                  notes and audit trail still show their name.
+                </p>
               )}
               {holdsPipelines(member.role) && (
                 <Pipelines memberId={member.id} role={member.role} />

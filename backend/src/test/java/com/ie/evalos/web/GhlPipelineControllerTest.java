@@ -169,10 +169,10 @@ class GhlPipelineControllerTest {
 				.andExpect(status().isBadRequest());
 	}
 
-	/** Setting a purpose is the GM's act: it decides where a client's request is routed. The Admin only reads it. */
+	/** Setting a purpose decides where a client's request is routed: the GM and the Admin may (2026-10-29), nobody else. */
 	@ParameterizedTest
-	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = "GM")
-	void onlyTheGmMaySetAPurpose(Role role) throws Exception {
+	@EnumSource(value = Role.class, mode = EnumSource.Mode.EXCLUDE, names = {"GM", "ADMIN"})
+	void onlyTheGmOrAdminMaySetAPurpose(Role role) throws Exception {
 		mockMvc.perform(put("/api/ghl/pipelines/" + UUID.randomUUID() + "/purpose")
 				.header(HttpHeaders.AUTHORIZATION, bearer(role))
 				.contentType(org.springframework.http.MediaType.APPLICATION_JSON)
