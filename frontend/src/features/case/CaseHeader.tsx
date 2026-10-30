@@ -104,17 +104,19 @@ export default function CaseHeader({
   return (
     <header
       onClick={detail.maySeeCaseContent ? openDealFromCard : undefined}
-      className={`z-10 mb-5 border-b lg:sticky${detail.maySeeCaseContent ? ' cursor-pointer' : ''}`}
+      className={`z-10 mb-4 border-b lg:sticky${detail.maySeeCaseContent ? ' cursor-pointer' : ''}`}
       style={{
         top: 'var(--header-height)',
         background: 'var(--bg-surface)',
         borderColor: 'var(--border-default)',
+        // Flush under the top bar (2026-10-30): cancels the shell's top gutter, and kept short.
+        marginTop: 'calc(var(--shell-gutter) * -1)',
         marginInline: 'calc(var(--shell-gutter) * -1)',
         paddingInline: 'var(--shell-gutter)',
-        paddingBlock: '1rem',
+        paddingBlock: '0.5rem',
       }}
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="mr-1 font-mono text-xs" style={{ color: 'var(--text-muted)' }}>
@@ -171,14 +173,16 @@ export default function CaseHeader({
           {/* Withheld and unnamed are different facts and must not share a label: the supply-side
               role may not see the client at all, which is not the same as a case with no contact
               linked to it. `maySeeCaseContent` is the server's own answer to which one this is. */}
-          <h1 className="mt-2 text-xl font-semibold tracking-tight text-balance">
+          {/* Name and service on one line, to keep the header short (2026-10-30). */}
+          <div className="mt-1 flex flex-wrap items-baseline gap-x-2">
+          <h1 className="text-lg font-semibold tracking-tight text-balance">
             {detail.maySeeCaseContent ?
               <button type="button" onClick={() => setDealOpen(true)} className="text-left hover:underline" title="Open opportunity details">
                 {detail.clientName ?? 'Unnamed contact'}
               </button>
             : <span style={{ color: 'var(--text-muted)' }}>Client withheld</span>}
           </h1>
-          <p className="mt-0.5 text-sm" style={{ color: 'var(--text-muted)' }}>
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
             {mayChangeServiceType(role) && !finished && card.serviceType ?
               <ServiceTypeDialog
                 caseId={card.id}
@@ -193,15 +197,17 @@ export default function CaseHeader({
               />
             : sentence(card.serviceType)}
           </p>
+          </div>
           {/* Unit 67: who is on the case, so "who do I ask?" is not a trip to the timeline. */}
-          <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <dl className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
             <TeamMember role="PM" name={detail.team.pm} />
             <TeamMember role="Case manager" name={detail.team.cm} />
             <TeamMember role="Coordinator" name={detail.team.coordinator} />
           </dl>
         </div>
 
-        <div className="flex flex-wrap gap-2 lg:max-w-[28rem] lg:justify-end">
+        <div className="flex flex-col gap-1 lg:max-w-[28rem] lg:items-end">
+        <div className="flex flex-wrap gap-2 lg:justify-end">
           {upload && (
             <UploadDraftDialog
               caseId={card.id}
@@ -255,14 +261,15 @@ export default function CaseHeader({
             </PopoverRoot>
           )}
         </div>
+        {/* The next step, small and wrapped under the actions (2026-10-30; was a full-width band). */}
+        <NextStepBand
+          exception={inException ? (EXCEPTION[card.exceptionState] ?? sentence(card.exceptionState)) : null}
+          next={next}
+          noAction={noAction}
+          finished={finished}
+        />
+        </div>
       </div>
-
-      <NextStepBand
-        exception={inException ? (EXCEPTION[card.exceptionState] ?? sentence(card.exceptionState)) : null}
-        next={next}
-        noAction={noAction}
-        finished={finished}
-      />
 
       <ProgressStrip entries={timeline} current={card.currentStage} slaLabel={sla?.label ?? null} />
 
@@ -326,13 +333,13 @@ function NextStepBand({
   if (!text) return null
   const yours = !exception && next?.startsWith('Your next step') === true
   const style =
-    exception ? { background: 'var(--status-red-bg)', color: 'var(--status-red)' }
-    : yours ? { background: 'var(--accent-soft)', color: 'var(--accent-primary)' }
-    : { background: 'var(--bg-raised)', color: 'var(--text-muted)' }
+    exception ? { color: 'var(--status-red)' }
+    : yours ? { color: 'var(--accent-primary)' }
+    : { color: 'var(--text-muted)' }
   const Icon = exception ? AlertTriangle : yours ? CircleDot : Hourglass
   return (
-    <p role="status" className="mt-4 flex items-start gap-2 rounded-md px-3 py-2 text-sm font-medium" style={style}>
-      <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+    <p role="status" className="flex max-w-[28rem] items-start gap-1 text-xs font-medium lg:text-right" style={style}>
+      <Icon aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" />
       <span>
         {text}
         {noAction && !finished && !exception && !yours && (

@@ -28,10 +28,6 @@ CASE_CREATED (after commit) → CasePortalAccountListener  (portal brand only, n
       account for the email, other contact → never relinked; case FLAGGED (OTHER_CONTACT)
       none                              → INSERT client_account (created_via CASE, linked) → mail a SET link
 
-POST /api/portal/auth/sign-in    { email, password }
-  → verify hash → audit CLIENT_SIGNED_IN | CLIENT_SIGN_IN_REFUSED
-  → mint a party-scoped portal_access token  (no contact, no account created)
-
 POST /api/portal/auth/forgot-password  → 204 always
 The SET/RESET link leaves over **SMTP, and the provider is configuration** (D3e, 2026-09-18):
 `spring.mail.host/port/username/password` + `EVALOS_MAIL_FROM` reach Brevo, Resend, Mailgun,
@@ -43,7 +39,10 @@ POST /api/portal/auth/set-password     → spend token, set hash
                                       → ensureCrmIdentity (idempotent; repairs an outage)
                                       → mint token, sign in
 
-POST /api/portal/auth/sign-in         → verify; an account with no contact link queues one
+POST /api/portal/auth/sign-in { email, password }
+                                      → verify hash → audit CLIENT_SIGNED_IN | CLIENT_SIGN_IN_REFUSED
+                                      → mint a party-scoped portal_access token (no account created)
+                                      → an account with no contact link queues one
                                         (sync_outbox CLIENT_ACCOUNT UPSERT, enqueueIfAbsent, same tx)
                                         — no GHL call on sign-in since 2026-10-15
 SYNC_OUTBOX drain                     → linkCrmIdentity: upsert contact, link; GHL failure retries/dead-letters
@@ -94,18 +93,19 @@ to or merged with `contact_snapshot` so one person is one row. Spec `64` §2–�
 ### CURRENT IMPLEMENTATION
 
 ```
-A deal starts in GHL               form · call · Sales (`SalesDeskService.newDeal`) · Marketing
+A deal starts in GHL               form · call · Sales (`SalesDeskService.createDeal`) · Marketing
                                     (`MarketingLeadService.openLead`). The portal opens none.
 Sales works it                     GHL pipeline stages; review → won → payment are GHL's (D11)
 Won in EvalOS (D70)                Won button, or a move to the Won stage (board or picker):
                                    Sales writes a required note for production: a deal note
                                    flagged `handoff` (synced to GHL), shown on the case
 
-PM "New case" (a GHL opportunity or contact id, D9 2026-10-30)
+"New case" (GM / Brand Manager / PM; a GHL opportunity or contact id, D9 2026-10-30)
                                   → POST /api/cases/from-ghl → GhlOpportunityHandler.openFromGhl
                                        (deal must be won in GHL; contact, amount, service read from GHL)
                                   → the same CaseIntakeService path as below
-PM "Cancel case" (reason)         → POST /api/cases/{id}/cancel → CLOSED, exception CANCELLED,
+"Cancel case" (GM / Brand Manager / PM; reason required, never delivered)
+                                  → POST /api/cases/{id}/cancel → CLOSED, exception CANCELLED,
                                        pending payouts voided, chat read-only, client reads "Closed"
 GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        WebhookGateway → WebhookRouter → GhlOpportunityHandler
@@ -116,10 +116,34 @@ GHL marks the opportunity won     → POST /api/webhooks/ghl/{endpointToken}
                                        → chat conversations (Unit 57)
                                        → the client's portal account + case-opened mail (§1, D65:
                                          set-password link valid 7 days, or sign-in if set)
+                                       → CaseServiceTypeListener: the deal's Service Requested (below)
 PC / CM send the checklist (D60)  → the client uploads on the case (§5)
 ```
 
 `GhlOpportunityHandler`, `CaseIntakeService`, `CasePortalAccountListener`.
+
+**Service type from the deal (D77, 2026-10-30).** GHL's won webhook carries no service, so a case can
+open on the fallback, Credential evaluation. Three things correct it, all through `CaseServiceTypeService`:
+
+```
+CASE_CREATED (after commit)  → CaseServiceTypeListener: deal not in the mirror → GHL byId → absorb;
+                                then reconcile (new tx; a failure only logs — the sweep is the floor)
+SERVICE_TYPE_RECONCILE (5m)  → mirror only; reconcile every case still on the fallback type,
+                                in DOC_COLLECTION, whose checklist is all untouched
+PUT /api/cases/{id}/service-type  (CaseServiceTypeController; GM / Brand Manager / PM; the pencil on
+                                the case header) → any open case, any type; refused on CLOSED or same type
+```
+
+The deal (`dealOf`, brand-matched): the case's `ghl_opportunity_id`; with none, the case contact's deals
+in the mirror — the latest **won** one, else the most recently changed or created. The label maps by a
+static table (unmapped labels leave the type alone). A change keeps every item that was sent, uploaded
+or reviewed (anything not "REQUIRED and unsent"), deletes untouched items the new type's template lacks,
+adds the template's missing ones as REQUIRED, and audits `serviceType` before → after.
+
+**Removing a checklist item (2026-10-30).** `DELETE /api/cases/{id}/checklist/{itemId}` (GM, Brand
+Manager, PC, CM — the checklist's own roles) → `ChecklistService.removeItem`: refused for an item the
+client UPLOADED or that was APPROVED, and for the case's last item; otherwise deleted and audited
+(`DELETED`, "Required document removed: …"). A sent, MISSING or INCORRECT item may still be removed.
 
 **Removed by Unit 64 (2026-09-29):** the portal request (`/requests/new`, `client_application`),
 its documents (`application_document`), the opportunity EvalOS opened at submit on the `INTAKE`
@@ -182,7 +206,7 @@ gets the mirror row back with `created = false`.
 
 ### TARGET WORKFLOW
 
-One contact, many opportunities. **Three of the four paths already do this.**
+One contact, many opportunities. **One of the two create paths already does this** (`SalesDeskService.createDeal`).
 `MarketingLeadService` is the divergence — deliberate and documented, but it is the one place a
 second enquiry from the same person overwrites the first lead's name and value instead of opening
 a new one. It stays (D56), except that a queued edit is never overwritten.
@@ -199,7 +223,7 @@ DOC_COLLECTION ─ the PC or CM builds the checklist and SENDS it (Unit 61, D60:
                   client uploads to S3 against each sent item
  → PM_REVIEW ─ PM writes strategy notes, assigns the CM (assign-cm, CM only — Unit 73)
  → DRAFT_IN_PROGRESS → DRAFT_REVIEW ─ CM uploads the draft as Word, PDF or both — at least one (POST …/drafts); PM approves or returns;
-                  once a draft exists, PM / CM offer the expert an amount (PATCH …/expert, stage kept)
+                  once a draft exists, PM / CM / ENM / GM offer the expert an amount (PATCH …/expert, stage kept)
  → READY_TO_SEND → CLIENT_REVIEW ─ client comments, then approves or requests changes on that version
  → CLIENT_APPROVAL → EXPERT_SIGNING ─ expert accepts / declines / signs, signed in (Unit 59)
  → FINAL_QC ─ PM passes or fails
@@ -225,28 +249,28 @@ and may **chase** — the chase is allowed in `DOC_COLLECTION` or while held for
 page shows the request to everyone on the case (`caseRules.expertEvidenceRequest`) until **Resume**
 (Coordinator / PM); then the expert can sign.
 
-Four sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA`.
+Five sweeps run over this: `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA`, and
+`SERVICE_TYPE_RECONCILE` (§2).
+
+**Staffing (Unit 73, 2026-10-02).** The case is born at Handoff A, a **PM** takes it, and the PM
+assigns the **Project Coordinator** (`POST /api/cases/{id}/assign-coordinator`, GM / Brand Manager /
+PM) and, at PM Review, the **Case Manager** (`…/assign-cm`, GM / PM — the CM only; no expert, no
+offer). **Once the CM has uploaded a draft** the PM, CM, ENM or GM offers the **expert** an amount from
+the case's More menu ("Assign / Change expert", `PATCH …/expert` → `changeExpert`, stage kept,
+`DRAFT_IN_PROGRESS` … `CLIENT_APPROVAL`; a CM at the standard fee only): any open offer SUPERSEDED,
+the old expert link revoked, a new offer opened, and `EXPERT_ASSIGNED` sends the offer mail and adds
+the expert to the Expert chat. Refused before a draft and from `EXPERT_SIGNING` on (decline /
+timed-out → reassign). The PM (or GM) may change the CM at any stage ("Assign / Change case manager",
+`PATCH …/case-manager`). Once a slot is filled its action reads "Change …". The PC and the CM are each
+notified when they are put on a case (`CASE_ASSIGNED`), and the timeline row names who was assigned.
+The expert opens the client's current files and the approved draft on their case (D63, Unit 66b).
 
 ### TARGET WORKFLOW
 
-**Unchanged — and as of 2026-09-17 this is the stated business lifecycle, not just what the code
-happens to do** (D36). Read as staffing: the case is born at Handoff A, a **PM** takes it, and the
-PM assigns the **Project Coordinator** and, at PM Review, the **Case Manager**
-(`POST /api/cases/{id}/assign-coordinator`, `…/assign-cm` — **the CM only since Unit 73**,
-2026-10-02; no expert, no offer). **Once the CM has uploaded a draft** the PM or CM (also ENM /
-GM) offers the **expert** an amount from the case's More menu ("Assign / Change expert",
-`PATCH …/expert` → `changeExpert`, stage kept, `DRAFT_IN_PROGRESS` … `CLIENT_APPROVAL`; a CM at the
-standard fee only): any open offer SUPERSEDED, the old expert link revoked, a new offer opened, and
-`EXPERT_ASSIGNED` sends the offer mail and adds the expert to the Expert chat. Refused before a
-draft and from `EXPERT_SIGNING` on (decline / timed-out → reassign). The PM may also change the CM
-at any stage ("Assign / Change case manager", `PATCH …/case-manager`). Once a slot is filled its action reads "Change …". The PC and the CM are each notified when they are put on a case (`CASE_ASSIGNED`), and
-the timeline row names who was assigned. The **CM drafts and uploads**; the **client sees and
-approves** it in the portal (`CLIENT_REVIEW` → `CLIENT_APPROVAL`); **only then** does it reach the
-**expert**, who downloads, signs and uploads it back (`EXPERT_SIGNING`, Handoff B).
-
-The expert opens the client's current files and the approved draft on their case (D63, Unit 66b).
-The open work is visibility, not lifecycle: there is no unified timeline across the request, the opportunity and the case. **Sales is not on that list**
-— they read no case by design (D19c).
+The lifecycle and staffing above **are** the stated business lifecycle (D36, 2026-09-17): the CM
+drafts, the client approves, only then the expert signs (Handoff B). The open work is visibility,
+not lifecycle: there is no unified timeline across the opportunity and the case. **Sales is not on
+that list** — they read no case by design (D19c).
 
 ---
 
@@ -278,6 +302,11 @@ Expert    GET /api/portal/expert/letter, POST /api/portal/expert/signed-letter
 Unit 58 phase 3: Home lists every case, and each case page holds its documents, drafts, delivered
 files, history and Client conversation.
 
+**Live updates (Unit 70, D68, 2026-10-01).** A committed document, checklist or draft change shows on
+every open screen of that case, staff and portal, without a reload: `case.changed` over Ably, then a
+background REST re-read (staff `lib/live.ts`, portals `LiveInvalidate`). The GM hears every brand:
+their token names each brand's channel.
+
 ### TARGET WORKFLOW
 
 `Case → checklist sent (D60) → Client Portal upload → S3 (keyed by GHL contact id, D41) → Production → Expert`.
@@ -285,11 +314,6 @@ files, history and Client conversation.
 Matches CURRENT: documents enter **only at the Case**, against a sent checklist item. The
 request-document upload, Sales' Request documents tab and the carry-forward at Handoff A were
 removed by Unit 64 (2026-09-29).
-
-**Matches CURRENT since Unit 70 (D68, built 2026-10-01):** a committed document, checklist or
-draft change shows on every open screen of that case, staff and portal, without a reload:
-`case.changed` over Ably, then a background REST re-read (staff `lib/live.ts`, portals
-`LiveInvalidate`). The GM hears every brand: their token names each brand's channel.
 
 ---
 
@@ -318,7 +342,7 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 `meetingLocationType`, `address`, `appointmentStatus=confirmed`, optional
 `ignoreFreeSlotValidation`. Mirrored into `meeting` (`GhlCalendarClient`, `SalesMeetingService`).
 
-### Against the target booking experience
+Capability by capability:
 
 | Capability | State |
 |---|---|
@@ -331,6 +355,12 @@ Booking sends: calendar, contact, start, end, title, description, `assignedUserI
 | Internal notes | **IMPLEMENTED** — list / add / delete on the diary row (edit route exists, no UI) |
 | Cancel | **IMPLEMENTED** — GHL status `cancelled`, so GHL notifies |
 | Blocked-off time | **IMPLEMENTED** — the caller's own, on the Meetings screen |
+
+### TARGET WORKFLOW
+
+The booking experience in the table above, with three gaps: an account default timezone beside the
+calendar's; guests, which GHL cannot hold (Q14 recommends dropping them); and a UI for the existing
+note-edit route.
 
 ---
 
@@ -347,8 +377,10 @@ offer, and follows every event in `ChatLifecycleListener.MOVES_THE_CHAT` (includ
 first run, backfills every case not yet closed. At `CLOSED` all three become read-only. Messages go
 through REST on `/api/chat`, `/api/portal/client/chat` and `/api/portal/expert/chat`; after commit
 `ChatFanout` publishes each change into every current member's private Ably channel, and
-`ChatPushNotifier` sends a web push to members who are not present on theirs. **No app screen yet**
-(phases 2–3). `opportunity_note` (Unit 54a) is unchanged and separate.
+`ChatPushNotifier` sends a web push to members who are not present on theirs. **Screens:** staff
+`/conversations` (`ConversationsPage`) and the case page's chat (`CaseChat`); Client Portal
+`/conversations` and the case page's Client conversation; Expert Portal `/messages`.
+`opportunity_note` (Unit 54a) is unchanged and separate.
 
 **The GM takes part (Unit 77, D75, 2026-10-08).** A GM who is not a member may write in any open
 conversation of any brand (`ChatAccessLevel.PARTICIPANT`); the post is labelled `GM`
@@ -358,9 +390,7 @@ list, `ChatFanout` never reaches the GM's own channel: a non-member listens on t
 own `chat:view:{brand}:{conversation}` channel while it is open (`Realtime.watch`, driven by
 `ConversationView.access` and `.brandId`).
 
-### TARGET WORKFLOW
-
-**Notes, both ways (Unit 54, built 2026-09-24).** A note written on a deal is queued and pushed
+**Notes, both ways (Unit 54, 2026-09-24).** A note written on a deal is queued and pushed
 once by `SYNC_OUTBOX` to the deal's GHL **contact** (≤2m), carrying an author/deal trailer; GHL's
 notes, already mirrored into `ghl_note` by `MIRROR_DELTA`, show on the deal beside EvalOS's with an
 origin badge (≤5m), filed by GHL's own `relations` — a note on the contact alone shows on every
@@ -368,20 +398,24 @@ deal of that contact. **An EvalOS note's author may edit or delete it** (Unit 54
 queued and the drain overwrites (`PUT`) or deletes (`DELETE`) the GHL copy; GHL notes are changed in
 GHL only. Spec `54-two-way-note-sync.md`.
 
-**No GHL conversation sidebar (D52, 2026-09-28).** GHL conversations stay in GHL; EvalOS's only
+### TARGET WORKFLOW
+
+As CURRENT. **No GHL conversation sidebar (D52, 2026-09-28).** GHL conversations stay in GHL; EvalOS's only
 messaging is the case chat (Unit 57, spec `57-case-chat.md`).
 
 ---
 
 ## 8. Handoffs
 
+### CURRENT IMPLEMENTATION
+
 | | Direction | Trigger | State |
 |---|---|---|---|
-| **A** | GHL → EvalOS | `opportunity.won` webhook creates the case | code complete |
+| **A** | GHL → EvalOS | `opportunity.won` webhook creates the case; second door, same class: "New case" `POST /api/cases/from-ghl` for a deal won in GHL (D9, 2026-10-30) | code complete |
 | **mirror** | GHL → EvalOS | `contact.*` and `opportunity.*` webhooks update `contact_snapshot` and `opportunity`; `MIRROR_DELTA` (15m) is the floor under them | code complete (45d, 2026-09-17) |
 | **contact backfill** | GHL → EvalOS | the deal screen reads `GET /contacts/{id}` when `contact_snapshot` has never seen the person, and keeps the row — country, tags and custom field values included (2026-09-30; `CONTACT_MIRROR` fills them for every contact) | code complete (2026-09-22) |
 | **push** | EvalOS → GHL | a desk edit queues `sync_outbox`; the drain (2m) reads GHL's copy first and sends only the fields GHL has not changed since — both changed → the newer edit wins (spec 86); a dead push re-queues itself after 1h when the cause was timing or GHL, max 3 times a week | code complete (2026-10-28) |
-| **B** | EvalOS → Expert | staff mints a portal link; expert signs | code complete |
+| **B** | EvalOS → Expert | the offer (`EXPERT_ASSIGNED`) mails the expert; they sign in to their own portal account, accept, sign and upload (staff-minted links removed, `V73`) | code complete |
 | **C** | EvalOS → GHL / client | — | **dropped (D53)** |
 
 **The contact backfill exists because every other writer of `contact_snapshot` is an EvalOS-side
@@ -401,20 +435,37 @@ failure returns empty and logs rather than throwing: an upstream blip must not t
 questionnaire and the actions down with the contact card. Scope `contacts.readonly`, already granted
 — `GhlCalendarClient` uses it for a contact's appointments.
 
+### TARGET WORKFLOW
+
+As CURRENT. Handoff C stays dropped (D53).
+
 ## Request documents (Unit 53) — removed by Unit 64 (2026-09-29)
+
+### CURRENT IMPLEMENTATION
 
 The pre-case upload, Sales' tab and the carry-forward at Handoff A are gone, and `V78` dropped
 `application_document`. Client documents enter only on a case (§5). Spec `64`.
 
-### Expert portal sign-in (Unit 59, 2026-09-28)
+### TARGET WORKFLOW
+
+None — not coming back.
+
+## Expert portal sign-in (Unit 59, 2026-09-28)
+
+### CURRENT IMPLEMENTATION
 
 ```
-Expert Portal /  → POST /api/portal/auth/expert/sign-up   roster match in the portal's brand
+Expert Portal /  → POST /api/portal/auth/expert/sign-up | …/forgot-password   roster match in the portal's brand
                     → set / reset mail; else nothing (by decision, Q6b); 204 always
+POST /api/portal/auth/expert/sign-in → party-scoped expert token
 /set-password#token → POST …/set-password → party-scoped expert token
 /cases → /case?caseId=                     expert actions take ?caseId
 ```
 **There is no other way in:** staff-minted expert links were removed and live ones revoked (`V73`).
+
+### TARGET WORKFLOW
+
+As CURRENT.
 
 ## 9. Expert lifecycle — the ENM (Unit 63, D61 / D62 / D59)
 
@@ -431,9 +482,10 @@ Directory: credentials verified (stamp + audit) · fee · availability · worklo
   · case history (offered / accepted / submitted / delivered / rejected / reassigned)
 Rejected (declined / timed out) while EXPERT_DECLINED_REMATCHING + expert AVAILABLE
   → "Offer again" (GM / PM / ENM / CM) → same rematch transition → CLIENT_APPROVAL → CM sends again
-PM / PC / ENM / GM offers the case with a fee (blank = standard fee; retake keeps the declined fee;
-  CM: standard fee only) and a required note to the expert (D69; a retake re-sends the last one)
-  → editable while the offer is open (audited, before → after)
+PM / CM / ENM / GM offers the case with a fee (PATCH …/expert; blank = standard fee; retake keeps the
+  declined fee; CM: standard fee only) and a required note to the expert (D69; a retake re-sends the last one)
+  → fee editable while the offer is open by GM / PM / PC / ENM (PATCH …/expert/offer/fee, OfferFeeController;
+    audited, before → after) — the PC edits the fee but does not make the offer
   → the expert sees "Fee for this case" and accepts it (a changed or missing fee → 409) → final
 Delivered → payout PENDING at the accepted fee (a missing amount can be set once) → PAYOUT_DUE to ENMs
   → ENM records the transfer → PAID, shown "Processing"
@@ -450,3 +502,44 @@ The same. Not built by choice: booking or follow-ups from a hiring deal, an outr
 approval step or failed state, disputes, any payout adjustment (bonus, deduction, advance), a change
 to the amount after acceptance.
 
+---
+
+## 10. Email — what EvalOS sends, and when
+
+### CURRENT IMPLEMENTATION
+
+All mail is `ClientMailer` → SMTP (D3e), copy in `MailTemplates`. Each send is after commit and never
+throws; a skipped or failed send is logged, the screen the link opens is the record.
+
+```
+CLIENT  (to the case contact's linked client_account; portal brand only)
+  case created          CasePortalAccountListener → ClientAccountService.openForCase
+                          no password → case-started mail with a set-password link (7 days)
+                          password set → case-started sign-in mail
+  checklist Send        CHECKLIST_REQUESTED → "Documents needed" (count of sent, incomplete items)
+  manual Chase          CHECKLIST_CHASED (ChecklistService.chase) → reminder, same count
+                          — the DOC_CHASE sweep sends none (an in-app prompt to the Coordinators)
+  draft to client       DRAFT_READY_FOR_CLIENT → "Your draft is ready to review"
+  delivered             CASE_DELIVERED → "Your final report is ready"
+EXPERT  (to the case's expert; portal brand only)
+  offer                 EXPERT_ASSIGNED → "A new case is offered to you", with the open offer's fee if priced
+  sent for signing      EXPERT_SENT_FOR_SIGNING → "A letter is ready for your signature"
+AUTH
+  client identify       account with no password → SET link (ClientAccountService)
+  client forgot-password → RESET link; 204 always (a live unspent link is not re-sent)
+  expert sign-up / forgot-password → set / reset link on a roster match (ExpertAccountService); 204 always
+ADMIN
+  Settings → test mail  SettingsAdminService.testMail → the signed-in Admin's own address
+```
+
+`CaseMailListener` (case progress, D58; offer, D67), `CasePortalAccountListener` (D65),
+`ClientAccountService`, `ExpertAccountService`, `SettingsAdminService`.
+
+**Skipped, no mail:** a case outside the portal brand (`evalos.portal.client-brand`); no client account
+linked to the case contact; an expert with no email; Send or Chase with zero outstanding sent documents;
+mail unconfigured (no relay or no sender) or switched off by the Admin (`MAIL_ENABLED`, D83). Only the
+service's **name** varies by service type (`open-decisions.md` Q36).
+
+### TARGET WORKFLOW
+
+As CURRENT. Any new client or expert mail is its own decision (invariant 14).

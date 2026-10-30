@@ -20,6 +20,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -194,6 +195,14 @@ public class ChecklistController {
 	@PreAuthorize(COORDINATION)
 	public ApiResponse<ChecklistView> addItem(@PathVariable UUID id, @Valid @RequestBody AddItemRequest request) {
 		checklists.addItem(id, request.label().trim());
+		return ApiResponse.ok(view(id));
+	}
+
+	/** 2026-10-30: the reverse of adding one — refused for a received document and for the last item. */
+	@DeleteMapping("/cases/{id}/checklist/{itemId}")
+	@PreAuthorize(COORDINATION)
+	public ApiResponse<ChecklistView> removeItem(@PathVariable UUID id, @PathVariable UUID itemId) {
+		checklists.removeItem(id, itemId);
 		return ApiResponse.ok(view(id));
 	}
 

@@ -468,13 +468,12 @@ class InboundWebhookTest {
 	/**
 	 * The payload's typed fields are parsed before anything is created, so a value the
 	 * workflow cannot have meant is refused as unreadable rather than quietly dropped to null.
-	 * For the service that matters twice over: a null would then be silently defaulted, and a
-	 * case born of a typo would look deliberate.
+	 * <strong>Not {@code service_type} any more (2026-10-30):</strong> it is text, read as EvalOS's name or
+	 * GHL's label, and an unreadable one is logged and left to the won deal's Service Requested — refusing
+	 * it lost the paid case, which is the worse failure. See the test below.
 	 */
 	@ParameterizedTest
-	@ValueSource(strings = {
-			"\"service_type\": \"EXPERT_OPINION_LETTER\"|\"service_type\": \"NOT_A_SERVICE\"",
-			"\"amount\": 1450.00|\"amount\": \"one thousand\"" })
+	@ValueSource(strings = { "\"amount\": 1450.00|\"amount\": \"one thousand\"" })
 	void anUnreadableTypedFieldIsAMalformedPayload(String fromPipeTo) throws Exception {
 		String[] fromTo = fromPipeTo.split("\\|");
 
@@ -483,6 +482,15 @@ class InboundWebhookTest {
 				.andExpect(jsonPath("$.error.code").value("MALFORMED_PAYLOAD"));
 
 		verify(intake, never()).intake(any(), any());
+	}
+
+	/** 2026-10-30: an unreadable service still opens the paid case; the won deal decides the service. */
+	@Test
+	void anUnreadableServiceTypeStillOpensTheCase() throws Exception {
+		deliver(WON_BODY.replace("\"service_type\": \"EXPERT_OPINION_LETTER\"", "\"service_type\": \"NOT_A_SERVICE\""))
+				.andExpect(status().isOk());
+
+		verify(intake).intake(any(Brand.class), any(CaseIntakeService.NewCase.class));
 	}
 
 	@Test

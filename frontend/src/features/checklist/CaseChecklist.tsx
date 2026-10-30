@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import {
   addChecklistItem,
+  removeChecklistItem,
   fetchChecklist,
   markDocsComplete,
   sendChase,
@@ -65,6 +66,8 @@ export default function CaseChecklist({
   )
   const [busy, setBusy] = useState<Busy>('idle')
   const [writeError, setError] = useState<string | null>(null)
+  // Two clicks to remove: the first arms this row, the second removes it.
+  const [removing, setRemoving] = useState<string | null>(null)
   const loadError = view || !checklist.error ? null : checklist.error.message || 'Could not load the checklist'
   const error = writeError ?? loadError
   const [newLabel, setNewLabel] = useState('')
@@ -201,6 +204,24 @@ export default function CaseChecklist({
                 ))}
               </select>
             </label>
+            {/* Not for a received document (change its status) nor the last item — the server refuses both too. */}
+            {item.status !== 'UPLOADED' && item.status !== 'APPROVED' && view.items.length > 1 && (
+              <button
+                type="button"
+                disabled={working}
+                onClick={() =>
+                  removing === item.id
+                    ? void run('saving', () => removeChecklistItem(caseId, item.id)).then(() => setRemoving(null))
+                    : setRemoving(item.id)
+                }
+                onBlur={() => setRemoving((current) => (current === item.id ? null : current))}
+                aria-label={removing === item.id ? `Confirm removing ${item.label}` : `Remove ${item.label}`}
+                className="rounded-md px-1.5 py-1 text-xs font-medium disabled:opacity-40"
+                style={{ color: 'var(--status-red)' }}
+              >
+                {removing === item.id ? 'Confirm remove' : 'Remove'}
+              </button>
+            )}
           </li>
         ))}
         {view.items.length === 0 && (

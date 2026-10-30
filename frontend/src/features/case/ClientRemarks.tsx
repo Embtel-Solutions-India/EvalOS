@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { MessageSquareText } from 'lucide-react'
 import { useState } from 'react'
-import { Panel } from '../../components/ui/panel'
+import { DialogContent, DialogRoot, DialogTrigger } from '../../components/ui/dialog'
 import type { Role } from '../../lib/session'
 import { fetchClientRemarks, postClientRemark, type CaseDetail } from './caseApi'
 
@@ -10,7 +10,8 @@ const MAY_WRITE: readonly Role[] = ['GM', 'PROJECT_MANAGER', 'PROJECT_COORDINATO
 const MAY_READ: readonly Role[] = [...MAY_WRITE, 'BRAND_MANAGER']
 
 /**
- * What the client reads under their case's status (D74). Kept apart from the timeline's internal
+ * What the client reads under their case's status (D74). Since 2026-10-30 a compact button at the chat's top
+ * right — chat icon, the title, how many updates — opening this in a dialog, so the chat keeps the full width. Kept apart from the timeline's internal
  * notes on purpose: everything on this panel is shown to the client, and nothing typed anywhere
  * else is. A remark cannot be edited — a correction is a newer remark.
  */
@@ -32,10 +33,31 @@ export default function ClientRemarks({ detail, role }: { detail: CaseDetail; ro
 
   const latestFirst = [...(remarks.data ?? [])].reverse()
   return (
-    <Panel title="Update for the client" icon={<MessageSquareText />}>
-      <p className="mb-2 text-xs" style={{ color: 'var(--text-muted)' }}>
-        The client sees every update here, under the case's status. Internal notes belong in the timeline.
-      </p>
+    <DialogRoot>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm hover:bg-(--bg-raised) focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none"
+          style={{ borderColor: 'var(--accent-primary)', color: 'var(--accent-primary)', background: 'var(--bg-surface)' }}
+          title="What the client reads under their case's status"
+        >
+          <MessageSquareText aria-hidden className="h-3.5 w-3.5" />
+          Case status update for client
+          {latestFirst.length > 0 && (
+            <span
+              className="font-num rounded-full px-1.5 text-[10px] leading-4 tabular-nums"
+              style={{ background: 'var(--accent-primary)', color: '#fff' }}
+              aria-label={`${latestFirst.length} sent`}
+            >
+              {latestFirst.length}
+            </span>
+          )}
+        </button>
+      </DialogTrigger>
+      <DialogContent
+        title="Case status update for client"
+        description="The client sees every update here, under the case's status. Internal notes belong in the timeline."
+      >
       {MAY_WRITE.includes(role) && (
         <form
           className="mb-3 flex flex-col gap-2"
@@ -49,7 +71,7 @@ export default function ClientRemarks({ detail, role }: { detail: CaseDetail; ro
             onChange={(e) => setBody(e.target.value)}
             maxLength={2000}
             rows={3}
-            aria-label="Update for the client"
+            aria-label="Case status update for client"
             className="rounded-md border p-1.5 text-sm"
           />
           <button
@@ -84,6 +106,7 @@ export default function ClientRemarks({ detail, role }: { detail: CaseDetail; ro
           ))}
         </ol>
       }
-    </Panel>
+      </DialogContent>
+    </DialogRoot>
   )
 }

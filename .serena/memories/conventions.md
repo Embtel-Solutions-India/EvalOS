@@ -33,10 +33,18 @@ Do not resurrect abandoned architecture, workflows, APIs, tables or UI because t
 
 ```
 backend    cd backend && ./mvnw.cmd test
-staff SPA  cd frontend && npx vitest run ; npx tsc --noEmit
-portals    cd client-expert && npx vitest run ; (cd client && npx tsc -b)
+staff SPA  cd frontend && npx vitest run ; npx tsc -b
+portals    cd client-expert && npx vitest run ; (cd client && npx tsc -b) ; (cd expert && npx tsc -b)
 local db   postgres://postgres:1234@localhost:5432/evalos   (Spring profile `local`)
 ```
+
+`tsc -b`, never a bare `tsc --noEmit`: every tsconfig is `files: []` + references, so it checks nothing.
+
+Facts the two context files hold (code is the source): staff tokens live in
+`frontend/src/styles/tokens.css` (navy rail `#0b1730`, accent `#3c3df2`, no dark mode; radii
+8/12/16px; sidebar 16rem); `components/ui/` = card, dialog, pager, panel, popover, widgets.
+Documents are S3 via `integration/DocumentStore`; mail is D29's closed list through `ClientMailer`.
+Known hex-in-component exceptions: `board/CaseCard.tsx` `SLA_TEXT`, `ui/panel.tsx` tint.
 
 `.env` at the repo root is what VS Code actually launches with, and env vars beat every config
 file. A real GHL token goes in `backend/config/application-local.yml` (gitignored), never in a

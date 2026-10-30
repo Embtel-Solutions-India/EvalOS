@@ -1,6 +1,6 @@
 # EvalOS — Current Decisions
 
-Confirmed and in force as of **2026-09-30**. Short and explicit. No history, no abandoned
+Confirmed and in force as of **2026-10-30** (87 decisions). Short and explicit. No history, no abandoned
 approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 ## Identity
@@ -13,9 +13,12 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   portal client.
 - **D3.** GHL decides whether a contact is new. EvalOS asks via `POST /contacts/upsert` (matches
   on email, then phone) rather than deciding itself.
-- **D3a.** **No unauthenticated route creates an account or a CRM row.** Public sign-up was the
+- **D3a.** **No unauthenticated route creates a client account or a CRM row.** Public sign-up was the
   last one and is gone (Unit 64, 2026-09-29): a `permitAll` write there was a stranger's write into
   the sub-account Sales works in, spending GHL's shared 100-req/10s location budget. Spec `64` §3.
+  **The one exception is the expert's** (D23): `POST /api/portal/auth/expert/sign-up` (`permitAll`) creates
+  an `expert_account` on first use — but only for an email already on the expert roster, and it writes
+  nothing to GHL.
 - **D3d.** **A portal account is created by EvalOS when the client's case is created** (Unit 64),
   from the case's contact — its email, names, `contact_snapshot` id and GHL contact id — and the
   set-password link is mailed. An existing account linked to the same contact is reminded (no
@@ -36,8 +39,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   cheap and instead made a second thing to swap. **What is knowingly given up:** an API transport
   reads the provider's own message id, and SMTP gives back a protocol accept — "it left EvalOS" is
   the whole of what `send` can promise, and delivery, bounces and suppression are read in the
-  provider's dashboard. For two messages whose failure a support conversation recovers, that is the
-  cheaper side. **What is kept:** the `MailTransport` interface, at one
+  provider's dashboard. For notification mail (D29) whose failure a support conversation recovers,
+  that is the cheaper side. **What is kept:** the `MailTransport` interface, at one
   implementation, because it is the seam `ClientMailerTest` fakes. **The `evalos.mail.transport`
   switch is gone (2026-09-30)** — a choice among one; `ClientMailer` takes the one bean, and a
   second provider brings its own way to pick it. `ClientMailer` still owns the wording and the one
@@ -83,7 +86,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   **Cancel case** (`POST /api/cases/{id}/cancel`, GM/BM/PM, a reason required), which closes any
   undelivered case with `exception_state = CANCELLED`, voids pending payouts, and reads "Closed" to the client
   (as an approved refund now does too, instead of "Delivered"); a delivered case is a refund. The service type comes from the webhook's
-  `customData.serviceType`, else the won deal's Service Requested (D77, 2026-10-30), else Credential evaluation.
+  `customData.service_type` — EvalOS's name (`TN_VISA`, any case) or GHL's label ("TN Visa Expert Opinion Letter"); an unreadable one is logged and ignored, never a 400 (2026-10-30) — else the won deal's Service Requested (D77), else Credential evaluation. The case's deal id is `customData.opportunity_id`, else the confirmed won deal's (the most recently won).
   **Amended 2026-10-07 (security review): the win is confirmed with GHL first.** The endpoint token is the
   webhook's whole credential (GHL's Custom Webhook cannot sign), so a delivery is a trigger, not proof:
   `GhlOpportunityHandler` re-reads the contact's deals from GHL and creates the case only if one is won
@@ -103,7 +106,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   sweep never writes. Rows are upserted and **never deleted** — one GHL stops returning is
   stamped `missing_since`, because `purpose` is EvalOS's judgement and a pipeline archived for
   an afternoon must not come back meaning nothing. Nothing infers a purpose from a pipeline's
-  name: a GM sets it, or it stays `UNASSIGNED`.
+  name: the Admin or a GM sets it (D78), or it stays `UNASSIGNED`.
 
 - **D33.** **Client documents arrive only on a case**, uploaded in the portal against the checklist
   the PC or the CM sends (D60). There is no pre-case upload (Unit 64 removed Unit 53's request
@@ -181,9 +184,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   own pipeline** (Q12, 2026-09-24): a desk holding several pipelines sees their stages on one
   board strip, and a foreign stage id would be a pipeline move in GHL — GHL's workflow, not a desk
   edit — so `moveToStage` refuses it before anything is written or queued. The salesperson sees the change immediately and no edit is lost
-  to a GHL outage. **The four editable fields are exactly 45e's shared set**, because what a desk
-  may edit locally is what EvalOS is allowed to win a conflict over — the assignee is absent for
-  that reason. **A win no longer waits for the drain (edited 2026-10-13):** it is still queued first, then pushed as soon as the request commits (`SyncOutboxService.sendNow`), so `opportunity.won` and Handoff A's case arrive at once; a refused push stays pending under the drain's own retry and dead-letter rules, so an outage still loses no win. Lost and abandoned keep the drain.
+  to a GHL outage. **The four queued fields are exactly 45e's shared set**, because what a desk
+  may edit locally is what EvalOS is allowed to win a conflict over. The owner, expected close and
+  custom fields are editable too since Unit 69 (D66), but they are written to GHL inline, never queued. **A win no longer waits for the drain (edited 2026-10-13):** it is still queued first, then pushed as soon as the request commits (`SyncOutboxService.sendNow`), so `opportunity.won` and Handoff A's case arrive at once; a refused push stays pending under the drain's own retry and dead-letter rules, so an outage still loses no win. Lost and abandoned keep the drain.
   **The push sends the fields the desk actually edited and no others** (`V63`,
   `opportunity.locally_edited_fields`, amended 2026-09-18). It sent all four, and the mirror's stage
   is up to one `MIRROR_DELTA` behind — so a rename re-sent a stale stage, undoing a GHL workflow's
@@ -208,8 +211,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   draws a **"Sync delayed"** banner naming the consequence: new GHL deals are not arriving on this
   screen. The threshold equals the sweep interval, so a long pass shows the banner briefly before
   clearing; the fix for that noise is 6m, never a slower sweep.
-  **`POST /api/opportunities/board/refresh` is a reconciliation, not a live read** — it syncs the
-  caller's own pipelines then draws from the mirror, behind a 30-second floor so a double-click
+  **`POST /api/opportunities/board/pipeline/refresh?id=` is a reconciliation, not a live read** — it syncs
+  the one pipeline on screen (every sales pipeline on `all-sales`) then draws from the mirror; the
+  all-pipelines `POST /board/refresh` was removed 2026-10-15. Behind a 30-second floor (D83) so a double-click
   costs one read. **The pipeline *structure* read is gated on the mirror holding no live pipeline**
   (amended 2026-09-18): the floor covered the deal reads and not that one, so every press also
   spent a paged structure read on a location whose pipelines change a few times a year, and the GM
@@ -220,7 +224,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `MarketingLeadService.openLead`. The outbox stores an id and never a payload (`45` §2C.2), and a
   desk create carries an expected close date and custom field values the mirror does not hold;
   queueing one would mean either a payload column or silently dropping what the salesperson typed.
-  Custom fields are tier 2, which is Unit 47. The contact upsert and GHL tasks stay inline for the
+  (The mirror now holds custom field values, D49, so that is no longer a blocker; the outbox's
+  id-only design is.) The contact upsert and GHL tasks stay inline for the
   neighbouring reason: `sync_outbox` is opportunity-scoped, and nothing mirrors a task.
   **A create writes the mirror from GHL's own reply before answering** (amended 2026-09-18,
   `OpportunityMirrorService.absorbCreated`). It did not, and every desk *edit* refuses a deal the
@@ -240,7 +245,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   assignee's other appointments, so a mirrored slot is wrong within a minute of being written.
   **Unit 48 inherits the consequence**: with sync disabled the business keeps its boards, desks and
   production and **cannot take a new booking**. That belongs on 48's list of what degrades.
-- **D49.** **Tier 2 and tier 3 are mirrored in full, minus free slots** (Unit 47b, 2026-09-17).
+- **D49.** **What follows is mirrored in full, minus free slots** (Unit 47b, 2026-09-17); tier 3,
+  GHL conversations, is not mirrored at all (D52).
   Custom field **values** (`opportunity.custom_fields`, keyed by GHL **field id** so a rename cannot
   lose them — and, since 2026-09-30, the deal's **contact's** custom field values, country and tags
   on `contact_snapshot` (`V81`), with `model=contact` definitions in `ghl_custom_field`, because the
@@ -300,7 +306,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 - **D19.** Brand-scoped by default. Every scoped query filters by `brand_id`. One stated exception:
   GHL reads go to the single `evalos.ghl.location-id` sub-account, which belongs to no brand —
-  those routes are **GM-only** (`GET /api/metrics/gm`; `/api/opportunities/board` is the narrowed
+  those routes are **GM and Admin only** (`GET /api/metrics/gm`, the Admin through `AdminAllowlist`; `/api/opportunities/board` is the narrowed
   case, see D19a).
   **2026-09-16 — the exception cost two screens rather than being widened.** `/marketing/email`
   and `/sales/pipeline` rendered a GHL funnel stage by stage and were GM-only under this rule, so
@@ -364,7 +370,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   _(Closes `00d` §12a, which asked how much of a case SALES gets: none.)_
   **Chat is the one exception (Unit 57, 2026-09-26):** Sales takes part in the Client and Internal
   conversations of cases from their pipeline, and still reads no case data.
-- **D20.** Eight staff roles with ABAC tiers: `GM`(ALL), `BRAND_MANAGER`(BRAND),
+- **D20.** Nine staff roles with ABAC tiers: `GM`(ALL), `ADMIN`(ALL, behind `AdminAllowlist`, D78), `BRAND_MANAGER`(BRAND),
   `PROJECT_MANAGER`(TEAM), `PROJECT_COORDINATOR`/`CASE_MANAGER`(SELF),
   `EXPERT_NETWORK_MANAGER`(SUPPLY), `SALES`/`MARKETING`(PIPELINE).
   **There are no teams** (2026-10-29, the business, closing Q30): the `TEAM` tier reads the PM's whole
@@ -398,15 +404,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   second door, so `mintForExpert` / `mintPartyForExpert`, the staff "portal link" button, the
   token-in-the-URL `/case` and the portal-links ledger all go in Unit 59, and live expert links are
   revoked by migration.
-- **D72.** **The GM administers staff in EvalOS** (2026-10-02, Unit 68, spec `68-gm-admin.md`):
-  create, edit (name, email, role, brand, GHL user), deactivate / reactivate — never delete
-  — and set a password, GM-only and audited without the password. **The GM sets the password and
-  hands it over; no staff mail** (invariant 14; `open-decisions.md` Q18). **A deactivation bites on
+- **D72.** **The Administrator administers staff in EvalOS** (Unit 68, spec `68-gm-admin.md`; moved
+  from the GM by D78): create, edit (name, email, role, brand, GHL user), deactivate / reactivate,
+  delete or archive (D78) and set a password — `TeamMemberController` writes are `hasRole('ADMIN')`,
+  audited without the password. **The Admin sets the password and hands it over; no staff mail**
+  (D29; Q18 closed 2026-10-30, kept as built). **A deactivation bites on
   the member's next request** (`JwtFilter` re-reads `team_member.active`), not when their 8 h token
-  expires; a role or brand change still waits for the next sign-in. The GM cannot deactivate
+  expires; a role or brand change still waits for the next sign-in. The Admin cannot deactivate
   themselves or change their own role; a desk holding pipeline grants keeps its role and brand
   until they are revoked. Pipelines (purpose, D61's screen), sync health (drift read-only, D43; **a failed push can be re-queued by the Administrator** since 2026-10-28 — once per dead row, audited, and the list shows the last 7 days) and the
-  brands have GM screens too. **Brands: name, currency and payout term days are editable by the
+  brands are Admin screens too (the GM keeps Pipelines, D78). **Brands: name, currency and payout term days are editable by the
   Administrator since 2026-10-10 (D83)**; creating a brand and its webhook token / signing secret stay
   migration-only and are never shown.
 
@@ -424,12 +431,16 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 ## Mail
 
-- **D29.** EvalOS sends **exactly two** messages, both authentication: set-password and
-  reset-password. Any other mail is a new decision. (Invariant 14, amended 2026-09-11.)
+- **D29.** EvalOS sends **only these mails**, all through `ClientMailer` (invariant 14, amended
+  2026-09-11 and since): **authentication** — set-password and reset-password, to clients and to
+  experts (D23); **case-opened** to the client (D65); **case progress** (`MailTemplates.CaseUpdate`,
+  `CaseMailListener`) — checklist, chase, draft ready and delivered to the client (D58), offer and
+  ready-to-sign to the case's expert (D67); and the Administrator's **test mail** to their own address
+  (D83). No staff mail. Any other mail is a new decision.
 - **D29a.** **Outbound mail is send-only, from a `no-reply@` sender with no mailbox behind it**
   (decided 2026-09-17). Inbound email is not a channel EvalOS has, so an address that could
   receive one would be an inbox nobody is assigned to read — which is worse than a bounce,
-  because a client who replies to it believes they have been heard. The two messages carry a
+  because a client who replies to it believes they have been heard. Every message carries a
   link, not a conversation; a client who needs a person uses the support address the portal's
   `MAIL_UNAVAILABLE` screens name. **Consequence to expect, not to fix:** mail sent *to* the
   sender address hard-bounces, and the provider will list it as a blocked contact. That blocks
@@ -442,8 +453,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 - **D37.** **Notifications are in-app and push — both, and only those two.** The `notification`
   table and the bell stay the record of what happened; web push is added beside them so a user
-  who is not on the screen still hears about it. **No email and no SMS**, so invariant 14 is
-  untouched: a push is not a message to a mailbox. Decided 2026-09-17. **Built 2026-10-02**
+  who is not on the screen still hears about it. **No notification is an email or SMS** — a push
+  is not a message to a mailbox; the only mail is D29's list. Decided 2026-09-17. **Built 2026-10-02**
   (`BellPushNotifier`, on chat's `push_subscriptions`): a recipient is held back only while they are **reading a conversation in a visible tab**
   (edited 2026-10-08: presence used to mean "connected", which silenced every page and a locked phone);
   any other screen, a hidden tab or a closed app is pushed, and the push is held by the push service (the library's default TTL) for an
@@ -500,6 +511,9 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   checklist email. **An expert's evidence-request item is unsent like any other** (closes Q15) —
   the coordinators are alerted and one Send publishes it. **The CM also sets item status**
   (approve / incorrect / missing), the same as the PC (closes Q16).
+  **An item can be removed** (2026-10-30, `DELETE /api/cases/{id}/checklist/{itemId}`, GM / BM / PC / CM,
+  audited): any item, sent or not, unless the client has uploaded it or it is approved (`UPLOADED` /
+  `APPROVED` — received work changes by status), and never the case's last item.
 - **D59.** **Expert payments are managed manually by the Expert Network Manager** (2026-09-29): the
   staff payout screens stay the ENM's tool. **Edited 2026-09-29:** the expert portal shows the
   expert a Payouts page of what the ENM has recorded (case, amount, status, date sent; never
@@ -569,8 +583,8 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   opens an offer — the case's expert gets *A new case is offered to you*: service, case code, the
   open offer's fee in the brand's currency (left out when unpriced), a deep link to the case in the
   expert portal, no credential. No answer deadline is stated: none is enforced on the offer.
-- **D69.** **Every expert offer carries a note to the expert** (2026-10-01, the business). Assign CM +
-  expert and Reassign expert refuse a blank note; a retake re-sends the expert's last note. The
+- **D69.** **Every expert offer carries a note to the expert** (2026-10-01, the business). The offer
+  (`PATCH /api/cases/{id}/expert`) and Reassign expert refuse a blank note (`requireExpertNote`); a retake re-sends the expert's last note. The
   expert reads it with the offer, above Accept. Built as Unit 71 (`71-offer-and-win-notes.md`).
 - **D70.** **A deal won in EvalOS carries a Sales note for production** (2026-10-01, the business;
   GHL's won has no place for one). Won refuses a blank note — **and so does moving the deal to its
@@ -582,15 +596,15 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 - **D71.** **Clients and experts accept the portal's policies on first sign-in** (2026-10-01, the
   business): the Privacy Policy, Disclaimer and Document Retention Policy, once per account and
   policy version, recorded on the account and as a `TERMS_ACCEPTED` audit row; fail closed. Both
-  portals' sign-in screens carry the portal artwork on the right half. **2026-10-08:** the screen and footer also state that AI-assisted tools organise and review documents (professors review AI output; final opinions are theirs), the checkbox reads "I acknowledge the AI assistance described above and accept…" with each policy linked, and `PortalTermsService.VERSION` is `2026-10-08`, so every account accepts again. Built as Unit 72
+  portals' sign-in screens carry the portal artwork on the right half. **2026-10-08:** the screen and footer also state that AI-assisted tools organise and review documents (professors review AI output; final opinions are theirs), the checkbox reads "I acknowledge the AI assistance described above and accept…" with each policy linked, and `PortalTermsService.VERSION` is `2026-10-08`, so every account accepts again. This wording is the only mention of AI in EvalOS — the code has none — and its fit with D30 is an open decision (`open-decisions.md`). Built as Unit 72
   (`72-portal-terms-acceptance.md`).
 - **D73.** **A portal sign-in survives a reload and a closed browser** (2026-10-02, the business). The client's and the
   expert's token is kept in `localStorage`, replacing the memory-only token. **Edited 2026-10-07 (the business): the token is kept in `localStorage`, not `sessionStorage`.** Closing the browser on a phone ended the session, and a push notification opened in a new tab arrived signed out. The token now survives a closed browser and a new tab; what bounds it is the server (absolute expiry `evalos.portal.party-link-ttl`, 7 days by default), **Sign out** (revokes it) and a 401 (clears it). **Accepted cost:** a script injected into a portal can read it, and a shared device stays signed in until Sign out. Both portals have a **Sign out** that revokes the token on the server
   (`POST /api/portal/sign-out`); a 401 while signed in returns to sign-in with "Your session has
   ended". Built as Unit 75 (`75-portal-session-survives-reload.md`).
 - **D74.** **The client sees a status card, not a progress bar** (2026-10-06, the business; Unit 76,
-  spec `76-client-status-card.md`). Six client statuses — Awaiting Documents, In Preparation, Awaiting
-  Client Review, Under Expert Review, Delivered, On Hold — are a **projection** of stage + exception
+  spec `76-client-status-card.md`). Seven client statuses — Awaiting Documents, In Preparation, Awaiting
+  Client Review, Under Expert Review, Delivered, Closed (cancelled or refunded, 2026-10-30, D9), On Hold — are a **projection** of stage + exception
   state (`PortalStageProjection.ClientStatus`), never stored. Each status shows the **latest
   client-facing remark and its date**; the client also reads a **dated history of status changes**.
   Remarks are `case_client_remark` (`V85`), written by GM / PM / PC / CM, **append-only and apart from
@@ -617,7 +631,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
 
 - **D32.** `client_account` and `contact_snapshot` stay **two tables, joined** — not merged.
   `V55` adds `client_account.contact_id`, a real foreign key, backfilled on `ghl_contact_id`
-  within the brand and set at sign-up; null stays legal. **D6 is now enforced by the schema**, by
+  within the brand and set when the client's case opens (D3d, `created_via = 'CASE'`); null stays legal. **D6 is now enforced by the schema**, by
   a partial unique index, where it previously was not — `ghl_contact_id` was nullable and not
   unique, so nothing stopped two accounts naming one contact. _(This closes `open-decisions.md`
   Q5, which recommended the merge.)_
@@ -635,7 +649,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   dashboard reads in `VIEW_AS_PATHS`, only an active PM/PC/CM/ENM, else 403), so the member's own role gate
   and scope apply and the figures are exactly theirs. Never a write, never another route. `GET /api/metrics/journey` answers a year of leads by month and source, deals by the stage they stand in (any status, so Won and Lost stages count too — edited 2026-10-14) and this month; a desk holding two or more pipelines reads one at a time by tab (`pipelineId`, narrows only, 403 otherwise; default the first, as the board — 2026-10-14)'s target from the local `opportunity` mirror — never GHL live, so a dashboard left open spends no rate budget. A SALES or MARKETING member reads their own pipelines only; asking for another member is a 403 (D19c). The GM reads one audience's desks or one desk of it; there is no sales-manager role, so nobody else is offered the picker. A lead is counted in the month GHL created it, a win in the month its status last changed. Date filters beyond year and source are not offered until a read can serve them.
 
-- **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. **Mapping GHL's Service Requested onto the types (edited 2026-10-30, was "a follow-up"):** GHL's won webhook cannot carry the opportunity's dropdown, so every case opened as Credential evaluation. EvalOS now reads the deal itself (`CaseServiceTypeService`, a static label map): at intake from the won deal it already re-reads to confirm the win; again the moment the case is created (`CaseServiceTypeListener`, fetching the deal from GHL if the mirror lacks it); every 5 minutes (`SERVICE_TYPE_RECONCILE`, mirror only) for a case still on that fallback type, in document collection, with an untouched checklist; and the GM, Brand Manager or PM changes it on any open case (`PUT /api/cases/{id}/service-type`, the pencil on the case header's service line). A change keeps every checklist item sent, uploaded or reviewed, drops untouched ones the new type does not need, adds the new type's missing ones, and is audited. Unmapped, so the case keeps its type: EB-1B Expert Opinion Letter, Cover Letter & Support Letter, Immigration Business Plans, Pre-Filing Documentation Review. The checklists themselves stay a static map (`ChecklistTemplates`), not editable without a deploy.
+- **D77.** **A case's service type follows the business's service sheet** (2026-10-08). Twelve service types were added, one per row of the services, rates and document list, each with the checklist its row gives; only the documents the row marks as needed are seeded. Expert eligibility reuses the existing letter types. **Mapping GHL's Service Requested onto the types (edited 2026-10-30, was "a follow-up"):** GHL's won webhook cannot carry the opportunity's dropdown, so every case opened as Credential evaluation. EvalOS now reads the deal itself (`CaseServiceTypeService`, a static label map): at intake from the won deal it already re-reads to confirm the win; again the moment the case is created (`CaseServiceTypeListener`, fetching the deal from GHL if the mirror lacks it); every 5 minutes (`SERVICE_TYPE_RECONCILE`, mirror only) for a case still on that fallback type, in document collection, with an untouched checklist — the deal being the case's GHL opportunity id, else (a case opened with no id) the contact's won deal, the latest win, else their most recent deal of any status, always brand-matched (`dealOf`); and the GM, Brand Manager or PM changes it on any open case (`PUT /api/cases/{id}/service-type`, the pencil on the case header's service line). A change keeps every checklist item that was sent or has moved off Required (uploaded or reviewed), drops untouched ones (unsent and Required) the new type does not need (removing an item by hand is D60's) — adds the new type's missing ones, and is audited. Unmapped, so the case keeps its type: EB-1B Expert Opinion Letter, Cover Letter & Support Letter, Immigration Business Plans, Pre-Filing Documentation Review. The checklists themselves stay a static map (`ChecklistTemplates`), not editable without a deploy.
 - **D78.** **A separate Administrator account owns the admin functions; the GM no longer does** (2026-10-08, spec 78).
   `Role.ADMIN` (cross-brand, `Tier.ALL`, NULL brand, `V88`) owns staff create/edit/deactivate/password/**delete**, pipeline
   assignment, background jobs, sync health, and reads brands. **Pipeline purpose is set by the GM or the Admin; won
@@ -662,7 +676,7 @@ approaches, no proposals. Unresolved items are in `open-decisions.md`.
   `FlywayPlaceholderGuard` stops it if not. Rotate any of them with an `UPDATE`.
 
 - **D79.** **A "blocked" case is one whose `exception_state` is not `NONE`** (2026-10-09, spec 79, was Q20). On hold
-  awaiting client, expert declined / rematching, refund requested — the only recorded off-path states. Missing
+  awaiting client, expert declined / rematching, refund requested, cancelled (D9) — the only recorded off-path states. Missing
   documents are not inferred as blocks until the business states a rule.
 - **D80.** **There is no First-pass QC rate** (2026-10-09, spec 79, was Q21; **edited 2026-10-28**). The PM dashboard
   showed it as "unavailable"; the business removed the card. The PM's QC approve / QC fail are already audited, so

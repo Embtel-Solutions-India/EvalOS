@@ -26,7 +26,7 @@ export default function ProgressStrip({
   }, [current])
 
   return (
-    <ol className="mt-3 flex overflow-x-auto pb-1" aria-label="Case progress">
+    <ol className="mt-2 flex overflow-x-auto" aria-label="Case progress">
       {steps.map((step, index) => (
         <li
           key={step.stage}

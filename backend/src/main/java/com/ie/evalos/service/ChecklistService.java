@@ -307,6 +307,26 @@ public class ChecklistService {
 	}
 
 	/**
+	 * Removes a document the case does not need (2026-10-30), the reverse of {@link #addItem}. Refused for one
+	 * the client has uploaded or that was approved — received work is changed by its status, never removed —
+	 * and for the last item, since an empty checklist would let "documents complete" pass with nothing in.
+	 * Nothing references an item, and the trail records the removal.
+	 */
+	@Transactional
+	public void removeItem(UUID caseId, UUID itemId) {
+		Case subject = lifecycle.read(caseId);
+		DocumentChecklistItem item = itemOn(subject, itemId);
+		if (item.getStatus() == ChecklistItemStatus.UPLOADED || item.getStatus() == ChecklistItemStatus.APPROVED) {
+			throw new IllegalTransitionException("the client has already sent this document; change its status instead");
+		}
+		if (checklistItems.findByCaseId(subject.getId()).size() <= 1) {
+			throw new IllegalTransitionException("a case keeps at least one required document");
+		}
+		checklistItems.delete(item);
+		record(subject, AuditAction.DELETED, "Required document removed: " + item.getLabel());
+	}
+
+	/**
 	 * Asks the client again for what is outstanding.
 	 *
 	 * <p>Refused outside {@code DOC_COLLECTION} unless the case is held for the client

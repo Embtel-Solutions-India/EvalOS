@@ -69,10 +69,16 @@ public class CaseServiceTypeService {
 	private final GhlCustomFieldRepository customFields;
 	private final OpportunityMirrorService opportunities;
 	private final AuditService audit;
+	private final com.ie.evalos.repository.ContactSnapshotRepository contacts;
+	private final com.ie.evalos.repository.OpportunityRepository deals;
 
 	CaseServiceTypeService(CaseRepository cases, CaseLifecycleService lifecycle,
 			DocumentChecklistItemRepository checklistItems, GhlCustomFieldRepository customFields,
-			OpportunityMirrorService opportunities, AuditService audit) {
+			OpportunityMirrorService opportunities, AuditService audit,
+			com.ie.evalos.repository.ContactSnapshotRepository contacts,
+			com.ie.evalos.repository.OpportunityRepository deals) {
+		this.contacts = contacts;
+		this.deals = deals;
 		this.cases = cases;
 		this.lifecycle = lifecycle;
 		this.checklistItems = checklistItems;
@@ -84,7 +90,7 @@ public class CaseServiceTypeService {
 	public record Change(ServiceType from, ServiceType to) {
 	}
 
-	static Optional<ServiceType> fromLabel(String label) {
+	public static Optional<ServiceType> fromLabel(String label) {
 		return label == null ? Optional.empty()
 				: Optional.ofNullable(BY_LABEL.get(label.trim().toLowerCase(Locale.ROOT)));
 	}
@@ -107,12 +113,10 @@ public class CaseServiceTypeService {
 	 */
 	@Transactional
 	public boolean reconcile(Case subject) {
-		if (subject.getServiceType() != INTAKE_FALLBACK || subject.getCurrentStage() != Stage.DOC_COLLECTION
-				|| subject.getGhlOpportunityId() == null) {
+		if (subject.getServiceType() != INTAKE_FALLBACK || subject.getCurrentStage() != Stage.DOC_COLLECTION) {
 			return false;
 		}
-		Optional<ServiceType> requested = opportunities.byGhlId(subject.getGhlOpportunityId())
-				.filter((deal) -> subject.getBrandId().equals(deal.getBrandId()))
+		Optional<ServiceType> requested = dealOf(subject)
 				.flatMap((deal) -> requestedOn(subject.getBrandId(), deal.getCustomFields()));
 		if (requested.isEmpty() || requested.get() == subject.getServiceType()) {
 			return false;
@@ -123,6 +127,32 @@ public class CaseServiceTypeService {
 		}
 		apply(subject, requested.get(), items, null);
 		return true;
+	}
+
+	/**
+	 * The case's deal from the mirror: by its id, else — a case the webhook opened with no id (2026-10-30, the
+	 * production workflow sends none) — the case contact's won deal, else their newest. Brand-matched.
+	 */
+	private Optional<com.ie.evalos.domain.Opportunity> dealOf(Case subject) {
+		if (subject.getGhlOpportunityId() != null && !subject.getGhlOpportunityId().isBlank()) {
+			return opportunities.byGhlId(subject.getGhlOpportunityId())
+					.filter((deal) -> subject.getBrandId().equals(deal.getBrandId()));
+		}
+		return Optional.ofNullable(subject.getContactId())
+				.flatMap(contacts::findById)
+				.filter((contact) -> subject.getBrandId().equals(contact.getBrandId()))
+				.map(com.ie.evalos.domain.ContactSnapshot::getGhlContactId)
+				.filter((id) -> id != null && !id.isBlank())
+				.flatMap((ghlContactId) -> deals.findByBrandIdAndGhlContactId(subject.getBrandId(), ghlContactId).stream()
+						// A deal deleted in GHL stays in the mirror, stamped; it decides nothing.
+						.filter((deal) -> deal.getMissingSince() == null)
+						.max(java.util.Comparator
+								.comparing((com.ie.evalos.domain.Opportunity deal) -> "won".equalsIgnoreCase(deal.getStatus()))
+								// Of two won deals, the latest win — the one a fresh case was opened for.
+								.thenComparing(com.ie.evalos.domain.Opportunity::getLastStatusChangeAt,
+										java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
+								.thenComparing(com.ie.evalos.domain.Opportunity::getGhlCreatedAt,
+										java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))));
 	}
 
 	/** The PM's half: any open case, any type. Returns what changed. */
