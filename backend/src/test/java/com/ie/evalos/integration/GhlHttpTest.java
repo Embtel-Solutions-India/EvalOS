@@ -291,6 +291,9 @@ class GhlHttpTest {
 						// The one a retry loop would get wrong: sending a malformed body again is
 						// budget spent on a body that is still malformed.
 						assertThat(refused.isRetriable()).isFalse();
+						// The logged cause names the request: GHL's 400 body ("t is not defined")
+						// does not, and without this the mirror sweep's failure had no pipeline.
+						assertThat(refused.getCause().getMessage()).contains("GET request for").contains("/x");
 					});
 
 			ghl.status = 503;

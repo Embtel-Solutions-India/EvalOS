@@ -368,6 +368,10 @@ does not hold; the contact upsert and GHL tasks stay inline for the same reason.
 **Per-pipeline items (2026-10-28):** `MIRROR_DELTA` sweeps `livePipelineIds()` one item each, so a GHL
 failure on one pipeline rolls back and skips only that one (it was one item = one transaction for all);
 the failing pipeline's GHL id is logged. Client-hung-up `AsyncRequestNotUsableException` logs DEBUG.
+**Refusals name the request (2026-10-31):** `GhlHttp`'s RestClient uses `DefaultResponseErrorHandler`, so
+a 4xx/5xx cause reads "on GET request for <url>" (RestClient's default omitted it). Prompted by prod
+10-30 400 `"t is not defined"` (a JS crash inside GHL's search, two pipelines in one sweep, not
+recurring) and one read timeout — both GHL-side, both skipped and retried by the next sweep.
 **Cadence and honesty (same unit, 2026-09-17):** `MIRROR_DELTA` runs every **5m** (`delta-ttl` 4m)
 because with the refill gone it is one of only two things putting a new GHL lead in front of a
 salesperson. `Board.lastSyncedAt` is **nullable and null means never synced** — it used to
@@ -941,3 +945,5 @@ Evidence: full backend suite 1742 run, 0 failures, 0 errors, 4 skipped (BUILD SU
 **Documents & checklist card redesigned, 2026-10-30.** The separate *Sent by the client* list is gone: each client upload sits under the checklist item it answers (matched on `case_document.notes`, which `PortalCaseService.uploadTo` writes as the item's label; no backend change). Each row: a state icon (not sent / waiting / received / approved / missing or incorrect), the label, a one-line hint, the status pill; files as compact rows with date and icon buttons (View for PDF/images, Download). Uploads matching no current item (removed or renamed) show under *Other uploads*. `useOpenDocument` extracted from `DocumentList` (still used for signed letters). Frontend build, lint, vitest 258. **Not checked in a browser.**
 
 **Conversation tab: chat full width, status update as a button, 2026-10-30.** `CaseChat` gains `tall` (fills the page below the case header: `calc(100svh-17rem)`, min 28rem) and an `actions` slot at the right of its conversation tabs. `ClientRemarks` is now a pill button there (chat icon, *Case status update for client*, count of updates sent) opening a dialog with the composer and the history; hidden for roles that may not read it. Replaces the 2fr/3fr side-by-side layout. Frontend build, lint, vitest 258. **Not checked in a browser.**
+
+**Push subscribe 409 fixed, 2026-10-30 (production).** `POST /api/portal/client/chat/push/subscriptions` answered 409: `PortalLayout` mounts `<PushRefresh>` and `<PushPrompt>`, and both post the same subscription on every load; `ChatApi.subscribe`'s find, delete, insert raced on `push_subscriptions.endpoint UNIQUE`. Now two statements in its transaction: `PushSubscriptionRepository.deleteOthersOn` (another person's row on a shared browser goes, cascading their queued `push_outbox` rows) then `upsert` (`INSERT … ON CONFLICT (endpoint) DO UPDATE`), which cannot race. Push itself is on in production (the public key answered). Evidence: `ChatApiPushTest` (updated), `LocalPostgresIntegrationTest#subscribingTheSameBrowserTwiceIsOneRowAndANewOwnerReplacesIt` (real Postgres); backend 1841/0/4.

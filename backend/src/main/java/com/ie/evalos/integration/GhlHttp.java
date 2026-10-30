@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.DefaultResponseErrorHandler;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
@@ -401,6 +402,12 @@ public class GhlHttp {
 				// so a version bump is an environment change and not a build.
 				.defaultHeader("Version", apiVersion)
 				.defaultHeader("Accept", "application/json")
+				// RestClient's own handler words a refusal as `400 Bad Request: "<body>"` — no method,
+				// no URL — and GHL's body does not name the request either, so a "t is not defined"
+				// 400 from the mirror sweep could not be traced to a pipeline or a page. This handler
+				// throws the same exception types with "on GET request for <url>" in the message. The
+				// token is a header and never part of the URL.
+				.defaultStatusHandler(new DefaultResponseErrorHandler())
 				.build();
 	}
 

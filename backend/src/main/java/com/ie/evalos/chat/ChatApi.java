@@ -190,12 +190,10 @@ public class ChatApi {
 			throw new ForbiddenException("Notifications on this device need a brand; the GM's bell is in-app only.");
 		}
 		requireKnownPushService(request.endpoint());
-		subscriptions.findByEndpoint(request.endpoint()).ifPresent((previous) -> {
-			subscriptions.delete(previous);
-			subscriptions.flush();
-		});
-		subscriptions.save(new com.ie.evalos.chat.push.PushSubscription(who.brandId(), who.kind(), who.id(),
-				request.endpoint(), request.keys().p256dh(), request.keys().auth()));
+		// A browser belongs to whoever subscribed it last; the previous owner's row (and queued pushes) go.
+		subscriptions.deleteOthersOn(request.endpoint(), who.kind().name(), who.id());
+		subscriptions.upsert(UUID.randomUUID(), who.brandId(), who.kind().name(), who.id(), request.endpoint(),
+				request.keys().p256dh(), request.keys().auth());
 	}
 
 	/**

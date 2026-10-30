@@ -1593,6 +1593,32 @@ class LocalPostgresIntegrationTest {
 	 * Unit 60: {@code linkGhlUser} links on a case-insensitive email in the brand, once, and never
 	 * overwrites — so a hand correction survives the next sweep.
 	 */
+	/**
+	 * 2026-10-30, production: the portal posts the same subscription twice per load, and find-delete-insert
+	 * answered 409 on the unique endpoint. The upsert takes both; another person's row on the browser is replaced.
+	 */
+	@Test
+	void subscribingTheSameBrowserTwiceIsOneRowAndANewOwnerReplacesIt() {
+		String endpoint = "https://fcm.googleapis.com/fcm/send/it-" + UUID.randomUUID();
+		UUID client = UUID.randomUUID();
+		pushSubscriptions.upsert(UUID.randomUUID(), BRAND_IE, "CLIENT", client, endpoint, "p1", "a1");
+		pushSubscriptions.upsert(UUID.randomUUID(), BRAND_IE, "CLIENT", client, endpoint, "p2", "a2");
+
+		assertThat(jdbc.queryForObject("SELECT count(*) FROM push_subscriptions WHERE endpoint = ?", Integer.class, endpoint))
+				.isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT p256dh FROM push_subscriptions WHERE endpoint = ?", String.class, endpoint))
+				.isEqualTo("p2");
+
+		UUID staff = UUID.randomUUID();
+		assertThat(pushSubscriptions.deleteOthersOn(endpoint, "STAFF", staff)).isEqualTo(1);
+		pushSubscriptions.upsert(UUID.randomUUID(), BRAND_IE, "STAFF", staff, endpoint, "p3", "a3");
+		assertThat(jdbc.queryForObject("SELECT subscriber_id FROM push_subscriptions WHERE endpoint = ?", UUID.class, endpoint))
+				.isEqualTo(staff);
+	}
+
+	@Autowired
+	com.ie.evalos.chat.push.PushSubscriptionRepository pushSubscriptions;
+
 	/** 2026-10-29: the Admin's delete removes only a member nothing remembers — every FK counts, and the trail. */
 	@Test
 	void staffHistoryCountsEveryForeignKeyAndTheAuditTrail() {

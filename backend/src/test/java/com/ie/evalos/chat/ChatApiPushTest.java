@@ -11,11 +11,11 @@ import com.ie.evalos.common.ForbiddenException;
 import com.ie.evalos.domain.Role;
 
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -50,46 +50,39 @@ class ChatApiPushTest {
 
 		assertThatThrownBy(() -> api(true).subscribe(gm, request("https://fcm.googleapis.com/fcm/send/1")))
 				.isInstanceOf(ForbiddenException.class);
-		verify(subscriptions, never()).save(any());
+		verify(subscriptions, never()).upsert(any(), any(), any(), any(), any(), any(), any());
 	}
 
 	/** A Brand Manager reads chat only, but has a bell, and the bell pushes (D37). */
 	@Test
 	void aBrandManagerCanSubscribeForTheBell() {
 		ChatIdentity bm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.BRAND_MANAGER);
-		when(subscriptions.findByEndpoint("https://fcm.googleapis.com/fcm/send/3")).thenReturn(Optional.empty());
-
 		api(true).subscribe(bm, request("https://fcm.googleapis.com/fcm/send/3"));
 
-		verify(subscriptions).save(any());
+		verify(subscriptions).upsert(any(), eq(brand), eq("STAFF"), eq(bm.id()),
+				eq("https://fcm.googleapis.com/fcm/send/3"), any(), any());
 	}
 
 	@Test
 	void subscribingStoresTheBrowserForTheCaller() {
 		ChatIdentity client = ChatIdentity.client(UUID.randomUUID(), brand);
-		when(subscriptions.findByEndpoint("https://fcm.googleapis.com/fcm/send/2")).thenReturn(Optional.empty());
-
 		api(true).subscribe(client, request("https://fcm.googleapis.com/fcm/send/2"));
 
-		ArgumentCaptor<PushSubscription> saved = ArgumentCaptor.forClass(PushSubscription.class);
-		verify(subscriptions).save(saved.capture());
-		assertThat(saved.getValue().belongsTo(ParticipantKind.CLIENT, client.id())).isTrue();
-		assertThat(saved.getValue().getBrandId()).isEqualTo(brand);
+		verify(subscriptions).upsert(any(), eq(brand), eq("CLIENT"), eq(client.id()),
+				eq("https://fcm.googleapis.com/fcm/send/2"), any(), any());
 	}
 
 	/** A shared computer's browser follows whoever signed in last. */
 	@Test
 	void aBrowserAlreadySubscribedBySomeoneElseMovesToTheCaller() {
 		ChatIdentity pm = new ChatIdentity(ParticipantKind.STAFF, UUID.randomUUID(), brand, Role.PROJECT_MANAGER);
-		PushSubscription previous = new PushSubscription(brand, ParticipantKind.CLIENT, UUID.randomUUID(),
-				"https://fcm.googleapis.com/fcm/send/3", "p", "a");
-		when(subscriptions.findByEndpoint("https://fcm.googleapis.com/fcm/send/3")).thenReturn(Optional.of(previous));
-
 		api(true).subscribe(pm, request("https://fcm.googleapis.com/fcm/send/3"));
 
-		verify(subscriptions).delete(previous);
-		verify(subscriptions).flush();
-		verify(subscriptions).save(any(PushSubscription.class));
+		// Anyone else's row on this browser goes first (its queued pushes cascade with it), then this one upserts.
+		org.mockito.InOrder order = org.mockito.Mockito.inOrder(subscriptions);
+		order.verify(subscriptions).deleteOthersOn("https://fcm.googleapis.com/fcm/send/3", "STAFF", pm.id());
+		order.verify(subscriptions).upsert(any(), eq(brand), eq("STAFF"), eq(pm.id()),
+				eq("https://fcm.googleapis.com/fcm/send/3"), any(), any());
 	}
 
 	@Test
@@ -111,7 +104,6 @@ class ChatApiPushTest {
 	@Test
 	void onlyAnHttpsEndpointOfAKnownPushServiceIsAccepted() {
 		ChatIdentity client = ChatIdentity.client(UUID.randomUUID(), brand);
-		when(subscriptions.findByEndpoint(any())).thenReturn(Optional.empty());
 		ChatApi api = api(true);
 
 		for (String refused : new String[] { "http://fcm.googleapis.com/fcm/send/x", "https://10.0.0.5:8080/x",
@@ -120,13 +112,13 @@ class ChatApiPushTest {
 			assertThatThrownBy(() -> api.subscribe(client, request(refused)))
 					.as(refused).isInstanceOf(com.ie.evalos.common.InvalidRequestException.class);
 		}
-		verify(subscriptions, never()).save(any());
+		verify(subscriptions, never()).upsert(any(), any(), any(), any(), any(), any(), any());
 
 		for (String accepted : new String[] { "https://fcm.googleapis.com/fcm/send/abc",
 				"https://updates.push.services.mozilla.com/wpush/v2/abc", "https://web.push.apple.com/abc",
 				"https://wns2-par02p.notify.windows.com/w/?token=abc" }) {
 			api.subscribe(client, request(accepted));
 		}
-		verify(subscriptions, org.mockito.Mockito.times(4)).save(any());
+		verify(subscriptions, org.mockito.Mockito.times(4)).upsert(any(), any(), any(), any(), any(), any(), any());
 	}
 }
