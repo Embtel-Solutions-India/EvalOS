@@ -221,6 +221,44 @@ class ChecklistServiceTest {
 				.isEqualTo("Passport or government photo ID: REQUIRED → UPLOADED");
 	}
 
+	/** 2026-10-30: the reverse of adding one — removed, and the trail says what went. */
+	@Test
+	void anUnreceivedItemIsRemovedAndTheTrailSaysWhich() {
+		DocumentChecklistItem target = item(subject.getId(), ChecklistItemStatus.REQUIRED);
+		given(target.getLabel()).willReturn("Beneficiary form");
+		given(checklistItems.findScoped(any(TenantContext.class), eq(ITEM_ID))).willReturn(Optional.of(target));
+		DocumentChecklistItem other = item(subject.getId(), ChecklistItemStatus.REQUIRED);
+		given(checklistItems.findByCaseId(subject.getId())).willReturn(List.of(target, other));
+
+		checklists.removeItem(CASE_ID, ITEM_ID);
+
+		verify(checklistItems).delete(target);
+		assertThat(recordedNote(AuditAction.DELETED)).isEqualTo("Required document removed: Beneficiary form");
+	}
+
+	/** A document the client sent is received work: its status changes, it is never removed. */
+	@Test
+	void aReceivedDocumentIsNotRemoved() {
+		DocumentChecklistItem target = item(subject.getId(), ChecklistItemStatus.UPLOADED);
+		given(checklistItems.findScoped(any(TenantContext.class), eq(ITEM_ID))).willReturn(Optional.of(target));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> checklists.removeItem(CASE_ID, ITEM_ID))
+				.isInstanceOf(com.ie.evalos.domain.IllegalTransitionException.class);
+		verify(checklistItems, never()).delete(any(DocumentChecklistItem.class));
+	}
+
+	/** An empty checklist would let "documents complete" pass with nothing in. */
+	@Test
+	void theLastItemIsNotRemoved() {
+		DocumentChecklistItem target = item(subject.getId(), ChecklistItemStatus.REQUIRED);
+		given(checklistItems.findScoped(any(TenantContext.class), eq(ITEM_ID))).willReturn(Optional.of(target));
+		given(checklistItems.findByCaseId(subject.getId())).willReturn(List.of(target));
+
+		org.assertj.core.api.Assertions.assertThatThrownBy(() -> checklists.removeItem(CASE_ID, ITEM_ID))
+				.isInstanceOf(com.ie.evalos.domain.IllegalTransitionException.class);
+		verify(checklistItems, never()).delete(any(DocumentChecklistItem.class));
+	}
+
 	/**
 	 * Two guards, one answer. An item id that resolves in the caller's brand but hangs off a
 	 * different case is refused exactly as another brand's item is — otherwise a Coordinator

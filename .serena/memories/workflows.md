@@ -32,7 +32,7 @@ calls GHL — it queues `sync_outbox` CLIENT_ACCOUNT UPSERT (enqueueIfAbsent, sa
 `linkCrmIdentity` upserts the contact. A half-carried deal (amount or opportunity id alone) fills the half the case
 lacks, never overwrites; a conflicting half is flagged on the UPDATED audit row, not applied.
 
-Two GHL create paths, two verbs: `SalesDeskService.newDeal` (createOpportunity) and
+Two GHL create paths, two verbs: `SalesDeskService.createDeal` (createOpportunity) and
 `MarketingLeadService.openLead` (**upsertOpportunity** — the one place a repeat enquiry reuses an
 open deal; **D56:** skipped when that deal has a pending `sync_outbox` push — the queued edit wins;
 **D64:** the BDE form is GHL's full opportunity form — stage + close ride the upsert, intake fields
@@ -41,12 +41,12 @@ follow via `setOpportunityFields` since GHL's upsert has no `customFields`).
 Set-password may `upsertContact` (`ensureCrmIdentity`); sign-in only queues it. The portal opens no deal.
 
 **Documents** enter **only at the case**, against a sent checklist item (D33, D60), keyed by the
-**GHL contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey`). **Notifications** are in-app today; D37 makes them in-app **and push**, never mail.
+**GHL contact id** (D41 — one id names a contact everywhere; `DocumentStore.clientKey`). **Notifications** are in-app **and** push (`BellPushNotifier`, D37; skipped while the app is open), never mail.
 CURRENT since Unit 70 (D68, built 2026-10-01): a committed case change shows on every open screen of that case without a reload (`case.changed` over Ably → background REST re-read; staff `lib/live.ts`, portals `LiveInvalidate`); the bell on `notifications.changed`; sidebar counts are a query. GM hears every brand (token names each brand channel).
 
-**Conversations do not exist** — no table, no route, no component, anywhere. **Notes** are
-synced both ways (Unit 54, built 2026-09-24): pushed once to the GHL contact via the
-outbox, GHL notes shown on the deal from the existing `ghl_note` mirror.
+**Notes** are synced both ways (Unit 54, built 2026-09-24): pushed once to the GHL contact via the
+outbox, GHL notes shown on the deal from the existing `ghl_note` mirror. GHL conversations stay in
+GHL (D52); EvalOS's only messaging is the case chat (below).
 
 **GHL → EvalOS (45d, 2026-09-17).** `contact.created`/`contact.updated` → `contact_snapshot`;
 `opportunity.create|created|update|updated|stage_changed|status_changed` → re-read
@@ -57,9 +57,9 @@ re-reads only pipelines nobody has looked at inside `evalos.ghl.delta-ttl`.
 miss `GhlContactClient.byId` → `GET /contacts/{id}` (`contacts.readonly`, already granted), saved
 through `findOrCreate` so the email-match and contradiction rules still apply. **Why it had to
 exist:** every writer of `contact_snapshot` is an EvalOS-side event (Handoff A, set-password, the
-`contact.*` webhook) and NO SWEEP PULLS CONTACTS — `MIRROR_DELTA` refreshes opportunities. A deal
-typed straight into GHL therefore carried a `ghl_contact_id` and no contact row, and the deal screen
-read "it arrives with the next sync", naming a sync that does not exist. A GHL failure returns empty
+`contact.*` webhook) and, at the time, no sweep pulled contacts — `MIRROR_DELTA` refreshes opportunities;
+`CONTACT_MIRROR` came later. A deal typed straight into GHL therefore carried a `ghl_contact_id` and no
+contact row, and the deal screen read "it arrives with the next sync", naming a sync that did not exist. A GHL failure returns empty
 and logs rather than throwing, so a blip does not take the whole screen down with the contact card.
 It is a backfill, not a mirror; `CONTACT_MIRROR` is the bulk pull. Since 2026-09-30 both write the
 contact's country, tags and custom field values (`Details.fromGhl`); a webhook or sign-up never
@@ -79,9 +79,9 @@ nothing is cleared and the drain re-queues, after marking the first row sent so 
 collapse cannot swallow it. **Both creates absorb GHL's reply into the mirror before answering**, or
 the next edit of a just-created deal is refused as "not in the mirror yet" for a full sweep.
 
-**Case chat (Unit 57 phase 1, backend).** Three conversations per case created at CASE_CREATED; membership
+**Case chat (Unit 57).** Three conversations per case created at CASE_CREATED; membership
 follows assignment and expert-offer events and the hourly CHAT_RECONCILE; read-only at CLOSED. Messages
-over REST, live via each member's private Ably channel, web push when the app is closed. No screens yet. **Unit 77 (D75):** a GM who is not a member may write in any open conversation (PARTICIPANT, labelled GM, no member row, no read position); non-members listen on `chat:view:{brand}:{conversation}` while it is open.
+over REST, live via each member's private Ably channel, web push when the app is closed. Screens: staff `/conversations` (`ConversationsPage`) + the case page's `CaseChat`; client portal `/conversations` + the case page; expert portal `/messages`. **Unit 77 (D75):** a GM who is not a member may write in any open conversation (PARTICIPANT, labelled GM, no member row, no read position); non-members listen on `chat:view:{brand}:{conversation}` while it is open.
 
 **Expert sign-in (Unit 59):** sign-up → roster match in the portal's brand → set/reset mail (else nothing, by decision; 204 always) → set-password → party-scoped token → `/cases` → `/case?caseId=`. No staff-minted links exist (V73 revoked the live ones).
 
@@ -92,3 +92,9 @@ over REST, live via each member's private Ably channel, web push when the app is
 **Expert lifecycle (Unit 63, 2026-09-29).** GHL hiring pipeline (tagged `EXPERT_HIRING`; stages are GHL's) → ENM board `/hiring` (stage moves go mirror + outbox → GHL; GHL-side moves notify the ENMs) → Onboarded → pre-filled expert create → directory (verify credentials, case history) → declined case may be retaken (D62) → delivered → payout Pending → ENM records transfer (Processing) → **expert confirms in portal** (Paid) → weekly / monthly summary + CSV. **Unit 65 (built 2026-09-30):** the offer carries the amount (editable while open, expert sees it and accepts it, stale fee → 409), delivery pays that amount, staff Payouts module = Overview · Cases register (per-offer log) · Experts · Payment batch.
 
 **EvalOS → GHL push (spec 86, 2026-10-28):** the drain reads GHL first and sends only fields GHL has not changed since the edit; both changed → newer edit wins (audited). Dead pushes from timing/GHL faults re-queue themselves after 1h (max 3/week); a 4xx waits for the Admin's Retry. MISSING_LOCALLY drift closes when the mirror absorbs the deal.
+
+**New case / Cancel case (D9, 2026-10-30).** GM / Brand Manager / PM: **New case** `POST /api/cases/from-ghl` (GHL opportunity or contact id) runs the webhook's `GhlOpportunityHandler` intake — the deal must be won in GHL. **Cancel case** `POST /api/cases/{id}/cancel` (reason required, never from DELIVERED) → CLOSED + `CANCELLED`, pending payouts voided; nothing is deleted.
+
+**Service type from the deal (D77, 2026-10-30).** Intake: `customData.serviceType`, else the won deal's Service Requested, else Credential evaluation. Then `CaseServiceTypeListener` (after CASE_CREATED; fetches the deal from GHL if unmirrored) and the 5-min `SERVICE_TYPE_RECONCILE` (mirror only) move a case still on that fallback, in DOC_COLLECTION, with an untouched checklist. GM / BM / PM change any open case (`PUT /api/cases/{id}/service-type`). `dealOf`: the case's opportunity id, else the contact's latest won deal, else their newest. A change keeps sent/uploaded/reviewed items, drops untouched ones the new type lacks, adds missing ones, audits. **Checklist remove:** `DELETE /api/cases/{id}/checklist/{itemId}` (GM, BM, PC, CM) — refused for UPLOADED/APPROVED and for the last item (Q34: sent items can still go).
+
+**Email (`.claude/workflows.md` §10).** Client (portal brand, linked account): case created (set-password link or sign-in mail), checklist Send, manual Chase (the DOC_CHASE sweep sends none), draft ready, delivered. Expert: offer (EXPERT_ASSIGNED, with fee), sent for signing. Auth: identify / forgot-password (client), sign-up / forgot-password link (expert). Admin: Settings test mail. Skipped: non-portal brand, no linked account, no expert email, zero outstanding documents, mail unconfigured or switched off.

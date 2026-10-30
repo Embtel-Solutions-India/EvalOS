@@ -8,19 +8,31 @@ The portals keep their token in `localStorage` (D73, amended 2026-10-07; 7-day s
 
 Multi-tenancy: `ScopedEntity` plus `ScopedRepository` plus `ScopePredicate`. **Known hole:** `Case`
 has no pipeline column, so the PIPELINE tier (SALES and MARKETING) matches no case at all. Fix it
-with a `PortalStageProjection.forSales`, never by widening a tier.
+with a `PortalStageProjection.forSales` (via the `opportunity` mirror), never by widening a tier.
+Brand-isolation exceptions in code: sweeps, children of a brand-checked parent, GM/Admin
+cross-brand reads, GHL-location reads; `team_member_pipeline` has no brand column.
 
 Integration: `GhlHttp` is the only transport and its verb list is closed (get, post, put, delete).
-A fifth verb fails the build, and every write-verb caller must reach `AuditService`. Seven GHL
-clients sit on it. `DocumentStore` does `put` and presigned reads and nothing else: `presignedUrl` (attachment) and,
-since Unit 74, a view (`presignedPdfView` / `presignedView`, inline with a forced PDF / PNG / JPEG type).
+A fifth verb fails the build, and every write-verb caller must reach `AuditService`. Eight GHL
+clients sit on it (`GhlWriteClient`, `GhlPipelineClient`, `GhlContactClient`, `GhlCalendarClient`,
+`GhlInvoiceClient`, `GhlUserClient`, `GhlTagClient`, `GhlCustomFieldClient`) plus
+`StubGhlWriteClient` (`evalos.ghl.write-mode=stub`, local only). Also SMTP (`MailTransport`), Web
+Push (VAPID) and Ably. `DocumentStore` does `put` and presigned reads and nothing else: `presignedUrl` (attachment) and,
+since Unit 74, a view (`presignedPdfView` / `presignedView`, inline with a forced PDF / PNG / JPEG type);
+local-dir mode (local profile only) serves through permitAll `/api/local-documents/{token}`.
 
 Case lifecycle: 12 stages, `DOC_COLLECTION` through `CLOSED`, plus an orthogonal `exception_state`.
-Four scheduled sweeps, each taking a database lock and writing a `scheduled_job` ledger row.
+Fourteen scheduled sweeps (production, GHL mirror/sync, chat), each taking a database lock and
+writing a `scheduled_job` ledger row; `StartupSync` fills the mirror once after boot.
 
 Build-failing structural tests: `DomainInvariantsTest`, `GhlHttpTest`, `ConfigSecretsTest`,
-`GmOverviewRouteTest`, and `frontend/src/features/shell/navigation.test.ts`. Read what each one
-pins before changing anything near it.
+`GmOverviewRouteTest` (GM+ADMIN read `/api/metrics/gm`), `AdminAreasPreAuthorizeTest`,
+`MigrationTreeTest`, the monitoring tests, and `frontend/src/features/shell/navigation.test.ts`
+(GHL screens GM/Admin-only bar the brand-proven board). Read what each one pins before changing
+anything near it. CI runs on push and PR to `main`; deploy on push only.
+
+Invariant 8: a case is born only from a won GHL deal — the webhook, or the PM's New case
+(`POST /api/cases/from-ghl`, D9) through the same `GhlOpportunityHandler`.
 
 The 15 invariants are in `.claude/architecture.md` in compact form; the long reasoning is archived
 at `context/archive/2026-09-16-pre-reset/architecture.md`.
@@ -35,11 +47,15 @@ of a mailbox (set password, reset password) and **confirming a request was recei
 at submit). **Unit 64 (built 2026-09-29) removed the request and with it this
 confirmation**; since Unit 64b (D65) a case opening sends the case-opened mail (set-password, 7-day link; or sign-in when a password exists). Since Unit 64c (D58, D67) also the five case progress mails (checklist, draft ready, delivered; expert offer, expert signing) and, since 2026-10-01, the manual Send chase reminder — deep links, never a credential; nothing else (the DOC_CHASE sweep sends no mail). It previously allowed "exactly one purpose ... (two messages)". Bounded by: the
 confirmation promises nothing the flow can fail to keep (no price, no turnaround, no date), and
-nothing depends on it arriving — a failed send is logged and the submit still succeeds. This is NOT
-the four-message expansion open-decisions (c) recommends; those are mail a client ACTS on and still
-need their own decision.
+nothing depends on it arriving — a failed send is logged and the submit still succeeds. The
+four-message expansion `00d` §12 (c) recommended was decided as D58 and built as Unit 64c.
 
-All three messages are HTML + plain text (`multipart/alternative`), rendered by `MailTemplates`
+**Invariant 14 today** (complete): set/reset password (client and expert), case-opened (set-password
+or sign-in), checklist, manual chase, draft ready, delivered, expert offer, expert signing, and the
+Admin's Settings test mail (D83) — nothing else. Five templates in `resources/mail/` over
+`layout.html`.
+
+All messages are HTML + plain text (`multipart/alternative`), rendered by `MailTemplates`
 from `resources/mail/` with `{{placeholder}}` substitution — no template engine dependency. The
 logo is linked from the marketing site's apex host, `https://internationalevaluations.com/assets/logo-horizontal-main.png` (never the portal origin, never `www` — it 301s and image proxies drop it): a `cid:` attachment is stripped
 by several webmail clients and a `data:` URI is blocked outright by Gmail and Outlook.com.

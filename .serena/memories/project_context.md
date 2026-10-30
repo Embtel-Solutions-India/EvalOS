@@ -10,17 +10,19 @@ system underneath.
 
 Four apps in one repo:
 
-- `backend/` — Java 21 / Spring Boot / JPA / Flyway / Postgres 16. 215 main classes.
-- `frontend/` — staff SPA, React 19 + TanStack Query (Unit 70a) + Vite + TS. Deployed.
-- `client-expert/client/` — Client Portal. **Not deployed by this repo.**
-- `client-expert/expert/` — Expert Portal. **Not deployed by this repo.**
-- `packages/evalos-chat/` — source-only chat UI (Unit 57 §7); no `node_modules`, imported by
+- `backend/` — Java 21 / Spring Boot / JPA / Flyway / Postgres 16. 371 main classes, 189 test classes; 14 `@Scheduled` sweeps; 8 GHL clients + a stub.
+- `frontend/` — staff SPA (nine staff roles incl. ADMIN), React 19 + TanStack Query (Unit 70a) + Vite + TS. Deployed.
+- `client-expert/client/` — Client Portal. Deployed via docker-compose (`Dockerfile.client`, `nginx-portal.conf`); **CI does not build it.**
+- `client-expert/expert/` — Expert Portal. Same (`Dockerfile.expert`).
+- `packages/evalos-chat/` — source-only chat UI (Unit 57 §7); its `node_modules` holds only Vite/vitest caches, no packages; imported by
   `client-expert/` through a Vite alias.
 
-Integrations: GoHighLevel (read and write), AWS S3 (documents), SMTP for two auth emails only —
-**the provider is `spring.mail.*`, not a class** (D3e, 2026-09-18), so Brevo, Resend, Mailgun,
+Integrations: GoHighLevel (read and write), AWS S3 (documents), Ably (real-time), Web Push (VAPID),
+SMTP — client case opened / documents needed / chase / draft ready / delivered / set-reset password,
+expert offer / ready to sign / set-reset link, Admin test mail (`workflows.md` §10).
+**The provider is `spring.mail.*`, not a class** (D3e, 2026-09-18), so Brevo, Resend, Mailgun,
 Postmark or SES is an environment change; the Brevo API transport is deleted.
-No AI anywhere in the system.
+No AI anywhere in the system (D30; the client terms still mention AI — open Q31).
 
 Knowledge baseline (reset 2026-09-16): `.claude/project-context.md`, `current-decisions.md`,
 `architecture.md`, `data-model.md`, `workflows.md`, `implementation-status.md`,

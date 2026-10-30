@@ -15,7 +15,7 @@ GHL ───────HMAC + token─► /api/webhooks/ghl/{endpointToken}  (
 
 `permitAll` on the portal chain: exactly nine POSTs under `/api/portal/auth/**` — the client's five and the expert's four (`expert/{sign-up, forgot-password, sign-in, set-password}`, Unit 59) — plus a per-IP
 limiter (60/min) in `PortalTokenFilter`. **The client's `sign-up` was removed by Unit 64 (2026-09-29)**, leaving eight. `permitAll` on the staff chain: `/api/auth/login`,
-`/actuator/health` and `/actuator/health/**` (the liveness/readiness probes; bare status only), `/api/webhooks/**` (`/api/health` and its `HealthController` deleted 2026-09-30 — a hard-coded `UP` beside actuator's real one).
+`/actuator/health` and `/actuator/health/**` (the liveness/readiness probes; bare status only), `/api/webhooks/**`, `/api/local-documents/**` (local-dir mode only; see `DocumentStore`) (`/api/health` and its `HealthController` deleted 2026-09-30 — a hard-coded `UP` beside actuator's real one).
 The rest of `/actuator` (`info`, `metrics` — nothing else exists, D82) is `hasRole('ADMIN')` and GET-only via `AdminAllowlist`.
 The Admin's browser view of the same figures is `GET /api/system/health` (an Admin area, spec 84), because nginx proxies only `/api/`.
 
@@ -35,8 +35,10 @@ row with no brand is refused before it is written and stamped on persist — bot
 
 **Known structural hole:** `Case` has no pipeline column, so `ScopePredicate`'s PIPELINE arm
 returns `cb.disjunction()` — a SALES/MARKETING principal matches **no case at all**. This is by
-construction, not a missing grant. The fix is a `PortalStageProjection.forSales` joining
-`evalos_case.ghl_opportunity_id` to `opportunity_note.ghl_opportunity_id`, not a widened tier.
+construction, not a missing grant, and still open (`ScopePredicate`'s PIPELINE arm; no
+`PortalStageProjection.forSales` exists). The fix is such a projection joining
+`evalos_case.ghl_opportunity_id` to the `opportunity` mirror's `ghl_id` (whose pipeline the desk
+holds), not a widened tier.
 
 ## The three handoffs
 
@@ -56,13 +58,20 @@ shared pacer forward, honouring a capped `Retry-After`, so every caller backs of
 
 | Client | Reads | Writes |
 |---|---|---|
-| `GhlWriteClient` | — | contacts upsert, opportunities upsert/create/update/details/stage/status/**delete** (Unit 69), contact tasks |
-| `GhlPipelineClient` | pipelines, stages, opportunities in a window (optionally by status) | — |
-| `GhlOpportunityClient` | opportunity search | — |
-| `GhlCalendarClient` | calendars, free slots, contact appointments | book, reschedule, note |
+| `GhlWriteClient` | — | contacts upsert, opportunities upsert/create/update/details/fields/stage/status/**delete** (Unit 69), contact tasks create/complete, contact notes add/update/delete |
+| `GhlPipelineClient` | pipelines, stages, opportunities in a window (optionally by status), by id / by contact, a contact's notes | — |
+| `GhlContactClient` | a contact by id, contacts by page (the contact mirror) | — |
+| `GhlCalendarClient` | calendars, free slots, notes, blocked times | book, reschedule, cancel, note add/edit/delete, block / unblock time |
 | `GhlInvoiceClient` | invoices by contact | — |
 | `GhlUserClient` | GHL users | — |
-| `GhlCustomFieldClient` | custom field definitions | — |
+| `GhlTagClient` | the location's tags | — |
+| `GhlCustomFieldClient` | custom field definitions by model | — |
+
+`StubGhlWriteClient` replaces `GhlWriteClient` when `evalos.ghl.write-mode=stub`, and refuses to
+start outside the `local` profile. (There is no `GhlOpportunityClient` — it went with the cache, `V52`.)
+
+Outside GHL: **SMTP** (`MailTransport` / `SmtpMailTransport`, the only mail path), **Web Push**
+(VAPID, `chat/push/PushSender`; retries via `push_outbox`) and **Ably** (below).
 
 **Ably (D50, D68)** relays, PostgreSQL is the record, and no browser token may publish. Two uses:
 chat (`ChatFanout`, each member's `chat:user:{KIND}:{id}`) and **screen refresh** (Unit 70,
@@ -76,13 +85,22 @@ bulk writes to those tables call `CaseLive.touched` themselves (`PayoutService`'
 `DocumentStore` (S3): `put`, `presignedUrl` (always `attachment`) and the two view mints —
 `presignedPdfView` for a known PDF and `presignedView` for any PDF / PNG / JPEG, both `inline` with
 the type **forced** (Unit 74, D51) — and nothing else. Unconfigured = every document
-route answers 502 naming both missing variables; the rest of the app boots.
+route answers 502 naming both missing variables; the rest of the app boots. **Local-dir mode**
+(`evalos.s3.local-dir`, blank in every shared profile): documents go to a directory and are read back
+through the unauthenticated `GET /api/local-documents/{token}` (`LocalDocumentController`, mapped
+only while it is set; a short-lived token in the path is the credential). `DocumentStore` refuses to
+start if it is set outside the `local` profile. `evalos.s3.endpoint` (blank in prod) points S3 at
+the local MinIO.
 
 ## Background jobs
 
-Four `@Scheduled` sweeps — `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA` — each
-taking a `JobLock` and writing a `scheduled_job` row via `JobLedger`. Admin can force a run at
-`POST /api/jobs/{jobType}/run`.
+Fourteen `@Scheduled` sweeps (`job/`, one `Sweep` bean each, interval `evalos.jobs.intervals.<TYPE>`):
+production — `DOC_CHASE`, `DOC_ESCALATION`, `EXPERT_SIGN`, `STAGE_SLA`, `PORTAL_CLEANUP`,
+`SERVICE_TYPE_RECONCILE`; GHL mirror and sync — `PIPELINE_MIRROR`, `REFERENCE_MIRROR`,
+`CONTACT_MIRROR`, `MIRROR_DELTA`, `SYNC_OUTBOX`, `SYNC_AUDIT`; chat — `CHAT_RECONCILE`,
+`PUSH_OUTBOX`. Each takes a `JobLock` and writes a `scheduled_job` row via `JobLedger`
+(`SweepRunner`). `StartupSync` runs the mirror once after boot (pipelines, reference lists, deals).
+The Admin can force a run at `POST /api/jobs/{jobType}/run`.
 
 ## Case state machine (12 stages)
 
@@ -102,19 +120,24 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 
 ## The 15 invariants (compact — full reasoning archived)
 
-1. **Brand isolation.** Every query over EvalOS rows filters by `brand_id`. One exception: GHL
-   location reads, which are GM-only because they are unattributable to a brand.
+1. **Brand isolation.** Every query over EvalOS rows filters by `brand_id`. The exceptions the code
+   has: scheduled sweeps (cross-brand by design, e.g. `PushOutbox`'s drain); reads of children by a
+   parent id that was already brand-checked; GM/Admin cross-brand reads (`ContactDirectoryRepository.all`,
+   `ChatInboxQuery`'s GM arms); unattributable GHL-location reads (GM/Admin, bar the selling-brand
+   board). `team_member_pipeline` carries no brand at all — scoped through its member.
 2. **One custody at a time.** *(The old second half — "EvalOS runs no sales/marketing/invoicing" —
-   died at Unit 37.)* What survives: invoicing is GHL's; Handoff A is the only door into custody;
-   the GHL opportunity cache holds only fields GHL owns and is droppable without loss.
+   died at Unit 37.)* What survives: invoicing is GHL's; Handoff A is the only door into custody.
+   The `opportunity` mirror (`V51`) holds GHL's rows plus a few EvalOS-owned columns:
+   `locally_edited_fields` / `ghl_base` (an outstanding desk edit, pushed by `sync_outbox`) and,
+   on `pipeline_stage`, `won`.
 3. Role, brand and ownership are enforced before every mutation.
 4. Expert `payment_detail` is encrypted at rest and never leaves in a DTO.
 5. Paid **and** `DELIVERED` is revenue recognition; read only through the metrics services.
 6. Controllers stay thin; long work is a sweep.
 7. EvalOS is system of record for cases, experts and payouts. GHL owns contact identity
    (the three-identifier rule is load-bearing).
-8. **A case is created only from a deal won in GHL** — the per-brand webhook, or the PM's New case through
-   the same handler (D9, 2026-10-30). Build-enforced: one class injects `CaseIntakeService`. A case is never
+8. **A case is created only from a deal won in GHL** — the per-brand webhook, or the PM's New case
+   (`POST /api/cases/from-ghl`) through the same handler (D9, 2026-10-30). Build-enforced: one class injects `CaseIntakeService`. A case is never
    deleted; it is cancelled (closed with a reason).
 9. Schema changes are new Flyway migrations; applied migrations are never edited.
 10. Every inbound webhook is brand-resolved from its endpoint token.
@@ -131,9 +154,13 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
     upload), draft ready, delivered (to the client), and the offer and signing mails (to the
     expert) — each once per transition, a deep link and never a credential — **and (2026-10-01)
     the chase reminder, sent only when a PC/CM presses Send chase** (`checklist.chased`). So the
-    invariant is: mailbox proof, the case-opened mail, those five and the manual chase, **and (2026-10-10, D83) one
-    test mail the Administrator sends to their own address from Settings**, and nothing
-    else; the `DOC_CHASE` sweep's automatic reminders send no mail. **A push notification is not mail** and does not touch this
+    invariant is the complete list `ClientMailer` and `SettingsAdminService` send: **set / reset
+    password** (client, and the expert's set-or-reset link), **case-opened** (two variants:
+    set-password or sign-in), **checklist**, **chase** (manual), **draft ready**, **delivered**,
+    **expert offer**, **expert signing**, and **(2026-10-10, D83) one test mail the Administrator
+    sends to their own address from Settings** — and nothing else. Templates: five in
+    `resources/mail/` (`set-password`, `reset-password`, `case-started`, `case-signin`,
+    `case-update`) over `layout.html`; the `DOC_CHASE` sweep's automatic reminders send no mail. **A push notification is not mail** and does not touch this
     invariant (D37: notifications are in-app and push, and nothing else).
     **Amended 2026-09-19, on the business's instruction.** It read *"exactly one purpose: proving
     control of a mailbox (two messages)"*, and the submission confirmation is not a mailbox proof —
@@ -152,11 +179,13 @@ Transitions live in `CaseTransitions`/`CaseLifecycleService`; every one writes a
 | `DomainInvariantsTest` | only `GhlOpportunityHandler` creates a case; scope fields map to real attributes; audit repo cannot change history; brand stamping |
 | `GhlHttpTest` | closed verb list; every write-verb caller reaches `AuditService` |
 | `ConfigSecretsTest` | no credential-shaped setting carries a default in a shared profile |
-| `GmOverviewRouteTest` | `/api/metrics/gm` stays `hasRole('GM')` |
+| `GmOverviewRouteTest` | `/api/metrics/gm` is read by GM and ADMIN only (every other role refused); only the GM sets the monthly goal |
+| `AdminAreasPreAuthorizeTest` | every handler under an `AdminAllowlist` area declares its own `@PreAuthorize` (method or class) |
+| `MigrationTreeTest` | `db/migration` holds no seed and no sub-directory; the seed trees (`seed-local`, `seed-testprod`, `seed-prod`) exist and follow their numbering rules |
 | `MonitoringConfigTest` | Actuator is off but for health/info/metrics; prod and testprod never widen it or log at DEBUG/TRACE |
 | `ActuatorEndpointsTest`, `ActuatorDatabaseDownTest` (DB) | anonymous probes see a status only; info/metrics Admin-only; dump/env/loggers absent; readiness DOWN and liveness UP when the DB is down |
 | `LoggingHygieneTest` | request id on every line of a request; no password, hash, token or email in the log |
-| `navigation.test.ts` (frontend) | every GHL-location screen is GM-only; case detail is not in nav |
+| `navigation.test.ts` (frontend) | every GHL-location screen is GM/Admin-only — except a `brandProven` one (the opportunity board), reachable only by GM, ADMIN, SALES, MARKETING, ENM; case detail is not in nav |
 
 ## Configuration
 
@@ -173,10 +202,10 @@ Precedence that actually decides on a dev machine: `.env` (loaded by `.vscode/la
 env vars) **beats** `backend/config/application-local.yml` **beats** `application-local.yml` on the
 classpath. `backend/config/` is gitignored and is where a real GHL token goes.
 
-Key settings: `evalos.ghl.{location-id, token, sales-brand, opportunity-service-field,
+Key settings: `evalos.ghl.{location-id, token, sales-brand, write-mode,
 opportunity-correlation-field, board-stale-after, delta-ttl}` (`intake-pipeline-name` is retired — Unit 44b, D10b; the two funnel
 screens took `sales-pipeline-name` and `email-pipeline-name` with them), `evalos.mail.from`, `evalos.portal.{client-brand, client-base-url,
-expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region}`,
+expert-base-url, allowed-origins, credential-ttl}`, `evalos.s3.{bucket, region, local-dir, endpoint}`, `evalos.jobs.intervals.*`,
 `evalos.security.jwt.secret`, `evalos.field-key`, `SALES_MONTHLY_GOAL` (fallback only — the GM sets each month's target on the dashboard, `sales_monthly_goal`).
 
 ## Deployment
@@ -188,7 +217,7 @@ container's `wget`) and fails with the backend's log otherwise — before this, 
 successful deploy. The Admin, webhook tokens and testprod seed hash are not deploy variables (2026-10-14): they
 live in the database, entered by hand; `DESK_PASSWORD_HASH` is the one seed placeholder prod still passes. **nginx proxies only `/api/`**, so `/actuator` is reachable
 only on the compose network (`backend:8080`) — a probe or scraper runs there, not through the public host.
-CI (`.github/workflows/ci.yml`) runs on push to **`main` only**: backend tests, frontend
-test/build/lint, then deploy to EC2. `client-expert/` is in neither compose nor CI — **and that is
+CI (`.github/workflows/ci.yml`) runs on push to `main` and on pull requests to `main`: backend
+tests, frontend test/build/lint, then — on a push only — deploy to EC2. `client-expert/` is in neither compose nor CI — **and that is
 not this repository's debt: DevOps owns and edits deployment (D38, 2026-09-17).** Know it when
 reasoning about what is live; do not schedule work for it here.

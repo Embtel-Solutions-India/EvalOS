@@ -132,7 +132,13 @@ public class GhlOpportunityHandler {
 				 * can only ever hold one open case, and a second purchase refreshes the first
 				 * instead of opening its own.
 				 */
-				ServiceType serviceType,
+				/**
+				 * Text, not the enum (2026-10-30): the workflow sends GHL's own label ("TN Visa Expert Opinion
+				 * Letter") as often as EvalOS's name ("TN_VISA"), and an enum field turned either a typo or a
+				 * label into a 400 that lost the paid case. Read by {@link GhlOpportunityHandler#namedService};
+				 * anything it cannot read is ignored, and the won deal's Service Requested decides.
+				 */
+				String serviceType,
 				/** Carried onto the case so Unit 18 can close the opportunity back in GHL.
 				 * Never an idempotency key — that is {@code event_id}'s job. */
 				String opportunityId,
@@ -173,7 +179,25 @@ public class GhlOpportunityHandler {
 	void handle(Brand brand, String rawBody) {
 		OpportunityWon payload = payloads.read(rawBody, OpportunityWon.class, "opportunity");
 		Optional<GhlPipelineClient.Opportunity> deal = confirmWonInGhl(brand, payload);
-		intake.intake(brand, toCommand(payload, serviceOf(brand, payload, deal)));
+		intake.intake(brand, toCommand(payload, serviceOf(brand, payload, deal), deal.map(GhlPipelineClient.Opportunity::id)));
+	}
+
+	/** EvalOS's own name ({@code TN_VISA}, any case) or GHL's label; empty for blank or unknown — never refused. */
+	static Optional<ServiceType> namedService(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return Optional.empty();
+		}
+		String value = raw.trim();
+		for (ServiceType type : ServiceType.values()) {
+			if (type.name().equalsIgnoreCase(value.replace(' ', '_').replace('-', '_'))) {
+				return Optional.of(type);
+			}
+		}
+		Optional<ServiceType> fromLabel = com.ie.evalos.service.CaseServiceTypeService.fromLabel(value);
+		if (fromLabel.isEmpty()) {
+			log.info("Webhook service_type '{}' names no service; the won deal's Service Requested decides", value);
+		}
+		return fromLabel;
 	}
 
 	/**
@@ -267,8 +291,10 @@ public class GhlOpportunityHandler {
 	 * else {@link #DEFAULT_SERVICE}, which CaseServiceTypeListener (on creation) and the 5-minute SERVICE_TYPE_RECONCILE sweep still correct.
 	 */
 	private ServiceType serviceOf(Brand brand, OpportunityWon payload, Optional<GhlPipelineClient.Opportunity> deal) {
-		if (payload != null && payload.customData() != null && payload.customData().serviceType() != null) {
-			return payload.customData().serviceType();
+		Optional<ServiceType> named = payload == null || payload.customData() == null ? Optional.empty()
+				: namedService(payload.customData().serviceType());
+		if (named.isPresent()) {
+			return named.get();
 		}
 		return deal.flatMap((won) -> serviceTypes.requestedOn(brand.getId(),
 				GhlPipelineClient.CustomFieldValue.toMap(won.customFields())))
@@ -299,10 +325,13 @@ public class GhlOpportunityHandler {
 			return Optional.empty();
 		}
 		String wanted = payload.customData() == null ? null : payload.customData().opportunityId();
+		// The most recently won, not GHL's first (2026-10-30): a contact with two won services fires this
+		// webhook for the newer win, and the case must take that deal's id and service.
 		Optional<GhlPipelineClient.Opportunity> won = ghl.forContact(payload.contactId()).stream()
 				.filter((deal) -> wanted == null || wanted.isBlank() || wanted.equals(deal.id()))
 				.filter((deal) -> "won".equalsIgnoreCase(deal.status()))
-				.findFirst();
+				.max(java.util.Comparator.comparing(GhlPipelineClient.Opportunity::lastStatusChangeAt,
+						java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder())));
 		if (won.isEmpty()) {
 			log.warn("Refused a won delivery for contact {}: GHL holds no matching won opportunity", payload.contactId());
 			throw new WebhookRejected(HttpStatus.CONFLICT, "NOT_WON_IN_GHL",
@@ -319,7 +348,13 @@ public class GhlOpportunityHandler {
 	 * away: GHL sends the person and the deal, and that is all. Visa category, subtype,
 	 * deadline, invoice ref, expert and the intake note are a PM's to fill in.
 	 */
-	private static CaseIntakeService.NewCase toCommand(OpportunityWon payload, ServiceType service) {
+	/**
+	 * @param confirmed the won deal GHL just confirmed — its id stands in when the workflow sent none
+	 *                  (2026-10-30: production's workflow sends no {@code opportunity_id}, so every case had no deal id,
+	 *                  and the service-type sweep, the case header and the chat's Sales could not find the deal by it)
+	 */
+	private static CaseIntakeService.NewCase toCommand(OpportunityWon payload, ServiceType service,
+			Optional<String> confirmed) {
 		OpportunityWon.CustomData extra = payload.customData() != null ? payload.customData() : NO_CUSTOM_DATA;
 		return new CaseIntakeService.NewCase(
 				new CaseIntakeService.ContactDetails(payload.contactId(), payload.fullName(), payload.email(),
@@ -328,7 +363,8 @@ public class GhlOpportunityHandler {
 				null,
 				null,
 				null,
-				extra.opportunityId(),
+				extra.opportunityId() != null && !extra.opportunityId().isBlank() ? extra.opportunityId()
+						: confirmed.orElse(null),
 				extra.amount(),
 				null, null, null, null);
 	}

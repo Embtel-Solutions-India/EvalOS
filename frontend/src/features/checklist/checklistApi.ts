@@ -41,6 +41,11 @@ export async function addChecklistItem(caseId: string, label: string): Promise<C
   return unwrap<ChecklistView>(api.post(`/cases/${caseId}/checklist/items`, { label }))
 }
 
+/** 2026-10-30: the reverse of adding one. Refused (409) for a received document and for the last item. */
+export async function removeChecklistItem(caseId: string, itemId: string): Promise<ChecklistView> {
+  return unwrap<ChecklistView>(api.delete(`/cases/${caseId}/checklist/${itemId}`))
+}
+
 /** Unit 61: publishes every unsent item to the client's portal. 409 when nothing is unsent. */
 export async function sendChecklist(caseId: string): Promise<ChecklistView> {
   return unwrap<ChecklistView>(api.post(`/cases/${caseId}/checklist/send`, {}))

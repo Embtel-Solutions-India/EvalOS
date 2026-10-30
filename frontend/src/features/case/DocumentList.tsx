@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
-import { fetchCaseDocuments, fetchDocumentUrl, type DraftVersion } from './caseApi'
+import { fetchCaseDocuments, type DraftVersion } from './caseApi'
+import { useOpenDocument } from './useOpenDocument'
 import { isViewable } from './draftRules'
 import { Download, Eye, FileText } from 'lucide-react'
 import { button } from './caseUi'
@@ -38,28 +38,7 @@ export default function DocumentList({
     queryFn: ({ signal }) => fetchCaseDocuments(caseId, kind, signal),
     enabled: maySee,
   })
-  const [error, setError] = useState<string | null>(null)
-
-  const open = async (documentId: string, view: boolean) => {
-    // **The tab is opened synchronously and WITHOUT `noopener`, and both halves matter.**
-    // Synchronously, because a popup blocker rejects a window opened from an async continuation —
-    // the click has to be what opens it. Without `noopener`, because per the HTML spec
-    // `window.open` returns **null** whenever `noopener` is in the features string, so the handle
-    // needed to navigate the tab afterwards would never exist and the button would silently do
-    // nothing. The opener reference is severed on the line below instead, which is the same
-    // protection by a different route.
-    const tab = window.open('', '_blank')
-    if (tab) tab.opener = null
-    try {
-      const url = await fetchDocumentUrl(caseId, documentId, false, view)
-      if (tab) tab.location.href = url
-      // A blocked popup is not a failure of the fetch, so it is reported as itself.
-      else setError('Allow pop-ups for this site to open documents.')
-    } catch {
-      tab?.close()
-      setError('That document could not be opened. The store may be unavailable.')
-    }
-  }
+  const { open, error } = useOpenDocument(caseId)
 
   if (!maySee) {
     return (

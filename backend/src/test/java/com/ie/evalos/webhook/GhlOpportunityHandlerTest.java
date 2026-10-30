@@ -88,6 +88,59 @@ class GhlOpportunityHandlerTest {
 				(c) -> c.serviceType() == com.ie.evalos.domain.ServiceType.TN_VISA));
 	}
 
+	/** 2026-10-30: production's workflow sends no opportunity id; the case takes the won deal GHL confirmed. */
+	@Test
+	void aDeliveryWithNoOpportunityIdTakesTheConfirmedDealsId() {
+		given(http.isConfigured()).willReturn(true);
+		given(ghl.forContact("c-1")).willReturn(List.of(deal("o-open", "open"), deal("o-won", "won")));
+
+		handler(new SellingBrand(BRAND)).handle(brand, won(null));
+
+		verify(intake).intake(any(), org.mockito.ArgumentMatchers.argThat((c) -> "o-won".equals(c.ghlOpportunityId())));
+	}
+
+	/** A contact with two won deals: the webhook is for the newer win, so the case takes that one. */
+	@Test
+	void theMostRecentlyWonDealIsTheOneTaken() {
+		given(http.isConfigured()).willReturn(true);
+		GhlPipelineClient.Opportunity older = new GhlPipelineClient.Opportunity("o-old", "A deal", "c-1", "p", "s", "won",
+				BigDecimal.TEN, null, null, null, null, java.time.Instant.parse("2026-09-01T00:00:00Z"), null);
+		GhlPipelineClient.Opportunity newer = new GhlPipelineClient.Opportunity("o-new", "A deal", "c-1", "p", "s", "won",
+				BigDecimal.TEN, null, null, null, null, java.time.Instant.parse("2026-10-30T00:00:00Z"), null);
+		given(ghl.forContact("c-1")).willReturn(List.of(older, newer));
+
+		handler(new SellingBrand(BRAND)).handle(brand, won(null));
+
+		verify(intake).intake(any(), org.mockito.ArgumentMatchers.argThat((c) -> "o-new".equals(c.ghlOpportunityId())));
+	}
+
+	/**
+	 * 2026-10-30: the workflow sends `service_type`, often as GHL's label. Read either way, and an unreadable value
+	 * is ignored — it never refuses the delivery, which would lose a paid case.
+	 */
+	@Test
+	void serviceTypeIsReadAsAnEvalOsNameOrAGhlLabelAndNeverRefused() {
+		assertThat(GhlOpportunityHandler.namedService("TN_VISA")).contains(com.ie.evalos.domain.ServiceType.TN_VISA);
+		assertThat(GhlOpportunityHandler.namedService("tn visa")).contains(com.ie.evalos.domain.ServiceType.TN_VISA);
+		assertThat(GhlOpportunityHandler.namedService("TN Visa Expert Opinion Letter"))
+				.contains(com.ie.evalos.domain.ServiceType.TN_VISA);
+		assertThat(GhlOpportunityHandler.namedService("Immigration Business Plans")).isEmpty();
+		assertThat(GhlOpportunityHandler.namedService("")).isEmpty();
+	}
+
+	@Test
+	void anUnreadableServiceTypeStillOpensTheCase() {
+		given(http.isConfigured()).willReturn(true);
+		given(ghl.forContact("c-1")).willReturn(List.of(deal("o-1", "won")));
+		String body = "{\"event_type\":\"opportunity.won\",\"contact_id\":\"c-1\",\"full_name\":\"Ana Perez\","
+				+ "\"customData\":{\"service_type\":\"Something GHL invented\",\"opportunity_id\":\"o-1\"}}";
+
+		handler(new SellingBrand(BRAND)).handle(brand, body);
+
+		verify(intake).intake(any(), org.mockito.ArgumentMatchers.argThat(
+				(c) -> c.serviceType() == com.ie.evalos.domain.ServiceType.CREDENTIAL_EVALUATION && "o-1".equals(c.ghlOpportunityId())));
+	}
+
 	/** A deal naming no mapped service still opens the case, as Credential evaluation. */
 	@Test
 	void aDealWithNoMappedServiceFallsBackToCredentialEvaluation() {

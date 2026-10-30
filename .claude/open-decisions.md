@@ -3,7 +3,7 @@
 Unresolved only. A resolved item moves to `current-decisions.md` and leaves here.
 House rule: every question carries a recommendation.
 
-## Blocking the request lifecycle
+## Resolved earlier (the request lifecycle is gone, Unit 64)
 
 _Q20–Q22 (PM dashboard: blocked, first-pass QC, reassignment) were answered on 2026-10-09 and left for D79–D81._
 
@@ -12,6 +12,7 @@ _Q2 (request status model), Q3 (Sales approval rules) and Q4 (request documents)
 carried-forward item (a) for D19c. Q12 (stage moves across pipelines) was resolved on
 2026-09-24 and left for D44. Q10 (conversation sidebar) left for D52 on 2026-09-28. Q8 (a client with several cases) was
 settled by Unit 58 phase 3 on 2026-09-28 — Home lists every case and each opens its own page (D51).
+Q30 (teams) closed on 2026-10-29 into D20: there are no teams.
 On 2026-09-28 the business also answered Q6 (D23, leaving Q6b), Q11 (D54) and Q13 (D51). On 2026-09-29: Q9 → D55, Q1 → D56, §12 b → D57, §12 c → D58, expert payments → D59. Q15 and Q16 (the checklist under D60) closed the same day into D60._
 
 ## Blocking the portals
@@ -26,9 +27,8 @@ _Nothing open here: Q6b (unknown-email mail) was answered on 2026-09-28 — no m
 
 ## Staff accounts
 
-| #   | Question | Recommendation |
-| --- | -------- | -------------- |
-| Q18 | Staff passwords are set by the GM and handed over (D72, Unit 68). Should EvalOS instead mail a staff member a set-password link, as it does clients and experts? | **Keep it as built.** A staff credential mail is a new message under invariant 14, and the GM already knows every hire personally. Revisit if staff numbers grow past what one person hands over. |
+_Q18 (mail staff a set-password link?) closed on 2026-10-30: its premise is gone — the Administrator, not
+the GM, sets staff passwords (D78) — and its recommendation, no staff mail, is what is built._
 
 ## Sales attribution
 
@@ -56,14 +56,28 @@ selling-brand-only outbox drain stays; a per-brand drain comes with Unit 25. Q25
 | Q28 | Two smaller fixed values: the source labels written into GHL (`"EvalOS Sales Desk"` / `"EvalOS Marketing Desk"`, `GhlWriteClient`) and the business clock `America/Los_Angeles` (`BusinessCalendar.ZONE`, `meetingTime.MEETING_TZ`). | **Leave both until a second brand or office needs different ones**, then make the timezone a brand setting (SLA clock and diary together) and the labels derive from the role's display name. |
 | Q29 | The GM's Team card should show Marketing **Replies** per member (2026-10-28 request). EvalOS mirrors no GHL conversation and no pipeline has a "replied" stage, so there is nothing to count. What is a reply? | **A GHL stage, if Marketing has one** (e.g. "Replied" / "Contacted"): count open deals in it per member, like Hot — no new sync. Mirroring GHL conversations to count inbound messages is a much larger read and should not be built for one column. |
 
+## Raised by the docs sync (2026-10-30)
+
+| #   | Question | Recommendation |
+| --- | -------- | -------------- |
+| Q31 | D30 says no AI anywhere, yet the client terms (D71) tell clients "We use AI-assisted tools to organise and collect your documents and to review them" and make them acknowledge "the AI assistance described above" (`client-expert/shared/src/legal/PolicySummary.tsx`, `TermsGate.tsx`). Which is true? | **Remove the AI wording from the terms** (and bump the policy version so clients re-accept) unless AI is actually planned — then D30 is edited first. A client must not accept a practice the system does not have. |
+| Q32 | `team_member_pipeline` has no `brand_id` (`V54`); its brand is only reachable through `pipeline`. Every other scoped table carries one. | **Add `brand_id` via Flyway**, backfilled from `pipeline.brand_id`, NOT NULL, with a composite FK so a grant cannot cross brands. |
+| Q33 | D77's `dealOf`: a case with no `ghl_opportunity_id` takes the contact's latest **won** deal, but with no won deal it falls back to their newest deal even if it is open or lost, and reads its Service Requested. | **Won deals only**; with none, change nothing and flag the case for the PM (the "Change service type" pencil stays the fix). |
+| Q34 | Checklist remove (`ChecklistService.removeItem`) refuses UPLOADED / APPROVED items and the last item, but deletes items already **sent** to the client or marked MISSING / INCORRECT — the client saw them. | **Unsent items only** (`REQUIRED` and not sent); a sent item the case no longer needs is marked by status, not deleted. |
+| Q35 | `/pm-notes` is dead: `PmNotesPage` is routed in `App.tsx` and has a `LeftNav` icon, but `navigation.test.ts` asserts no role may reach it; `GET /api/cases/pm-notes` serves only it. | **Delete all three** (page, icon, route) and the test line. |
+| Q36 | Should client and expert emails be customised by service type? (raised by the user 2026-10-29). Today only the service **name** varies (`MailTemplates`, `serviceLabel`). | **Per-service intro lines in `MailTemplates`, keyed by `ServiceType`**, falling back to today's generic line — still static text, no editor, no new mail. |
+
 ## Carried forward from `00d` §12, still unresolved
 
 _Item h was settled by Unit 57 (2026-09-26): the client sees the case team by name in the Client
 conversation and never shares a conversation with the expert. Item i2 closed on 2026-09-29: Unit 64
-removes the application table, so no lead shares it (D8)._
+removes the application table, so no lead shares it (D8). Item i3 (does the GM's board span every
+brand?) is answered by the code, matching its recommendation: the board shows the brand the shell's
+switcher selects — "All brands" (no `brandId`) spans every brand the caller reads, a chosen brand
+narrows it, and a brand the caller cannot read yields an empty board (`CaseBoardController.board`,
+`CaseBoardService.forCaller`, `BrandSwitcher`)._
 
 | #   | Question                                                   | Recommendation                                                                                                                                      |
 | --- | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| i3  | Does the GM's board span every brand or the selected one?  | The selected brand, consistently.                                                                                                                   |
 | j   | Should brand isolation move to Postgres RLS?               | No. Composite FKs plus a test forbidding `findById` on a `ScopedRepository` outside a token-authorised path.                                        |
 | k   | Do the `…FromPortal` method twins collapse?                | Yes, while splitting `CaseLifecycleService`, not before.                                                                                            |

@@ -48,8 +48,12 @@ class CaseServiceTypeServiceTest {
 	private final GhlCustomFieldRepository fields = mock(GhlCustomFieldRepository.class);
 	private final OpportunityMirrorService mirror = mock(OpportunityMirrorService.class);
 	private final AuditService audit = mock(AuditService.class);
+	private final com.ie.evalos.repository.ContactSnapshotRepository contacts =
+			mock(com.ie.evalos.repository.ContactSnapshotRepository.class);
+	private final com.ie.evalos.repository.OpportunityRepository deals =
+			mock(com.ie.evalos.repository.OpportunityRepository.class);
 	private final CaseServiceTypeService service =
-			new CaseServiceTypeService(cases, lifecycle, checklist, fields, mirror, audit);
+			new CaseServiceTypeService(cases, lifecycle, checklist, fields, mirror, audit, contacts, deals);
 
 	private Case subject;
 
@@ -124,6 +128,30 @@ class CaseServiceTypeServiceTest {
 
 		assertThat(service.reconcile(subject)).isFalse();
 		verify(checklist, never()).findByCaseId(any());
+	}
+
+	/**
+	 * 2026-10-30, production: the webhook opened the case with no deal id, so the sweep found nothing. It now
+	 * finds the deal through the case contact — the won one before a newer open one.
+	 */
+	@Test
+	void aCaseWithNoDealIdFollowsItsContactsWonDeal() {
+		subject.setGhlOpportunityId(null);
+		UUID contactId = UUID.randomUUID();
+		ReflectionTestUtils.setField(subject, "contactId", contactId);
+		given(contacts.findById(contactId)).willReturn(Optional.of(new com.ie.evalos.domain.ContactSnapshot(BRAND, "c-ghl")));
+		Opportunity won = mock(Opportunity.class);
+		given(won.getStatus()).willReturn("won");
+		given(won.getCustomFields()).willReturn(Map.of(FIELD, "TN Visa Expert Opinion Letter"));
+		Opportunity newerOpen = mock(Opportunity.class);
+		given(newerOpen.getStatus()).willReturn("open");
+		given(newerOpen.getGhlCreatedAt()).willReturn(Instant.now());
+		given(newerOpen.getCustomFields()).willReturn(Map.of(FIELD, "RFE Response"));
+		given(deals.findByBrandIdAndGhlContactId(BRAND, "c-ghl")).willReturn(List.of(newerOpen, won));
+		given(checklist.findByCaseId(CASE_ID)).willReturn(List.of(item("Passport or government photo ID")));
+
+		assertThat(service.reconcile(subject)).isTrue();
+		assertThat(subject.getServiceType()).isEqualTo(ServiceType.TN_VISA);
 	}
 
 	/** A type a PM chose is never overridden by the sweep, whatever the deal says. */

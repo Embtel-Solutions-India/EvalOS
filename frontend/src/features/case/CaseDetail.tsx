@@ -190,11 +190,8 @@ export default function CaseDetailPage() {
           </div>
         )}
         {tab === 'conversation' && (
-          <div className="flex min-w-0 flex-col gap-4">
-            {/* What the client reads as their case's latest word (D74) — client communication, beside the chat. */}
-            <ClientRemarks detail={detail} role={me.role} />
-            <CaseChat caseId={detail.summary.id} />
-          </div>
+          // The chat takes the tab (2026-10-30); the client status update (D74) is a button at its top right.
+          <CaseChat caseId={detail.summary.id} tall actions={<ClientRemarks detail={detail} role={me.role} />} />
         )}
         {tab === 'notes' && (
           <div className="flex min-w-0 flex-col gap-4">

@@ -16,11 +16,11 @@
   Manager / expert / client). The GM is the only role allowed cross-brand reads.
 - Brand is resolved from the authenticated principal for staff, from the
   per-brand endpoint token for inbound webhooks, and from the **portal token's own
-  row** for a client or expert on a link-based surface (Unit 14) — never from a
+  row** for a signed-in client or expert (`PortalPrincipal`) — never from a
   client-supplied body field. Three sources, one rule: the most authoritative
   signal the surface has.
-- **A link-based portal caller is not a staff caller with a narrower scope.** Their
-  token names one case, so it *is* the scope: no `ScopePredicate`, no synthetic
+- **A portal caller is not a staff caller with a narrower scope.** Their token names
+  the case or the party (client account / GHL contact / expert), so it *is* the scope: no `ScopePredicate`, no synthetic
   `TenantContext`, no predicate that could fail open. Do not manufacture a staff
   principal for a non-staff caller — a role tier widened later would silently widen
   what they can read. What they see is a **whitelist projection**, not a staff DTO
@@ -73,9 +73,8 @@
   via the event catalog in `architecture.md`, not ad hoc.
 - Do not call an external partner's API inline from a request handler for a
   lifecycle side effect; emit a domain event and let the dispatcher deliver it.
-- Client-facing messages are delivered by GHL off domain events — see
-  *Client- and expert-facing messages* below for the marker convention and the
-  open channel decision.
+- Client- and expert-facing mail is EvalOS's own, from a closed list — see
+  *Client- and expert-facing messages* below.
 
 ## Persistence (JPA / PostgreSQL)
 
@@ -128,16 +127,12 @@
 
 ## Files & Storage
 
-- EvalOS hosts no files. Persist a Google Drive **link or file id** on the case, never
-  the document bytes — including the signed letter, which is filed into the case's own
-  Drive folder by the expert's upload. The redacted CV is generated on demand, not
-  stored in a database blob.
-- There is no S3/object-storage dependency. Do not add one.
-- **An upload streams; it never lands.** Where EvalOS accepts a file (Unit 21),
-  pass the request's `InputStream` straight to the Drive client via
-  `InputStreamContent` — no byte array, no temp file, no upload directory. Buffering
-  the whole file both breaks "hosts no files" and puts an attacker-sized allocation
-  on the heap.
+- Documents live in **S3**, behind one door: `integration/DocumentStore` (Unit 30; replaced
+  Google Drive). Two capabilities only — put an object, presign a short-lived read. The
+  database holds the object key on `case_document`, never the bytes.
+- **An upload streams; it never lands.** Pass the request's `InputStream` straight to
+  `DocumentStore` — no byte array, no temp file, no upload directory. Buffering the whole
+  file puts an attacker-sized allocation on the heap.
 - **Validate an accepted file by content, not by claim.** Sniff the leading bytes
   against an **allowlist** (never a denylist of extensions); enforce the size cap
   before streaming; reject empty files; generate the stored filename yourself and
@@ -170,18 +165,12 @@
 
 ## Client- and expert-facing messages
 
-- Client-facing messages are delivered by GHL off domain events; an expert is reached
-  by a scoped portal link. **EvalOS sends no email** (invariant 14).
-- That channel decision is **under review** for the touchpoints listed in
-  `context/process-automation.md`. Wherever code will sit for one of them, leave a
-  marker comment naming the touchpoint so the decision is greppable:
-
-  ```java
-  // email: T5 draft ready for client — channel undecided (GHL vs EvalOS mail).
-  // See context/process-automation.md, outward touchpoints.
-  ```
-
-- Until it is decided, do not add a mail dependency.
+- **EvalOS sends only the mails D29 lists**, all through `ClientMailer` over
+  `integration/MailTransport` (`SmtpMailTransport`), send-only from `no-reply@` (D29a):
+  set-password / reset-password to clients and experts (D23), case-opened (D65), case
+  progress via `CaseMailListener` + `MailTemplates.CaseUpdate` — to the client (D58) and the
+  expert's offer / ready-to-sign (D67) — and the Administrator's test mail (D83). No staff mail.
+- Any other mail is a new decision in `current-decisions.md`, not a new template.
 
 ## One home per fact
 
@@ -219,8 +208,9 @@
   `axios` directly and never create a per-feature instance.
 - **One exception, and only for this reason:** a surface that must hold no staff
   session gets its own instance, because importing the shared one drags in the
-  module that reads and writes the staff token. `features/client-portal/portalApi.ts`
-  is that case (Unit 14) — one credential, one header, nothing persisted. A new
+  module that reads and writes the staff token. The portals'
+  `client-expert/shared/src/services/apiClient.ts` is that case — one credential, the
+  `X-Portal-Token` header. A new
   instance needs a reason of that kind, not convenience.
 
 ## Response Shapes
@@ -237,17 +227,21 @@ Backend (`backend/src/main/java/com/ie/evalos/`):
 - `service/` — domain logic (case lifecycle, matching, payouts, QC, scoping).
 - `domain/` — JPA entities + enums.
 - `repository/` — Spring Data JPA repositories + scoping filters.
-- `integration/` — GHL and Google Drive clients.
+- `integration/` — GHL clients, the S3 `DocumentStore`, `MailTransport` (SMTP).
+- `chat/` — case chat (Unit 57): conversations, messages, membership; `live/` (Ably relay,
+  `CaseLive`) and `push/` (web push).
 - `webhook/` — inbound webhook controllers + secret verification + brand resolve.
 - `event/` — domain events + outbound dispatcher.
 - `job/` — `@Scheduled` / `@Async` workers (backed by `scheduled_job`).
 - `notification/` — in-app staff notification center.
 - `security/` — Spring Security config, JWT, RBAC/ABAC, ownership, portal chains.
 - `common/` — encryption converter, error types, response envelope, helpers.
-- `config/` — configuration/beans.
+- `config/` — `AppSettings` (Administrator-edited settings, D83), Flyway placeholder guard, selling brand.
 
 Frontend (`frontend/src/`):
-- `components/ui/` — generated headless components (protected).
-- `features/` — feature UIs (board, case detail, dashboards, client portal,
-  expert portal).
+- `components/ui/` — vendored Radix wrappers and the card system (protected).
+- `features/` — feature UIs (board, case, checklist, chat, dashboards, opportunities,
+  payouts, shell, …).
 - `lib/` — API client, hooks, shared utilities.
+
+Portals (`client-expert/`): the `client/` and `expert/` apps over `shared/src`.
